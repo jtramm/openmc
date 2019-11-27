@@ -498,6 +498,11 @@ void initialize_history(Particle* p, int64_t index_source)
       }
     }
   }
+   
+       std::cout << "Initialized particle " << particle_seed << " with E = " << p->E_ << " and Position {" <<
+           p->r().x << ", " <<
+		   p->r().y << ", " <<
+		   p->r().z << "}" << std::endl;
 }
 
 int overall_generation()
