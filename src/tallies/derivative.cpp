@@ -81,13 +81,9 @@ TallyDerivative::TallyDerivative(pugi::xml_node node)
 void
 read_tally_derivatives(pugi::xml_node node)
 {
-  // Populate the derivatives array.  This must be done in parallel because
-  // the derivatives are threadprivate.
-  #pragma omp parallel
-  {
-    for (auto deriv_node : node.children("derivative"))
-      model::tally_derivs.emplace_back(deriv_node);
-  }
+  // Populate the derivatives array.
+  for (auto deriv_node : node.children("derivative"))
+    model::tally_derivs.emplace_back(deriv_node);
 
   // Fill the derivative map.
   for (auto i = 0; i < model::tally_derivs.size(); ++i) {
