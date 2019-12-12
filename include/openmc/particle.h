@@ -294,6 +294,8 @@ public:
   // Current PRNG state
   uint64_t seeds_[N_STREAMS]; // current seeds
   int      stream_;           // current RNG stream
+  
+  std::vector<double> flux_derivs_;  //!< Derivatives of the current particle's weight
 };
 
 } // namespace openmc
