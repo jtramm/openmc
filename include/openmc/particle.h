@@ -264,6 +264,12 @@ public:
   //! Gets the pointer to the particle's current PRN seed
   uint64_t* current_seed() {return seeds_ + stream_;}
   const uint64_t* current_seed() const {return seeds_ + stream_;}
+    
+  bool operator< (Particle const& rhs) {
+    if( alive_ && !rhs.alive_ )
+      return true;
+    return false;
+  }
 
   //==========================================================================
   // Data members

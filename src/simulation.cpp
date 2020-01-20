@@ -620,9 +620,10 @@ void transport_event_based()
   while (remaining_work > 0) {
     // Figure out # of particles to run for this subiteration
     int64_t n_particles = std::min(remaining_work, simulation::max_particles_in_flight);
+    int64_t n_particles_alive = n_particles;
 
     // Initialize all particle histories for this subiteration
-    process_init_events(n_particles, source_offset);
+    process_init_events(n_particles_alive, source_offset);
 
     // Event-based transport loop
     while (true) {
@@ -632,28 +633,34 @@ void transport_event_based()
           simulation::calculate_nonfuel_xs_queue_length,
           simulation::advance_particle_queue_length,
           simulation::surface_crossing_queue_length,
-          simulation::collision_queue_length});
+          simulation::collision_queue_length,
+          simulation::dead_particle_count});
 
       // Execute event with the longest queue
       if (max == 0) {
         break;
       } else if (max == simulation::calculate_fuel_xs_queue_length) {
         process_calculate_xs_events(Particle::EventType::calculate_fuel_xs,
-            n_particles);
+            n_particles_alive);
         simulation::calculate_fuel_xs_queue_length = 0;
       } else if (max == simulation::calculate_nonfuel_xs_queue_length) {
         process_calculate_xs_events(Particle::EventType::calculate_nonfuel_xs,
-            n_particles);
+            n_particles_alive);
         simulation::calculate_nonfuel_xs_queue_length = 0;
       } else if (max == simulation::advance_particle_queue_length) {
-        process_advance_particle_events(n_particles);
+        process_advance_particle_events(n_particles_alive);
         simulation::advance_particle_queue_length = 0;
       } else if (max == simulation::surface_crossing_queue_length) {
-        process_surface_crossing_events(n_particles);
+        process_surface_crossing_events(n_particles_alive);
         simulation::surface_crossing_queue_length = 0;
       } else if (max == simulation::collision_queue_length) {
-        process_collision_events(n_particles);
+        process_collision_events(n_particles_alive);
         simulation::collision_queue_length = 0;
+      } else if (max == simulation::dead_particle_count) {
+        //std::cout << "Executing stream compaction on " << n_particles_alive << " alive particles..." << std::endl;
+        stream_compaction(n_particles_alive);
+        n_particles_alive -= simulation::dead_particle_count;
+        simulation::dead_particle_count = 0;
       }
     }
     

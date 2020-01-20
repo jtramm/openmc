@@ -24,6 +24,7 @@ int64_t calculate_nonfuel_xs_queue_length {0};
 int64_t advance_particle_queue_length {0};
 int64_t surface_crossing_queue_length {0};
 int64_t collision_queue_length {0};
+int64_t dead_particle_count {0};
 
 int64_t max_particles_in_flight {100000};
 
@@ -159,7 +160,10 @@ void process_surface_crossing_events(int64_t n_particles)
       p->event_revive_from_secondary();
       if (p->alive_) {
         dispatch_xs_event(p);
-      } 
+      } else {
+        #pragma omp atomic
+        simulation::dead_particle_count++;
+      }
     }
   }
   
@@ -179,6 +183,9 @@ void process_collision_events(int64_t n_particles)
       p->event_revive_from_secondary();
       if (p->alive_) {
         dispatch_xs_event(p);
+      } else {
+        #pragma omp atomic
+        simulation::dead_particle_count++;
       }
     }
   }
@@ -195,6 +202,11 @@ void process_death_events(int64_t n_particles)
     p->event_death();
   }
   simulation::time_event_death.stop();
+}
+
+void stream_compaction(int64_t n_particles)
+{
+  std::sort(simulation::particles.get(), simulation::particles.get() + n_particles);
 }
 
 } // namespace openmc

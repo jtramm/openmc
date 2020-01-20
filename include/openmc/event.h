@@ -60,6 +60,7 @@ extern int64_t calculate_nonfuel_xs_queue_length;
 extern int64_t advance_particle_queue_length;
 extern int64_t surface_crossing_queue_length;
 extern int64_t collision_queue_length;
+extern int64_t dead_particle_count;
 extern int64_t max_particles_in_flight;
 
 } // namespace simulation
@@ -77,6 +78,7 @@ void process_advance_particle_events(int64_t n_particles);
 void process_surface_crossing_events(int64_t n_particles);
 void process_collision_events(int64_t n_particles);
 void process_death_events(int64_t n_particles);
+void stream_compaction(int64_t n_particles);
 
 } // namespace openmc
 
