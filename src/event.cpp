@@ -70,32 +70,34 @@ void enqueue_particle(QueueItem* queue, int64_t& length, Particle* p,
   queue[idx].type = p->type_;
 }
 
-void dispatch_xs_event(int64_t i)
+void dispatch_xs_event(Particle* p)
 {
-  Particle* p = &simulation::particles[i];
-  int64_t idx;
   if (p->material_ == MATERIAL_VOID ||
       !model::materials[p->material_]->fissionable_) {
-    enqueue_particle(simulation::calculate_nonfuel_xs_queue.get(),
-        simulation::calculate_nonfuel_xs_queue_length, p, i, true);
+    p->next_event_ = Particle::EventType::calculate_nonfuel_xs;
+    #pragma omp atomic
+    simulation::calculate_nonfuel_xs_queue_length++;
   } else {
-      enqueue_particle(simulation::calculate_fuel_xs_queue.get(),
-          simulation::calculate_fuel_xs_queue_length, p, i, true);
+    p->next_event_ = Particle::EventType::calculate_fuel_xs;
+    #pragma omp atomic
+    simulation::calculate_fuel_xs_queue_length++;
   }
 }
 
 void process_init_events(int64_t n_particles, int64_t source_offset)
 {
   simulation::time_event_init.start();
+  //#pragma omp parallel for schedule(runtime) reduction(+:simulation::calculate_nonfuel_xs_queue_length, simulation::calculate_fuel_xs_queue_length)
   #pragma omp parallel for schedule(runtime)
   for (int64_t i = 0; i < n_particles; i++) {
-    initialize_history(&simulation::particles[i], source_offset + i + 1);
-    dispatch_xs_event(i);
+    Particle* p = &simulation::particles[i];
+    initialize_history(p, source_offset + i + 1);
+    dispatch_xs_event(p);
   }
   simulation::time_event_init.stop();
 }
 
-void process_calculate_xs_events(QueueItem* queue, int64_t n)
+void process_calculate_xs_events(Particle::EventType event, int64_t n_particles)
 {
   simulation::time_event_calculate_xs.start();
 
@@ -104,67 +106,81 @@ void process_calculate_xs_events(QueueItem* queue, int64_t n)
   // improve cache locality and reduce thread divergence on GPU.
   //std::sort(queue, queue+n);
 
+  //#pragma omp parallel for schedule(runtime) reduction(+:simulation::advance_particle_queue_length)
   #pragma omp parallel for schedule(runtime)
-  for (int64_t i = 0; i < n; i++) {
-    Particle* p = &simulation::particles[queue[i].idx]; 
-    p->event_calculate_xs();
-    enqueue_particle(simulation::advance_particle_queue.get(),
-        simulation::advance_particle_queue_length, p, queue[i].idx, true);
+  for (int64_t i = 0; i < n_particles; i++) {
+    Particle* p = &simulation::particles[i]; 
+    if (p->next_event_ == event ) {
+      p->event_calculate_xs();
+      p->next_event_ = Particle::EventType::advance;
+      #pragma omp atomic
+      simulation::advance_particle_queue_length++;
+    }
   }
 
   simulation::time_event_calculate_xs.stop();
 }
 
-void process_advance_particle_events()
+void process_advance_particle_events(int64_t n_particles)
 {
   simulation::time_event_advance_particle.start();
 
+  //#pragma omp parallel for schedule(runtime) reduction(+:simulation::surface_crossing_queue_length, simulation::collision_queue_length)
   #pragma omp parallel for schedule(runtime)
-  for (int64_t i = 0; i < simulation::advance_particle_queue_length; i++) {
-    int64_t buffer_idx = simulation::advance_particle_queue[i].idx;
-    Particle* p = &simulation::particles[buffer_idx];
-    p->event_advance();
-    if (p->collision_distance_ > p->boundary_.distance) {
-      enqueue_particle(simulation::surface_crossing_queue.get(),
-          simulation::surface_crossing_queue_length, p, buffer_idx, true);
-    } else {
-      enqueue_particle(simulation::collision_queue.get(),
-          simulation::collision_queue_length, p, buffer_idx, true);
+  for (int64_t i = 0; i < n_particles; i++) {
+    Particle* p = &simulation::particles[i]; 
+    if (p->next_event_ == Particle::EventType::advance) {
+      p->event_advance();
+      if (p->collision_distance_ > p->boundary_.distance) {
+        p->next_event_ = Particle::EventType::surface_crossing;
+        #pragma omp atomic
+        simulation::surface_crossing_queue_length++;
+      } else {
+        p->next_event_ = Particle::EventType::collision;
+        #pragma omp atomic
+        simulation::collision_queue_length++;
+      }
     }
   }
 
   simulation::time_event_advance_particle.stop();
 }
 
-void process_surface_crossing_events()
+void process_surface_crossing_events(int64_t n_particles)
 {
   simulation::time_event_surface_crossing.start();
 
+  //#pragma omp parallel for schedule(runtime) reduction(+:simulation::calculate_nonfuel_xs_queue_length, simulation::calculate_fuel_xs_queue_length)
   #pragma omp parallel for schedule(runtime)
-  for (int64_t i = 0; i < simulation::surface_crossing_queue_length; i++) {
-    int64_t buffer_index = simulation::surface_crossing_queue[i].idx;
-    Particle* p = &simulation::particles[buffer_index];
-    p->event_cross_surface();
-    p->event_revive_from_secondary();
-    if (p->alive_)
-      dispatch_xs_event(buffer_index);
+  for (int64_t i = 0; i < n_particles; i++) {
+    Particle* p = &simulation::particles[i]; 
+    if (p->next_event_ == Particle::EventType::surface_crossing) {
+      p->event_cross_surface();
+      p->event_revive_from_secondary();
+      if (p->alive_) {
+        dispatch_xs_event(p);
+      } 
+    }
   }
   
   simulation::time_event_surface_crossing.stop();
 }
 
-void process_collision_events()
+void process_collision_events(int64_t n_particles)
 {
   simulation::time_event_collision.start();
 
+  //#pragma omp parallel for schedule(runtime) reduction(+:simulation::calculate_nonfuel_xs_queue_length, simulation::calculate_fuel_xs_queue_length)
   #pragma omp parallel for schedule(runtime)
-  for (int64_t i = 0; i < simulation::collision_queue_length; i++) {
-    int64_t buffer_index = simulation::collision_queue[i].idx;
-    Particle* p = &simulation::particles[buffer_index];
-    p->event_collide();
-    p->event_revive_from_secondary();
-    if (p->alive_)
-      dispatch_xs_event(buffer_index);
+  for (int64_t i = 0; i < n_particles; i++) {
+    Particle* p = &simulation::particles[i]; 
+    if (p->next_event_ == Particle::EventType::collision) {
+      p->event_collide();
+      p->event_revive_from_secondary();
+      if (p->alive_) {
+        dispatch_xs_event(p);
+      }
+    }
   }
 
   simulation::time_event_collision.stop();

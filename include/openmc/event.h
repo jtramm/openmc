@@ -70,12 +70,12 @@ extern int64_t max_particles_in_flight;
 
 void init_event_queues(int64_t n_particles);
 void free_event_queues(void);
-void dispatch_xs_event(int64_t i);
+void dispatch_xs_event(Particle* p);
 void process_init_events(int64_t n_particles, int64_t source_offset);
-void process_calculate_xs_events(QueueItem* queue, int64_t n);
-void process_advance_particle_events();
-void process_surface_crossing_events();
-void process_collision_events();
+void process_calculate_xs_events(Particle::EventType event, int64_t n_particles);
+void process_advance_particle_events(int64_t n_particles);
+void process_surface_crossing_events(int64_t n_particles);
+void process_collision_events(int64_t n_particles);
 void process_death_events(int64_t n_particles);
 
 } // namespace openmc

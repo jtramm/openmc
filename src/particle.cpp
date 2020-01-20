@@ -352,7 +352,10 @@ Particle::event_revive_from_secondary()
   // Check for secondary particles if this particle is dead
   if (!alive_) {
     // If no secondary particles, break out of event loop
-    if (secondary_bank_.empty()) return;
+    if (secondary_bank_.empty()) {
+      next_event_ = Particle::EventType::death;
+      return;
+    }
 
     this->from_source(&secondary_bank_.back());
     secondary_bank_.pop_back();

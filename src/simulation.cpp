@@ -66,6 +66,8 @@ int openmc_simulation_init()
   // Skip if simulation has already been initialized
   if (simulation::initialized) return 0;
 
+  std::cout << "Size of particle = " << sizeof(Particle) << std::endl;
+
   // Determine how much work each process should do
   calculate_work();
 
@@ -636,21 +638,21 @@ void transport_event_based()
       if (max == 0) {
         break;
       } else if (max == simulation::calculate_fuel_xs_queue_length) {
-        process_calculate_xs_events(simulation::calculate_fuel_xs_queue.get(),
-            simulation::calculate_fuel_xs_queue_length);
+        process_calculate_xs_events(Particle::EventType::calculate_fuel_xs,
+            n_particles);
         simulation::calculate_fuel_xs_queue_length = 0;
       } else if (max == simulation::calculate_nonfuel_xs_queue_length) {
-        process_calculate_xs_events(simulation::calculate_nonfuel_xs_queue.get(),
-            simulation::calculate_nonfuel_xs_queue_length);
+        process_calculate_xs_events(Particle::EventType::calculate_nonfuel_xs,
+            n_particles);
         simulation::calculate_nonfuel_xs_queue_length = 0;
       } else if (max == simulation::advance_particle_queue_length) {
-        process_advance_particle_events();
+        process_advance_particle_events(n_particles);
         simulation::advance_particle_queue_length = 0;
       } else if (max == simulation::surface_crossing_queue_length) {
-        process_surface_crossing_events();
+        process_surface_crossing_events(n_particles);
         simulation::surface_crossing_queue_length = 0;
       } else if (max == simulation::collision_queue_length) {
-        process_collision_events();
+        process_collision_events(n_particles);
         simulation::collision_queue_length = 0;
       }
     }

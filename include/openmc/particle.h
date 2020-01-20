@@ -161,6 +161,12 @@ public:
   enum class Type {
     neutron, photon, electron, positron
   };
+  
+  //! Particle events
+  enum class EventType {
+    calculate_fuel_xs, calculate_nonfuel_xs, advance, surface_crossing, collision,
+    revive_from_secondary, death
+  };
 
   //! Saved ("banked") state of a particle
   //! NOTE: This structure's MPI type is built in initialize_mpi() of 
@@ -367,6 +373,10 @@ public:
   #endif
 
   int64_t n_progeny_ {0}; // Number of progeny produced by this particle
+
+  EventType next_event_; // Which event the particle needs to be processed for next
+
+  char padding[32];
 };
 
 } // namespace openmc
