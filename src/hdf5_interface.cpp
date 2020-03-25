@@ -252,7 +252,7 @@ int get_num_datasets(hid_t group_id)
   for (hsize_t i = 0; i < info.nlinks; ++i) {
     // Determine type of object (and skip non-group)
     H5Oget_info_by_idx(group_id, ".", H5_INDEX_NAME, H5_ITER_INC, i, &oinfo,
-                       H5P_DEFAULT);
+                       H5O_INFO_BASIC, H5P_DEFAULT);
     if (oinfo.type == H5O_TYPE_DATASET) ndatasets += 1;
   }
 
@@ -272,7 +272,7 @@ int get_num_groups(hid_t group_id)
   for (hsize_t i = 0; i < info.nlinks; ++i) {
     // Determine type of object (and skip non-group)
     H5Oget_info_by_idx(group_id, ".", H5_INDEX_NAME, H5_ITER_INC, i, &oinfo,
-                       H5P_DEFAULT);
+                       H5O_INFO_BASIC, H5P_DEFAULT);
     if (oinfo.type == H5O_TYPE_GROUP) ngroups += 1;
   }
 
@@ -294,7 +294,7 @@ get_datasets(hid_t group_id, char* name[])
   for (hsize_t i = 0; i < info.nlinks; ++i) {
     // Determine type of object (and skip non-group)
     H5Oget_info_by_idx(group_id, ".", H5_INDEX_NAME, H5_ITER_INC, i, &oinfo,
-                       H5P_DEFAULT);
+                       H5O_INFO_BASIC, H5P_DEFAULT);
     if (oinfo.type != H5O_TYPE_DATASET) continue;
 
     // Get size of name
@@ -323,7 +323,7 @@ get_groups(hid_t group_id, char* name[])
   for (hsize_t i = 0; i < info.nlinks; ++i) {
     // Determine type of object (and skip non-group)
     H5Oget_info_by_idx(group_id, ".", H5_INDEX_NAME, H5_ITER_INC, i, &oinfo,
-                       H5P_DEFAULT);
+                       H5O_INFO_BASIC, H5P_DEFAULT);
     if (oinfo.type != H5O_TYPE_GROUP) continue;
 
     // Get size of name
@@ -351,7 +351,7 @@ member_names(hid_t group_id, H5O_type_t type)
   for (hsize_t i = 0; i < info.nlinks; ++i) {
     // Determine type of object (and skip non-group)
     H5Oget_info_by_idx(group_id, ".", H5_INDEX_NAME, H5_ITER_INC, i, &oinfo,
-                       H5P_DEFAULT);
+                       H5O_INFO_BASIC, H5P_DEFAULT);
     if (oinfo.type != type) continue;
 
     // Get size of name
