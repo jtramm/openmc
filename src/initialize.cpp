@@ -283,6 +283,18 @@ void read_input_xml()
     }
   }
 
+  // Random Ray Stuff
+  for( int i = 0; i < model::cells.size(); i++ )
+  {
+    Cell & c = *model::cells[i];
+    int negroups = data::mg.num_energy_groups_;
+    c.scalar_flux_new.resize(negroups);
+    c.scalar_flux_old.resize(negroups);
+    c.source.resize(negroups);
+    c.volume.resize(negroups);
+    c.was_hit.resize(negroups);
+  }
+
 }
 
 } // namespace openmc

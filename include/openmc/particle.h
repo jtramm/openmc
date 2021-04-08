@@ -390,6 +390,10 @@ public:
   #endif
 
   int64_t n_progeny_ {0}; // Number of progeny produced by this particle
+
+  // Random Ray Stuff
+  std::vector<float> angular_flux_;
+  double distance_travelled;
 };
 
 //============================================================================

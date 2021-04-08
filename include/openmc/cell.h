@@ -204,6 +204,13 @@ public:
   std::vector<double> rotation_;
 
   std::vector<int32_t> offset_;  //!< Distribcell offset table
+
+  // Random Ray Stuff
+  std::vector<float> scalar_flux_new;
+  std::vector<float> scalar_flux_old;
+  std::vector<float> source;
+  std::vector<double> volume;
+  std::vector<bool> was_hit;
 };
 
 struct CellInstanceItem {
