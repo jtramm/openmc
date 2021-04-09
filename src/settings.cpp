@@ -115,6 +115,10 @@ int verbosity {7};
 double weight_cutoff {0.25};
 double weight_survive {1.0};
 
+// Random Ray Stuff
+double ray_distance_active {100.0};
+double ray_distance_inactive {10.0};
+
 } // namespace settings
 
 //==============================================================================
@@ -159,7 +163,7 @@ void get_run_parameters(pugi::xml_node node_base)
   }
 
   // Get number of inactive batches
-  if (run_mode == RunMode::EIGENVALUE) {
+  if (run_mode == RunMode::EIGENVALUE || run_mode == RunMode::RANDOM_RAY) {
     if (check_for_node(node_base, "inactive")) {
       n_inactive = std::stoi(get_node_value(node_base, "inactive"));
     }
@@ -200,6 +204,15 @@ void get_run_parameters(pugi::xml_node node_base)
       } else {
         fatal_error("Specify keff trigger threshold in settings XML");
       }
+    }
+  }
+  // Random Ray Stuff
+  if (run_mode == RunMode::RANDOM_RAY) {
+    if (check_for_node(node_base, "ray_distance_active")) {
+      ray_distance_active = std::stod(get_node_value(node_base, "ray_distance_active"));
+    }
+    if (check_for_node(node_base, "ray_distance_inactive")) {
+      ray_distance_inactive = std::stod(get_node_value(node_base, "ray_distance_inactive"));
     }
   }
 }
@@ -359,7 +372,7 @@ void read_settings_xml()
     }
   }
 
-  if (run_mode == RunMode::EIGENVALUE || run_mode == RunMode::FIXED_SOURCE) {
+  if (run_mode == RunMode::EIGENVALUE || run_mode == RunMode::FIXED_SOURCE || run_mode == RunMode::RANDOM_RAY) {
     // Read run parameters
     get_run_parameters(node_mode);
 

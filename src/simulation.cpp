@@ -301,21 +301,6 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
 {
   using namespace openmc;
   while (true) {
-    /*
-    // If the cell hasn't been determined based on the particle's location,
-    // initiate a search for the current cell. This generally happens at the
-    // beginning of the history and again for any secondary particles
-    if (p.coord_[p.n_coord_ - 1].cell == C_NONE) {
-      if (!exhaustive_find_cell(p)) {
-        p.mark_as_lost("Could not find the cell containing particle "
-          + std::to_string(p.id_));
-        return p.n_event_;
-      }
-
-      // Set birth cell attribute
-      if (p.cell_born_ == C_NONE) p.cell_born_ = p.coord_[p.n_coord_ - 1].cell;
-    }
-    */
     p.event_advance_ray(distance_inactive, distance_active);
     if (!p.alive_)
       break;
@@ -325,10 +310,22 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
   return p.n_event_;
 }
 
+void print_inputs()
+{
+  using namespace openmc;
+  printf("nrays                     = %d\n", settings::n_particles);
+  printf("inactive iters            = %d\n", settings::n_inactive);
+  printf("total iters               = %d\n", settings::n_batches);
+  printf("active distance per ray   = %.3le\n", settings::ray_distance_active);
+  printf("inactive distance per ray = %.3le\n", settings::ray_distance_inactive);
+}
+
 // Random Ray Stuff
 int openmc_run_random_ray()
 {
   using namespace openmc;
+
+  print_inputs();
 
   double k_eff = 1.0;
 
@@ -337,17 +334,17 @@ int openmc_run_random_ray()
 
   uint64_t total_geometric_intersections = 0;
 
-  int n_iters_inactive = 10;
-  int n_iters_active = 10;
-  int n_total_iters = n_iters_inactive + n_iters_active;
+  int n_iters_total = settings::n_batches;
+  int n_iters_inactive = settings::n_inactive;
+  int n_iters_active = n_iters_total - n_iters_inactive;
   
-  double nrays = 100;
-  double distance_active = 100.0;
-  double distance_inactive = 0.0;
+  double nrays = settings::n_particles;
+  double distance_active = settings::ray_distance_active;
+  double distance_inactive = settings::ray_distance_inactive;
   double total_active_distance_per_iteration = distance_active * nrays;
 
   // Power Iteration Loop
-  for( int iter = 1; iter <= n_total_iters; iter++ )
+  for( int iter = 1; iter <= n_iters_total; iter++ )
   {
     // Update neutron source
     update_neutron_source(k_eff);
