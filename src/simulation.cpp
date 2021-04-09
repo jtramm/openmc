@@ -292,8 +292,8 @@ int openmc_run_random_ray()
 
   uint64_t total_geometric_intersections = 0;
 
-  int n_iters_inactive = 100;
-  int n_iters_active = 100;
+  int n_iters_inactive = 20;
+  int n_iters_active = 20;
   int n_total_iters = n_iters_inactive + n_iters_active;
   
   double nrays = 100;
