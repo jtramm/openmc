@@ -304,9 +304,7 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
 {
   using namespace openmc;
   while (true) {
-    bool did_activate = p.event_advance_ray(distance_inactive, distance_active);
-    if(did_activate)
-      p.event_advance_ray(distance_inactive, distance_active);
+    p.event_advance_ray(distance_inactive, distance_active);
     if (!p.alive_)
       break;
     p.event_cross_surface();

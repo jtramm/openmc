@@ -247,54 +247,11 @@ float cjosey_exponential(float tau)
     return exponential;
 }
 
-bool
-Particle::event_advance_ray(double distance_inactive, double distance_active)
+void
+Particle::attenuate_flux(double distance, bool is_active)
 {
-  // Find the distance to the nearest boundary
-  boundary_ = distance_to_boundary(*this);
-  double distance = boundary_.distance;
-
-  bool was_active = is_active_;
-
-  // Check for final termination
-  if(is_active_)
-  {
-    if(distance_travelled_ + distance >= distance_active)
-    {
-      distance = distance_active - distance_travelled_;
-      alive_ = false;
-    }
-    distance_travelled_ += distance;
-  }
-
-  // Check for end of inactive region (dead zone)
-  if(!is_active_)
-  {
-    if(distance_travelled_ + distance >= distance_inactive)
-    {
-      distance = distance_inactive - distance_travelled_;
-      distance_travelled_ = 0;
-      is_active_ = true;
-      printf("ray activating!\n");
-    }
-    else
-      distance_travelled_ += distance;
-  }
-
-  n_event_++;
-
   printf("ray travelling %.3le distance...\n", distance);
-
-
-  // TODO: Handle reflections, BCs, etc
-  // Reflective I think this is done now, as far as I can tell, in the bc handler
-  // Vacuum applies correct condition, but does not reflect the ray correctly I think
-
-  // Advance particle
-  for (int j = 0; j < n_coord_; ++j) {
-    coord_[j].r += distance * coord_[j].u;
-  }
-  
+  n_event_++;
   // Determine Cell Index etc.
   int coord_lvl = n_coord_ - 1;
   int i_cell = coord_[coord_lvl].cell;
@@ -313,7 +270,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
     printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
-    if(was_active)
+    if(is_active)
     {
       #pragma omp atomic
       c.scalar_flux_new[idx+e] += delta_psi;
@@ -322,18 +279,66 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     angular_flux_[e] -= delta_psi;
   }
     
-  if(was_active)
+  if(is_active)
   {
     c.was_hit[cell_instance_] = 1;
 
     #pragma omp atomic
     c.volume_t[cell_instance_] += distance;
   }
+}
 
-  if(was_active != is_active_)
-    return true;
-  else
-    return false;
+bool
+Particle::event_advance_ray(double distance_inactive, double distance_active)
+{
+  // Find the distance to the nearest boundary
+  boundary_ = distance_to_boundary(*this);
+  double distance = boundary_.distance;
+
+  bool was_active = is_active_;
+
+  // Check for final termination
+  if(is_active_)
+  {
+    if(distance_travelled_ + distance >= distance_active)
+    {
+      distance = distance_active - distance_travelled_;
+      alive_ = false;
+    }
+    distance_travelled_ += distance;
+    attenuate_flux(distance, true);
+  }
+
+  // Check for end of inactive region (dead zone)
+  if(!is_active_)
+  {
+    if(distance_travelled_ + distance >= distance_inactive)
+    {
+      is_active_ = true;
+      printf("ray activating!\n");
+      double distance_dead = distance_inactive - distance_travelled_;
+      double distance_alive = distance - distance_dead;
+      attenuate_flux(distance_dead,  false);
+      attenuate_flux(distance_alive, true);
+      
+      distance_travelled_ = distance_alive;
+    }
+    else
+    {
+      distance_travelled_ += distance;
+      attenuate_flux(distance,  false);
+    }
+  }
+
+
+  // TODO: Handle reflections, BCs, etc
+  // Reflective I think this is done now, as far as I can tell, in the bc handler
+  // Vacuum applies correct condition, but does not reflect the ray correctly I think
+
+  // Advance particle
+  for (int j = 0; j < n_coord_; ++j) {
+    coord_[j].r += distance * coord_[j].u;
+  }
 }
 
 void

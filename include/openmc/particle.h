@@ -230,6 +230,8 @@ public:
   //! \param src Source site data
   void from_source(const Bank* src);
 
+  void attenuate_flux(double distance, bool is_active);
+
   // Coarse-grained particle events
   void event_calculate_xs();
   void event_advance();
