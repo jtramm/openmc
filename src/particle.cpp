@@ -275,6 +275,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
       distance = distance_inactive - distance_travelled_;
       distance_travelled_ = 0;
       is_active_ = true;
+      printf("ray activating!\n");
     }
     else
       distance_travelled_ += distance;
@@ -282,7 +283,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
 
   n_event_++;
 
-  //printf("ray travelling %.3le distance...\n", distance);
+  printf("ray travelling %.3le distance...\n", distance);
 
 
   // TODO: Handle reflections, BCs, etc
@@ -310,7 +311,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
-    //printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
+    printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
     if(was_active)
     {
