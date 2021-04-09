@@ -18,6 +18,11 @@ void
 VacuumBC::handle_particle(Particle& p, const Surface& surf) const
 {
   p.cross_vacuum_bc(surf);
+
+  // Random Ray stuff
+  // TODO: don't kill vacuum particle!
+  if( settings::run_mode == RunMode::RANDOM_RAY)
+    std::fill(p.angular_flux_.begin(), p.angular_flux_.end(), 0.0);
 }
 
 //==============================================================================

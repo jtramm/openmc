@@ -76,6 +76,7 @@ Particle::Particle()
 
   // Random Ray Stuff
   angular_flux_.resize(data::mg.num_energy_groups_);
+  std::fill(angular_flux_.begin(), angular_flux_.end(), 0.0);
 }
 
 void
@@ -258,12 +259,14 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     distance = distance_active - distance_travelled_;
     alive_ = false;
   }
+  n_event_++;
 
   distance_travelled_ += distance;
 
   //TODO: handle deadzonee
 
   // TODO: Handle reflections, BCs, etc
+  // I think this is done now, as far as I can tell, in the bc handler
 
   // Advance particle
   for (int j = 0; j < n_coord_; ++j) {
@@ -286,6 +289,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
+    //printf("Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
     // TODO: IF active or immortal
     {

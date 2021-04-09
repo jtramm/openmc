@@ -65,13 +65,13 @@ void initialize_cell_data()
 
     c.source.resize(nelements);
     
-    c.volume.resize(nelements);
-    std::fill(c.volume.begin(), c.volume.end(), 1.0);
+    c.volume.resize(c.n_instances_);
+    //std::fill(c.volume.begin(), c.volume.end(), 1.0);
 
-    c.volume_t.resize(nelements);
+    c.volume_t.resize(c.n_instances_);
     std::fill(c.volume_t.begin(), c.volume_t.end(), 0.0);
 
-    c.was_hit.resize(nelements);
+    c.was_hit.resize(c.n_instances_);
     std::fill(c.was_hit.begin(), c.was_hit.end(), 0);
   }
 }
@@ -117,6 +117,8 @@ void update_neutron_source(double k_eff)
           float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_out];
 
           float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
+          //float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
+          //float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
           float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_out, NULL,             NULL, NULL);
 
           scatter_source += Sigma_s    * scalar_flux;
@@ -251,6 +253,12 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   auto site = sample_external_source(p.current_seed());
   p.from_source(&site);
 
+  Position r = p.r();
+  Direction u = p.u();
+  printf("Particle loc:[%.2f, %.2f, %.2f] dir:[%.2f, %.2f, %.2f]\n", r.x, r.y, r.z, u.x, u.y, u.z);
+
+  std::fill(p.angular_flux_.begin(), p.angular_flux_.end(), 0.0);
+
   // TODO: Set angular flux to starting location
 }
 
@@ -265,7 +273,7 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
       if (!exhaustive_find_cell(p)) {
         p.mark_as_lost("Could not find the cell containing particle "
           + std::to_string(p.id_));
-        return 0;
+        return p.n_event_;
       }
 
       // Set birth cell attribute
@@ -277,7 +285,7 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
     p.event_cross_surface();
   }
 
-  return 0;
+  return p.n_event_;
 }
 
 // Random Ray Stuff
@@ -333,6 +341,11 @@ int openmc_run_random_ray()
     // Output status data
     printf("iter: %d  k-eff = %.5lf\n", iter, k_eff);
   }
+  printf("total geometric intersections = %.3e\n", (double) total_geometric_intersections);
+  int negroups = data::mg.num_energy_groups_;
+  double total_integrations = (double) total_geometric_intersections * negroups;
+  printf("total integrations            = %.3e\n", total_integrations);
+
 
   return 0;
 }
