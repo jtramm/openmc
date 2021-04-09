@@ -258,6 +258,7 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   p.from_source(&site);
 
   // Debugging
+  /*
   Position & r = p.r();
   Direction & u = p.u();
   r.x = 0.350829492;
@@ -266,6 +267,7 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   u.x = -0.219246640;
   u.y = 0.875089877;
   u.z = 0.431449437;
+  */
  //   Ray - Origin: [ 0.351, -0.559, 22.693] Direction: [-0.219,  0.875,  0.431]
 
   //Position r = p.r();

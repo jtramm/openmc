@@ -250,7 +250,7 @@ float cjosey_exponential(float tau)
 void
 Particle::attenuate_flux(double distance, bool is_active)
 {
-  printf("ray travelling %.3le distance...\n", distance);
+  //printf("ray travelling %.3le distance...\n", distance);
   n_event_++;
   // Determine Cell Index etc.
   int coord_lvl = n_coord_ - 1;
@@ -268,7 +268,7 @@ Particle::attenuate_flux(double distance, bool is_active)
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
-    printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
+    //printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
     if(is_active)
     {
@@ -315,7 +315,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     if(distance_travelled_ + distance >= distance_inactive)
     {
       is_active_ = true;
-      printf("ray activating!\n");
+      //printf("ray activating!\n");
       double distance_dead = distance_inactive - distance_travelled_;
       double distance_alive = distance - distance_dead;
       attenuate_flux(distance_dead,  false);
