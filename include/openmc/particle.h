@@ -233,7 +233,7 @@ public:
   // Coarse-grained particle events
   void event_calculate_xs();
   void event_advance();
-  void event_advance_ray(double distance_inactive, double distance_active);
+  bool event_advance_ray(double distance_inactive, double distance_active);
   void event_cross_surface();
   void event_collide();
   void event_revive_from_secondary();
@@ -395,6 +395,7 @@ public:
   // Random Ray Stuff
   std::vector<float> angular_flux_;
   double distance_travelled_ {0};
+  bool is_active_ {false};
 };
 
 //============================================================================

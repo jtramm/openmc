@@ -243,6 +243,11 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   // Reset particle event counter
   p.n_event_ = 0;
 
+  if( settings::ray_distance_inactive <= 0.0 )
+    p.is_active_ = true;
+  else
+    p.is_active_ = false;
+
   // set random number seed
   int64_t particle_seed = (iter-1) * nrays + p.id_;
   init_particle_seeds(particle_seed, p.seeds_);
@@ -301,7 +306,9 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
 {
   using namespace openmc;
   while (true) {
-    p.event_advance_ray(distance_inactive, distance_active);
+    bool did_activate = p.event_advance_ray(distance_inactive, distance_active);
+    if(did_activate)
+      p.event_advance_ray(distance_inactive, distance_active);
     if (!p.alive_)
       break;
     p.event_cross_surface();
