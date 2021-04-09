@@ -393,7 +393,7 @@ public:
 
   // Random Ray Stuff
   std::vector<float> angular_flux_;
-  double distance_travelled;
+  double distance_travelled {0};
 };
 
 //============================================================================

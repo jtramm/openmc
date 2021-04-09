@@ -1,6 +1,7 @@
 #include "openmc/simulation.h"
 
 #include "openmc/bank.h"
+#include "openmc/cell.h"
 #include "openmc/capi.h"
 #include "openmc/container_util.h"
 #include "openmc/eigenvalue.h"
@@ -9,6 +10,7 @@
 #include "openmc/geometry_aux.h"
 #include "openmc/material.h"
 #include "openmc/message_passing.h"
+#include "openmc/mgxs_interface.h"
 #include "openmc/nuclide.h"
 #include "openmc/output.h"
 #include "openmc/particle.h"
@@ -46,9 +48,12 @@
 
 void initialize_cell_data()
 {
+  using namespace openmc;
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & c = *model::cells[i];
+    if(c.type_ != Fill::MATERIAL)
+      continue;
     int negroups = data::mg.num_energy_groups_;
     int nelements = c.n_instances_ * negroups;
 
@@ -72,9 +77,12 @@ void initialize_cell_data()
 
 void set_scalar_flux_to_zero()
 {
+  using namespace openmc;
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & c = *model::cells[i];
+    if(c.type_ != Fill::MATERIAL)
+      continue;
     int negroups = data::mg.num_energy_groups_;
     int nelements = c.n_instances_ * negroups;
     std::fill(c.scalar_flux_new.begin(), c.scalar_flux_new.end(), 0.0);
@@ -83,18 +91,21 @@ void set_scalar_flux_to_zero()
 
 void update_neutron_source(double k_eff)
 {
+  using namespace openmc;
   double inverse_k_eff = 1.0 / k_eff;
   int negroups = data::mg.num_energy_groups_;
 
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
-    int material = cell.material_;
-    for( int c = 0; c < cell.n_instances; c++ )
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    int material = cell.material_[0];
+    for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
       {
-        float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_DELATED, energy_group_in, NULL, NULL, NULL);
+        float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_DELAYED, energy_group_in, NULL, NULL, NULL);
         float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_in, NULL, NULL, NULL);
 
         float scatter_source = 0.0;
@@ -102,7 +113,7 @@ void update_neutron_source(double k_eff)
 
         for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
         {
-          float scalar_flux = cell.scalar_flux[c * negroups + energy_group_out];
+          float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_out];
 
           float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER_FMU, energy_group_out,  &energy_group_in, NULL, NULL);
           float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION,     energy_group_out, NULL,              NULL, NULL);
@@ -121,6 +132,7 @@ void update_neutron_source(double k_eff)
 
 void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteration, int iter)
 {
+  using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
 
   double normalization_factor =        1.0 /  total_active_distance_per_iteration;
@@ -129,11 +141,13 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
-    for( int c = 0; c < cell.n_instances; c++ )
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int e = 0; e < negroups; e++ )
       {
-        cell.scalar_flux[c * negroups + e] *= normalization_factor;
+        cell.scalar_flux_new[c * negroups + e] *= normalization_factor;
       }
       cell.volume[c] = cell.volume_t[c] *= volume_normalization_factor;
     }
@@ -142,12 +156,15 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
 
 void add_source_to_scalar_flux(void)
 {
+  using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
-    int material = cell.material_;
-    for( int c = 0; c < cell.n_instances; c++ )
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    int material = cell.material_[0];
+    for( int c = 0; c < cell.n_instances_; c++ )
     {
       double volume = cell.volume[c];
       for( int e = 0; e < negroups; e++ )
@@ -163,6 +180,7 @@ void add_source_to_scalar_flux(void)
 
 double compute_k_eff(double k_eff_old)
 {
+  using namespace openmc;
   double fission_rate_old = 0;
   double fission_rate_new = 0;
   
@@ -170,8 +188,10 @@ double compute_k_eff(double k_eff_old)
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
-    int material = cell.material_;
-    for( int c = 0; c < cell.n_instances; c++ )
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    int material = cell.material_[0];
+    for( int c = 0; c < cell.n_instances_; c++ )
     {
       double volume = cell.volume[c];
       double cell_fission_source_old = 0;
@@ -194,11 +214,14 @@ double compute_k_eff(double k_eff_old)
 
 void copy_scalar_fluxes(void)
 {
+  using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
-    for( int c = 0; c < cell.n_instances; c++ )
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int e = 0; e < negroups; e++ )
       {
@@ -240,6 +263,11 @@ int openmc_run_random_ray()
     set_scalar_flux_to_zero();
 
     // Transport Sweep
+    for( int i = 0; i < nrays; i++ )
+    {
+      Particle p;
+
+    }
 
     // Normalize scalar flux and update volumes
     normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);

@@ -95,6 +95,7 @@ extern "C" {
   int openmc_reset();
   int openmc_reset_timers();
   int openmc_run();
+  int openmc_run_random_ray();
   void openmc_set_seed(int64_t new_seed);
   int openmc_set_n_batches(int32_t n_batches, bool set_max_batches,
                            bool add_statepoint_batch);
