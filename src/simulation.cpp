@@ -116,8 +116,8 @@ void update_neutron_source(double k_eff)
         {
           float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_out];
 
-          float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER_FMU, energy_group_out,  &energy_group_in, NULL, NULL);
-          float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION,     energy_group_out, NULL,              NULL, NULL);
+          float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
+          float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_out, NULL,             NULL, NULL);
 
           scatter_source += Sigma_s    * scalar_flux;
           fission_source += nu_Sigma_f * scalar_flux;
@@ -292,8 +292,8 @@ int openmc_run_random_ray()
 
   uint64_t total_geometric_intersections = 0;
 
-  int n_iters_inactive = 10;
-  int n_iters_active = 10;
+  int n_iters_inactive = 100;
+  int n_iters_active = 100;
   int n_total_iters = n_iters_inactive + n_iters_active;
   
   double nrays = 100;
