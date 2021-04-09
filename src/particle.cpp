@@ -245,7 +245,53 @@ float cjosey_exponential(float tau)
 		const float exponential = num / den;
     return exponential;
 }
-#define FOUR_PI 12.566370614359172953850573533118011536788677597500423283899778369
+
+void
+Particle::event_advance_ray()
+{
+  // Find the distance to the nearest boundary
+  boundary_ = distance_to_boundary(*this);
+  double distance = boundary_.distance;
+
+  // TODO: Handle reflections, BCs, etc
+
+  // Advance particle
+  for (int j = 0; j < n_coord_; ++j) {
+    coord_[j].r += distance * coord_[j].u;
+  }
+  
+  // Determine Cell Index etc.
+  int coord_lvl = n_coord_ - 1;
+  int i_cell = coord_[coord_lvl].cell;
+  Cell& c {*model::cells[i_cell]};
+
+  // Now we know we are in cell c, at index cell_instance_ (of particle)
+  int negroups = data::mg.num_energy_groups_;
+  int idx = cell_instance_ * negroups;
+
+  // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
+  for( int e = 0; e < negroups; e++ )
+  {
+    float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+    float tau = Sigma_t * distance;
+    float exponential = cjosey_exponential(tau);
+    float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
+
+    // TODO: IF active or immortal
+    {
+      #pragma omp atomic
+      c.scalar_flux_new[idx+e] += delta_psi;
+    }
+
+    angular_flux_[e] -= delta_psi;
+  }
+    
+  //#pragma omp atomic write
+  c.was_hit[cell_instance_] = 1;
+
+  #pragma omp atomic
+  c.volume_t[cell_instance_] += distance;
+}
 
 void
 Particle::event_advance()
@@ -287,6 +333,7 @@ Particle::event_advance()
     score_track_derivative(*this, distance);
   }
   
+  /*
   // Random Ray Stuff ////////////////////////////////////////////////////////
   
   // Determine Cell Index etc.
@@ -329,6 +376,7 @@ Particle::event_advance()
 
   #pragma omp atomic
   c.volume_t[cell_instance_] += distance;
+  */
 
   /*
   printf("i_cell = %d, n_instance = %d, material size = %d, sqrtkT size = %d\n", i_cell, c.n_instances_, c.material_.size(), c.sqrtkT_.size());

@@ -7,6 +7,7 @@
 #include "openmc/eigenvalue.h"
 #include "openmc/error.h"
 #include "openmc/event.h"
+#include "openmc/geometry.h"
 #include "openmc/geometry_aux.h"
 #include "openmc/material.h"
 #include "openmc/message_passing.h"
@@ -232,6 +233,48 @@ void copy_scalar_fluxes(void)
   }
 }
 
+void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays, int iter)
+{
+  using namespace openmc;
+  // set identifier for particle
+  p.id_ = index_source;
+
+  // Reset particle event counter
+  p.n_event_ = 0;
+
+  // set random number seed
+  int64_t particle_seed = (iter-1) * nrays + p.id_;
+  init_particle_seeds(particle_seed, p.seeds_);
+    
+  p.stream_ = STREAM_TRACKING;
+}
+
+uint64_t transport_history_based_single_ray(openmc::Particle& p)
+{
+  using namespace openmc;
+  while (true) {
+    // If the cell hasn't been determined based on the particle's location,
+    // initiate a search for the current cell. This generally happens at the
+    // beginning of the history and again for any secondary particles
+    if (p.coord_[p.n_coord_ - 1].cell == C_NONE) {
+      if (!exhaustive_find_cell(p)) {
+        p.mark_as_lost("Could not find the cell containing particle "
+          + std::to_string(p.id_));
+        return 0;
+      }
+
+      // Set birth cell attribute
+      if (p.cell_born_ == C_NONE) p.cell_born_ = p.coord_[p.n_coord_ - 1].cell;
+    }
+    p.event_advance_ray();
+    if (!p.alive_)
+      break;
+    p.event_cross_surface();
+  }
+
+  return 0;
+}
+
 // Random Ray Stuff
 int openmc_run_random_ray()
 {
@@ -266,7 +309,8 @@ int openmc_run_random_ray()
     for( int i = 0; i < nrays; i++ )
     {
       Particle p;
-
+      initialize_ray(p, i, nrays, iter);
+      total_geometric_intersections += transport_history_based_single_ray(p);
     }
 
     // Normalize scalar flux and update volumes
