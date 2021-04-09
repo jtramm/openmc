@@ -360,7 +360,7 @@ prepare_distribcell()
       }
     }
   }
-  printf("Number of distribcells = %d\n", distribcell_index);
+  //printf("Number of distribcells = %d\n", distribcell_index);
 
   // Allocate the cell and lattice offset tables.
   int n_maps = target_univ_ids.size();
@@ -373,7 +373,7 @@ prepare_distribcell()
     lat->allocate_offset_table(n_maps);
   }
 
-  int ncells = 0;
+  //int ncells = 0;
   // Fill the cell and lattice offset tables.
   //#pragma omp parallel for
   for (int map = 0; map < target_univ_ids.size(); map++) {
@@ -396,12 +396,12 @@ prepare_distribcell()
                                          univ_count_memo);
         }
       }
-      ncells += offset;
+      //ncells += offset;
     }
   }
 
-  printf("number of cells = %d\n", model::cells.size());
-  printf("true number of cells = %d\n", ncells);
+  //printf("number of cells = %d\n", model::cells.size());
+  //printf("true number of cells = %d\n", ncells);
 }
 
 //==============================================================================

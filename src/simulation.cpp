@@ -313,11 +313,12 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
 void print_inputs()
 {
   using namespace openmc;
-  printf("nrays                     = %d\n", settings::n_particles);
-  printf("inactive iters            = %d\n", settings::n_inactive);
-  printf("total iters               = %d\n", settings::n_batches);
-  printf("active distance per ray   = %.3le\n", settings::ray_distance_active);
-  printf("inactive distance per ray = %.3le\n", settings::ray_distance_inactive);
+  header("RANDOM RAY INPUT SUMMARY", 3);
+  printf("Rays per Iter             = %d\n", settings::n_particles);
+  printf("Inactive Iters            = %d\n", settings::n_inactive);
+  printf("Total Iters               = %d\n", settings::n_batches);
+  printf("Active   Distance per Ray = %.3le [cm]\n", settings::ray_distance_active);
+  printf("Inactive Distance per Ray = %.3le [cm]\n", settings::ray_distance_inactive);
 }
 
 // Random Ray Stuff
@@ -326,6 +327,10 @@ int openmc_run_random_ray()
   using namespace openmc;
 
   print_inputs();
+
+  // Display header
+  header("RANDOM RAY K EIGENVALUE SIMULATION", 3);
+  print_columns();
 
   double k_eff = 1.0;
 
@@ -373,8 +378,10 @@ int openmc_run_random_ray()
     copy_scalar_fluxes();
 
     // Output status data
-    printf("iter: %d  k-eff = %.5lf\n", iter, k_eff);
+    fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
+    std::cout << std::endl;
   }
+  header("RESULTS", 3);
   printf("total geometric intersections = %.3e\n", (double) total_geometric_intersections);
   int negroups = data::mg.num_energy_groups_;
   double total_integrations = (double) total_geometric_intersections * negroups;

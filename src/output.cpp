@@ -338,7 +338,11 @@ void print_version()
 
 void print_columns()
 {
-  if (settings::entropy_on) {
+  if (settings::run_mode == RunMode::RANDOM_RAY){
+    fmt::print(
+      "    Batch        k            Average k\n"
+      "  =========   ========   ====================\n");
+  }else if (settings::entropy_on) {
     fmt::print(
       "  Bat./Gen.      k       Entropy         Average k \n"
       "  =========   ========   ========   ====================\n");
