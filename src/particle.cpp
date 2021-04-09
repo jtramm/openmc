@@ -247,11 +247,21 @@ float cjosey_exponential(float tau)
 }
 
 void
-Particle::event_advance_ray()
+Particle::event_advance_ray(double distance_inactive, double distance_active)
 {
   // Find the distance to the nearest boundary
   boundary_ = distance_to_boundary(*this);
   double distance = boundary_.distance;
+
+  if(distance_travelled_ + distance > distance_active)
+  {
+    distance = distance_active - distance_travelled_;
+    alive_ = false;
+  }
+
+  distance_travelled_ += distance;
+
+  //TODO: handle deadzonee
 
   // TODO: Handle reflections, BCs, etc
 

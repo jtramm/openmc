@@ -333,6 +333,8 @@ void read_settings_xml()
         run_mode = RunMode::PARTICLE;
       } else if (temp_str == "volume") {
         run_mode = RunMode::VOLUME;
+      } else if (temp_str == "random_ray") {
+        run_mode = RunMode::RANDOM_RAY;
       } else {
         fatal_error("Unrecognized run mode: " + temp_str);
       }

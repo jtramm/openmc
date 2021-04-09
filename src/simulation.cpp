@@ -150,7 +150,7 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
       {
         cell.scalar_flux_new[c * negroups + e] *= normalization_factor;
       }
-      cell.volume[c] = cell.volume_t[c] *= volume_normalization_factor;
+      cell.volume[c] = cell.volume_t[c] * volume_normalization_factor;
     }
   }
 }
@@ -245,11 +245,16 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   // set random number seed
   int64_t particle_seed = (iter-1) * nrays + p.id_;
   init_particle_seeds(particle_seed, p.seeds_);
-    
   p.stream_ = STREAM_TRACKING;
+    
+  // sample from external source distribution (should use box)
+  auto site = sample_external_source(p.current_seed());
+  p.from_source(&site);
+
+  // TODO: Set angular flux to starting location
 }
 
-uint64_t transport_history_based_single_ray(openmc::Particle& p)
+uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance_inactive, double distance_active)
 {
   using namespace openmc;
   while (true) {
@@ -266,7 +271,7 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p)
       // Set birth cell attribute
       if (p.cell_born_ == C_NONE) p.cell_born_ = p.coord_[p.n_coord_ - 1].cell;
     }
-    p.event_advance_ray();
+    p.event_advance_ray(distance_inactive, distance_active);
     if (!p.alive_)
       break;
     p.event_cross_surface();
@@ -310,7 +315,7 @@ int openmc_run_random_ray()
     {
       Particle p;
       initialize_ray(p, i, nrays, iter);
-      total_geometric_intersections += transport_history_based_single_ray(p);
+      total_geometric_intersections += transport_history_based_single_ray(p, distance_inactive, distance_active);
     }
 
     // Normalize scalar flux and update volumes
