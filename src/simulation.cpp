@@ -104,21 +104,21 @@ void update_neutron_source(double k_eff)
     int material = cell.material_[0];
     for( int c = 0; c < cell.n_instances_; c++ )
     {
-      for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
+      for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
       {
-        float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_in, NULL, NULL, NULL);
+        float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_out, NULL, NULL, NULL);
 
         float scatter_source = 0.0;
         float fission_source = 0.0;
 
-        for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
+        for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
         {
-          float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_out];
+          float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
 
-          float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
-          float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_out, NULL,             NULL, NULL);
+          float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
+          float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_in, NULL,             NULL, NULL);
         
-          float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_out, &energy_group_in, NULL, NULL);
+          float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_in, &energy_group_out, NULL, NULL);
 
           scatter_source += Sigma_s    * scalar_flux;
           fission_source += nu_Sigma_f * scalar_flux * Chi;
@@ -126,7 +126,7 @@ void update_neutron_source(double k_eff)
 
         fission_source *= inverse_k_eff;
         float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
-        cell.source[c * negroups + energy_group_in] = new_isotropic_source;
+        cell.source[c * negroups + energy_group_out] = new_isotropic_source;
       }
     }
   }
