@@ -260,6 +260,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     alive_ = false;
   }
   n_event_++;
+  //printf("ray travelling %.3le distance...\n", distance);
 
   distance_travelled_ += distance;
 
@@ -289,7 +290,7 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
-    //printf("Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
+    //printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
     // TODO: IF active or immortal
     {

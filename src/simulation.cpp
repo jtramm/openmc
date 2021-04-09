@@ -106,7 +106,6 @@ void update_neutron_source(double k_eff)
     {
       for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
       {
-        float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_DELAYED, energy_group_in, NULL, NULL, NULL);
         float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_in, NULL, NULL, NULL);
 
         float scatter_source = 0.0;
@@ -117,15 +116,15 @@ void update_neutron_source(double k_eff)
           float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_out];
 
           float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
-          //float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::SCATTER, energy_group_out, &energy_group_in, NULL, NULL);
-          //float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
           float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_out, NULL,             NULL, NULL);
+        
+          float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_out, &energy_group_in, NULL, NULL);
 
           scatter_source += Sigma_s    * scalar_flux;
-          fission_source += nu_Sigma_f * scalar_flux;
+          fission_source += nu_Sigma_f * scalar_flux * Chi;
         }
 
-        fission_source *= Chi * inverse_k_eff;
+        fission_source *= inverse_k_eff;
         float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
         cell.source[c * negroups + energy_group_in] = new_isotropic_source;
       }
@@ -253,19 +252,56 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
   auto site = sample_external_source(p.current_seed());
   p.from_source(&site);
 
-  Position r = p.r();
-  Direction u = p.u();
-  printf("Particle loc:[%.2f, %.2f, %.2f] dir:[%.2f, %.2f, %.2f]\n", r.x, r.y, r.z, u.x, u.y, u.z);
+  // Debugging
+  /*
+  Position & r = p.r();
+  Direction & u = p.u();
+  r.x = 0.350829492;
+  r.y = -0.558578758;
+  r.z = 0.692907163;
+  u.x = -0.219246640;
+  u.y = 0.875089877;
+  u.z = 0.431449437;
+  */
+ //   Ray - Origin: [ 0.351, -0.559, 22.693] Direction: [-0.219,  0.875,  0.431]
 
-  std::fill(p.angular_flux_.begin(), p.angular_flux_.end(), 0.0);
+  //Position r = p.r();
+  //Direction u = p.u();
+  //printf("Particle loc:[%.2f, %.2f, %.2f] dir:[%.2f, %.2f, %.2f]\n", r.x, r.y, r.z, u.x, u.y, u.z);
+    
+  // If the cell hasn't been determined based on the particle's location,
+  // initiate a search for the current cell. This generally happens at the
+  // beginning of the history and again for any secondary particles
+  if (p.coord_[p.n_coord_ - 1].cell == C_NONE) {
+    if (!exhaustive_find_cell(p)) {
+      p.mark_as_lost("Could not find the cell containing particle "
+        + std::to_string(p.id_));
+      exit(1);
+    }
 
-  // TODO: Set angular flux to starting location
+    // Set birth cell attribute
+    if (p.cell_born_ == C_NONE) p.cell_born_ = p.coord_[p.n_coord_ - 1].cell;
+  }
+
+  // Initialize ray's starting angular flux to starting location's isotropic source
+  int coord_lvl = p.n_coord_ - 1;
+  int i_cell = p.coord_[coord_lvl].cell;
+  Cell& c {*model::cells[i_cell]};
+  int negroups = data::mg.num_energy_groups_;
+  int idx = p.cell_instance_ * negroups;
+  
+  for( int e = 0; e < negroups; e++ )
+  {
+    p.angular_flux_[e] = c.source[idx+e];
+  }
+
 }
 
 uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance_inactive, double distance_active)
 {
   using namespace openmc;
   while (true) {
+    /*
     // If the cell hasn't been determined based on the particle's location,
     // initiate a search for the current cell. This generally happens at the
     // beginning of the history and again for any secondary particles
@@ -279,6 +315,7 @@ uint64_t transport_history_based_single_ray(openmc::Particle& p, double distance
       // Set birth cell attribute
       if (p.cell_born_ == C_NONE) p.cell_born_ = p.coord_[p.n_coord_ - 1].cell;
     }
+    */
     p.event_advance_ray(distance_inactive, distance_active);
     if (!p.alive_)
       break;
@@ -300,8 +337,8 @@ int openmc_run_random_ray()
 
   uint64_t total_geometric_intersections = 0;
 
-  int n_iters_inactive = 20;
-  int n_iters_active = 20;
+  int n_iters_inactive = 10;
+  int n_iters_active = 10;
   int n_total_iters = n_iters_inactive + n_iters_active;
   
   double nrays = 100;
