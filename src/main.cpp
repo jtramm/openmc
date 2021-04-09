@@ -43,6 +43,9 @@ int main(int argc, char* argv[]) {
     case RunMode::VOLUME:
       err = openmc_calculate_volumes();
       break;
+    case RuneMode::RANDOM_RAY:
+      err = openmc_run_random_ray();
+      break;
     default:
       break;
   }

@@ -325,7 +325,10 @@ Particle::event_advance()
   }
     
   //#pragma omp atomic write
-  c.was_hit[cell_instance_] = true;
+  c.was_hit[cell_instance_] = 1;
+
+  #pragma omp atomic
+  c.volume_t[cell_instance_] += distance;
 
   /*
   printf("i_cell = %d, n_instance = %d, material size = %d, sqrtkT size = %d\n", i_cell, c.n_instances_, c.material_.size(), c.sqrtkT_.size());

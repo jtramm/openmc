@@ -209,8 +209,9 @@ public:
   std::vector<float> scalar_flux_new;
   std::vector<float> scalar_flux_old;
   std::vector<float> source;
+  std::vector<double> volume_t;
   std::vector<double> volume;
-  std::vector<bool> was_hit;
+  std::vector<int> was_hit;
 };
 
 struct CellInstanceItem {
