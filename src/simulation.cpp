@@ -374,10 +374,11 @@ double calculate_miss_rate(void)
     }
   }
 
-  double n_misses = n_cells - n_hits;
-  double miss_rate = n_misses / (double) n_cells;
+  uint64_t n_misses = n_cells - n_hits;
+  double miss_rate = (double) n_misses / (double) n_cells;
+  //printf("n_missed = %lu\n", n_misses);
 
-  return miss_rate *= 100.0;
+  return miss_rate * 100.0;
 }
 
 // Random Ray Stuff

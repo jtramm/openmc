@@ -182,9 +182,9 @@ RectLattice::RectLattice(pugi::xml_node lat_node)
   // Read the universes and make sure the correct number was specified.
   std::string univ_str {get_node_value(lat_node, "universes")};
   std::vector<std::string> univ_words {split(univ_str)};
-  if (univ_words.size() != nx*ny*nz) {
+  if (univ_words.size() != nx*ny*nz && univ_words.size() != 1) {
     fatal_error(fmt::format(
-      "Expected {} universes for a rectangular lattice of size {}x{]x{} but {} "
+      "Expected 1 or {} universes for a rectangular lattice of size {}x{]x{} but {} "
       "were specified.", nx*ny*nz,  nx, ny, nz, univ_words.size()));
   }
 
@@ -195,7 +195,12 @@ RectLattice::RectLattice(pugi::xml_node lat_node)
       for (int ix = 0; ix < nx; ix++) {
         int indx1 = nx*ny*iz + nx*(ny-iy-1) + ix;
         int indx2 = nx*ny*iz + nx*iy + ix;
-        universes_[indx1] = std::stoi(univ_words[indx2]);
+        if( univ_words.size() == 1 )
+        {
+          universes_[indx1] = std::stoi(univ_words[0]);
+        }
+        else
+          universes_[indx1] = std::stoi(univ_words[indx2]);
       }
     }
   }
