@@ -102,6 +102,7 @@ void update_neutron_source(double k_eff)
     if(cell.type_ != Fill::MATERIAL)
       continue;
     int material = cell.material_[0];
+    #pragma omp parallel for schedule(runtime)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
@@ -145,6 +146,7 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
     Cell & cell = *model::cells[i];
     if(cell.type_ != Fill::MATERIAL)
       continue;
+    #pragma omp parallel for schedule(runtime)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int e = 0; e < negroups; e++ )
@@ -166,6 +168,7 @@ void add_source_to_scalar_flux(void)
     if(cell.type_ != Fill::MATERIAL)
       continue;
     int material = cell.material_[0];
+    #pragma omp parallel for schedule(runtime)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       double volume = cell.volume[c];
@@ -193,6 +196,7 @@ double compute_k_eff(double k_eff_old)
     if(cell.type_ != Fill::MATERIAL)
       continue;
     int material = cell.material_[0];
+    #pragma omp parallel for schedule(runtime) reduction(+: fission_rate_old, fission_rate_new)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       double volume = cell.volume[c];
@@ -223,6 +227,7 @@ void copy_scalar_fluxes(void)
     Cell & cell = *model::cells[i];
     if(cell.type_ != Fill::MATERIAL)
       continue;
+    #pragma omp parallel for schedule(runtime)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       for( int e = 0; e < negroups; e++ )
@@ -331,12 +336,14 @@ void print_inputs()
 int openmc_run_random_ray()
 {
   using namespace openmc;
+  openmc::simulation::time_total.start();
 
   print_inputs();
 
   // Display header
   header("RANDOM RAY K EIGENVALUE SIMULATION", 3);
   print_columns();
+
   
   // Reset global variables -- this is done before loading state point (as that
   // will potentially populate k_generation and entropy)
@@ -359,7 +366,7 @@ int openmc_run_random_ray()
   printf("n_inactive = %d\n", settings::n_inactive);
   int n_iters_active = n_iters_total - n_iters_inactive;
   
-  double nrays = settings::n_particles;
+  int nrays = settings::n_particles;
   double distance_active = settings::ray_distance_active;
   double distance_inactive = settings::ray_distance_inactive;
   double total_active_distance_per_iteration = distance_active * nrays;
@@ -379,14 +386,21 @@ int openmc_run_random_ray()
 
     // Reset scalar flux to zero
     set_scalar_flux_to_zero();
+  
+    // Start timer for transport
+    simulation::time_transport.start();
 
     // Transport Sweep
+    #pragma omp parallel for schedule(runtime) reduction(+:total_geometric_intersections)
     for( int i = 0; i < nrays; i++ )
     {
       Particle p;
       initialize_ray(p, i, nrays, iter);
       total_geometric_intersections += transport_history_based_single_ray(p, distance_inactive, distance_active);
     }
+    
+    // Start timer for transport
+    simulation::time_transport.stop();
 
     // Normalize scalar flux and update volumes
     normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
@@ -408,12 +422,22 @@ int openmc_run_random_ray()
     print_generation();
     
   }
-  header("RESULTS", 3);
-  printf("total geometric intersections = %.3e\n", (double) total_geometric_intersections);
+  
+  openmc::simulation::time_total.stop();
+
+  // display header block
+  header("Timing Statistics", 6);
+  show_time("Total time elapsed", simulation::time_total.elapsed());
+  show_time("Time in transport only", simulation::time_transport.elapsed(), 1);
+  printf(" Total Geometric Intersections     = %.4e\n", (double) total_geometric_intersections);
   int negroups = data::mg.num_energy_groups_;
   double total_integrations = (double) total_geometric_intersections * negroups;
-  printf("total integrations            = %.3e\n", total_integrations);
+  printf(" Total Integrations                = %.4e\n", total_integrations);
+  printf(" Time per Integration              = %.4lf [ns]\n", simulation::time_transport.elapsed() * 1.0e9 / total_integrations);
 
+  header("RESULTS", 3);
+  fmt::print(" k-effective                       = {:.5f} +/- {:.5f}\n",
+    simulation::keff, simulation::keff_std);
 
   return 0;
 }
