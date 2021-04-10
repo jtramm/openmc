@@ -361,6 +361,8 @@ void print_generation()
   int idx = overall_generation() - 1;
   int n = simulation::current_batch > settings::n_inactive ?
     settings::gen_per_batch*simulation::n_realizations + simulation::current_gen : 0;
+  //printf("idx = %d n = %d current_batch = %d n_inactive = %d\n", idx, n, simulation::current_batch, settings::n_inactive);
+  //printf("gen_per_batch = %d   n_realizations = %d  current_gen = %d\n", settings::gen_per_batch, simulation::n_realizations, simulation::current_gen);
 
   // write out batch/generation and generation k-effective
   auto batch_and_gen = std::to_string(simulation::current_batch) + "/" +

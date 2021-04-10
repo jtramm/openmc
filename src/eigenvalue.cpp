@@ -320,6 +320,7 @@ void calculate_average_keff()
   } else {
     n = 0;
   }
+  //printf("AVG CALC: i = %d overall_generation = %d  current_batch = %d  n_inactive= %d  gen_per_batch = %d n_realizations = %d current_gen = %d  n = %d\n", i, overall_generation(), simulation::current_batch, settings::n_inactive, settings::gen_per_batch, simulation::n_realizations, simulation::current_gen, n);
 
   if (n <= 0) {
     // For inactive generations, use current generation k as estimate for next

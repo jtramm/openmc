@@ -324,6 +324,7 @@ void print_inputs()
   printf("Total Iters               = %d\n", settings::n_batches);
   printf("Active   Distance per Ray = %.3le [cm]\n", settings::ray_distance_active);
   printf("Inactive Distance per Ray = %.3le [cm]\n", settings::ray_distance_inactive);
+  printf("gen per batch = %d\n", settings::gen_per_batch);
 }
 
 // Random Ray Stuff
@@ -336,6 +337,15 @@ int openmc_run_random_ray()
   // Display header
   header("RANDOM RAY K EIGENVALUE SIMULATION", 3);
   print_columns();
+  
+  // Reset global variables -- this is done before loading state point (as that
+  // will potentially populate k_generation and entropy)
+  simulation::current_batch = 0;
+  simulation::current_gen = 1;
+  simulation::n_realizations = 0;
+  simulation::k_generation.clear();
+  simulation::entropy.clear();
+  openmc_reset();
 
   double k_eff = 1.0;
 
@@ -346,6 +356,7 @@ int openmc_run_random_ray()
 
   int n_iters_total = settings::n_batches;
   int n_iters_inactive = settings::n_inactive;
+  printf("n_inactive = %d\n", settings::n_inactive);
   int n_iters_active = n_iters_total - n_iters_inactive;
   
   double nrays = settings::n_particles;
@@ -356,6 +367,13 @@ int openmc_run_random_ray()
   // Power Iteration Loop
   for( int iter = 1; iter <= n_iters_total; iter++ )
   {
+    // Increment current batch
+    simulation::current_batch++;
+
+    // Increase number of realizations (only used for global tallies)
+    if( iter-1 > settings::n_inactive)
+      simulation::n_realizations += 1;
+
     // Update neutron source
     update_neutron_source(k_eff);
 
@@ -378,13 +396,17 @@ int openmc_run_random_ray()
     
     // Compute k-eff
     k_eff = compute_k_eff(k_eff);
+    simulation::k_generation.push_back(k_eff);
+    calculate_average_keff();
 
     // Set phi_old = phi_new
     copy_scalar_fluxes();
 
     // Output status data
-    fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
-    std::cout << std::endl;
+    //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
+    //std::cout << std::endl;
+    print_generation();
+    
   }
   header("RESULTS", 3);
   printf("total geometric intersections = %.3e\n", (double) total_geometric_intersections);
