@@ -95,6 +95,7 @@ void update_neutron_source(double k_eff)
   using namespace openmc;
   double inverse_k_eff = 1.0 / k_eff;
   int negroups = data::mg.num_energy_groups_;
+  int ncells = 0;
 
   for( int i = 0; i < model::cells.size(); i++ )
   {
@@ -131,6 +132,21 @@ void update_neutron_source(double k_eff)
       }
     }
   }
+}
+
+uint64_t count_fsrs(void)
+{
+  using namespace openmc;
+  uint64_t n_cells = 0;
+  for( int i = 0; i < model::cells.size(); i++ )
+    {
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+
+      n_cells += cell.n_instances_;
+    }
+  return n_cells;
 }
 
 void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteration, int iter)
@@ -176,7 +192,8 @@ void add_source_to_scalar_flux(void)
       {
         float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
         uint64_t idx = c * negroups + e;
-        cell.scalar_flux_new[idx] /= (Sigma_t * volume);
+        if( volume != 0 )
+          cell.scalar_flux_new[idx] /= (Sigma_t * volume);
         cell.scalar_flux_new[idx] += cell.source[idx];
       }
     }
@@ -200,6 +217,8 @@ double compute_k_eff(double k_eff_old)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       double volume = cell.volume[c];
+      if( volume == 0 )
+        continue;
       double cell_fission_source_old = 0;
       double cell_fission_source_new = 0;
       for( int e = 0; e < negroups; e++ )
@@ -329,7 +348,36 @@ void print_inputs()
   printf("Total Iters               = %d\n", settings::n_batches);
   printf("Active   Distance per Ray = %.3le [cm]\n", settings::ray_distance_active);
   printf("Inactive Distance per Ray = %.3le [cm]\n", settings::ray_distance_inactive);
-  printf("gen per batch = %d\n", settings::gen_per_batch);
+  uint64_t n_fsrs = count_fsrs();
+  printf("Number of FSRs (cells)    = %lu\n", n_fsrs);
+}
+
+double calculate_miss_rate(void)
+{
+  using namespace openmc;
+
+  uint64_t n_cells = 0;
+  uint64_t n_hits  = 0;
+  
+  int negroups = data::mg.num_energy_groups_;
+  for( int i = 0; i < model::cells.size(); i++ )
+  {
+    Cell & cell = *model::cells[i];
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    n_cells += cell.n_instances_;
+    for( int c = 0; c < cell.n_instances_; c++ )
+    {
+      if( cell.was_hit[c] == 1 )
+        n_hits++;
+      cell.was_hit[c] = 0;
+    }
+  }
+
+  double n_misses = n_cells - n_hits;
+  double miss_rate = n_misses / (double) n_cells;
+
+  return miss_rate *= 100.0;
 }
 
 // Random Ray Stuff
@@ -363,7 +411,6 @@ int openmc_run_random_ray()
 
   int n_iters_total = settings::n_batches;
   int n_iters_inactive = settings::n_inactive;
-  printf("n_inactive = %d\n", settings::n_inactive);
   int n_iters_active = n_iters_total - n_iters_inactive;
   
   int nrays = settings::n_particles;
@@ -415,6 +462,10 @@ int openmc_run_random_ray()
 
     // Set phi_old = phi_new
     copy_scalar_fluxes();
+
+    double percent_missed = calculate_miss_rate();
+    if( percent_missed > 0.01 )
+      printf(" High FSR miss rate detected (%.4lf%%)! Consider increasing ray density by adding more particles and/or active distance.\n", percent_missed);
 
     // Output status data
     //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);

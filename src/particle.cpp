@@ -261,12 +261,15 @@ Particle::attenuate_flux(double distance, bool is_active)
   int negroups = data::mg.num_energy_groups_;
   int idx = cell_instance_ * negroups;
 
+  //printf("p_id = %d   distance = %.3lf  is_active = %d\n", id_, distance, is_active);
   // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
   for( int e = 0; e < negroups; e++ )
   {
     float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
+    //printf("Material = %d idx = %d e = %d cell_instance = %d idx+e = %d  source size = %d  cell ID = %d  cell name = %s\n", material_, idx, e, cell_instance_, idx+e, c.source.size(), i_cell, c.name().c_str());
+    //assert(idx+e < c.source.size());
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
     //printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
