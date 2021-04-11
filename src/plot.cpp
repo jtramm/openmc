@@ -45,7 +45,25 @@ IdData::set_value(size_t y, size_t x, const Particle& p, int level) {
   if (p.n_coord_ <= level) {
     data_(y, x, 0) = NOT_FOUND;
   } else {
-    data_(y, x, 0) = model::cells.at(p.coord_.at(level).cell)->id_;
+    //data_(y, x, 0) = model::cells.at(p.coord_.at(level).cell)->id_;
+
+    // Determine Cell Index etc.
+    int coord_lvl = p.n_coord_ - 1;
+    int i_cell = p.coord_[coord_lvl].cell;
+    // determin offset
+    int cell_id = 0;
+    for( int c = 0; c < i_cell; c++ )
+    {
+      Cell& cell {*model::cells[c]};
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      cell_id += cell.n_instances_;
+    }
+
+    Cell& c {*model::cells[i_cell]};
+    int instance = p.cell_instance_;
+    cell_id += instance;
+    data_(y, x, 0) = cell_id;
   }
 
   // set material data
@@ -163,7 +181,9 @@ void create_ppm(Plot const& pl)
         continue;
       }
       if (PlotColorBy::cells == pl.color_by_) {
-        data(x,y) = pl.colors_[model::cell_map[id]];
+        //data(x,y) = pl.colors_[model::cell_map[id]];
+        //data(x,y) = pl.colors_[id % pl.colors_.size()];
+        data(x,y) = pl.colors_[id];
       } else if (PlotColorBy::mats == pl.color_by_) {
         if (id == MATERIAL_VOID) {
           data(x,y) = WHITE;
@@ -362,7 +382,17 @@ Plot::set_default_colors(pugi::xml_node plot_node)
   }
   if ("cell" == pl_color_by) {
     color_by_ = PlotColorBy::cells;
-    colors_.resize(model::cells.size());
+    uint64_t n_cells = 0;
+    for( int i = 0; i < model::cells.size(); i++ )
+      {
+        Cell & cell = *model::cells[i];
+        if(cell.type_ != Fill::MATERIAL)
+          continue;
+
+        n_cells += cell.n_instances_;
+      }
+    //colors_.resize(model::cells.size());
+    colors_.resize(n_cells);
   } else if("material" == pl_color_by) {
     color_by_ = PlotColorBy::mats;
     colors_.resize(model::materials.size());
