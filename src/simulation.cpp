@@ -97,38 +97,41 @@ void update_neutron_source(double k_eff)
   int negroups = data::mg.num_energy_groups_;
   int ncells = 0;
 
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    int material = cell.material_[0];
-    #pragma omp parallel for schedule(runtime)
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      int material = cell.material_[0];
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_out, NULL, NULL, NULL);
-
-        float scatter_source = 0.0;
-        float fission_source = 0.0;
-
-        for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
+        for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
         {
-          float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
+          float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_out, NULL, NULL, NULL);
 
-          float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
-          float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_in, NULL,             NULL, NULL);
-        
-          float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_in, &energy_group_out, NULL, NULL);
+          float scatter_source = 0.0;
+          float fission_source = 0.0;
 
-          scatter_source += Sigma_s    * scalar_flux;
-          fission_source += nu_Sigma_f * scalar_flux * Chi;
+          for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
+          {
+            float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
+
+            float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
+            float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_in, NULL,             NULL, NULL);
+          
+            float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_in, &energy_group_out, NULL, NULL);
+
+            scatter_source += Sigma_s    * scalar_flux;
+            fission_source += nu_Sigma_f * scalar_flux * Chi;
+          }
+
+          fission_source *= inverse_k_eff;
+          float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
+          cell.source[c * negroups + energy_group_out] = new_isotropic_source;
         }
-
-        fission_source *= inverse_k_eff;
-        float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
-        cell.source[c * negroups + energy_group_out] = new_isotropic_source;
       }
     }
   }
@@ -157,19 +160,22 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
   double normalization_factor =        1.0 /  total_active_distance_per_iteration;
   double volume_normalization_factor = 1.0 / (total_active_distance_per_iteration * iter);
 
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    #pragma omp parallel for schedule(runtime)
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      for( int e = 0; e < negroups; e++ )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        cell.scalar_flux_new[c * negroups + e] *= normalization_factor;
+        for( int e = 0; e < negroups; e++ )
+        {
+          cell.scalar_flux_new[c * negroups + e] *= normalization_factor;
+        }
+        cell.volume[c] = cell.volume_t[c] * volume_normalization_factor;
       }
-      cell.volume[c] = cell.volume_t[c] * volume_normalization_factor;
     }
   }
 }
@@ -178,23 +184,26 @@ void add_source_to_scalar_flux(void)
 {
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    int material = cell.material_[0];
-    #pragma omp parallel for schedule(runtime)
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      double volume = cell.volume[c];
-      for( int e = 0; e < negroups; e++ )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      int material = cell.material_[0];
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
-        uint64_t idx = c * negroups + e;
-        if( volume != 0 )
-          cell.scalar_flux_new[idx] /= (Sigma_t * volume);
-        cell.scalar_flux_new[idx] += cell.source[idx];
+        double volume = cell.volume[c];
+        for( int e = 0; e < negroups; e++ )
+        {
+          float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+          uint64_t idx = c * negroups + e;
+          if( volume != 0 )
+            cell.scalar_flux_new[idx] /= (Sigma_t * volume);
+          cell.scalar_flux_new[idx] += cell.source[idx];
+        }
       }
     }
   }
@@ -207,28 +216,31 @@ double compute_k_eff(double k_eff_old)
   double fission_rate_new = 0;
   
   int negroups = data::mg.num_energy_groups_;
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel reduction(+: fission_rate_old, fission_rate_new)
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    int material = cell.material_[0];
-    #pragma omp parallel for schedule(runtime) reduction(+: fission_rate_old, fission_rate_new)
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      double volume = cell.volume[c];
-      if( volume == 0 )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
         continue;
-      double cell_fission_source_old = 0;
-      double cell_fission_source_new = 0;
-      for( int e = 0; e < negroups; e++ )
+      int material = cell.material_[0];
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        double nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, e, NULL, NULL, NULL);
-        cell_fission_source_old += nu_Sigma_f * cell.scalar_flux_old[c * negroups + e];
-        cell_fission_source_new += nu_Sigma_f * cell.scalar_flux_new[c * negroups + e];
+        double volume = cell.volume[c];
+        if( volume == 0 )
+          continue;
+        double cell_fission_source_old = 0;
+        double cell_fission_source_new = 0;
+        for( int e = 0; e < negroups; e++ )
+        {
+          double nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, e, NULL, NULL, NULL);
+          cell_fission_source_old += nu_Sigma_f * cell.scalar_flux_old[c * negroups + e];
+          cell_fission_source_new += nu_Sigma_f * cell.scalar_flux_new[c * negroups + e];
+        }
+        fission_rate_old += cell_fission_source_old * volume;
+        fission_rate_new += cell_fission_source_new * volume;
       }
-      fission_rate_old += cell_fission_source_old * volume;
-      fission_rate_new += cell_fission_source_new * volume;
     }
   }
 
@@ -241,18 +253,21 @@ void copy_scalar_fluxes(void)
 {
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    #pragma omp parallel for schedule(runtime)
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      for( int e = 0; e < negroups; e++ )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        uint64_t idx = c * negroups + e;
-        cell.scalar_flux_old[idx] = cell.scalar_flux_new[idx];
+        for( int e = 0; e < negroups; e++ )
+        {
+          uint64_t idx = c * negroups + e;
+          cell.scalar_flux_old[idx] = cell.scalar_flux_new[idx];
+        }
       }
     }
   }
@@ -360,13 +375,13 @@ double calculate_miss_rate(void)
   uint64_t n_hits  = 0;
   
   int negroups = data::mg.num_energy_groups_;
+  //#pragma omp parallel for reduction(+:n_hits, n_cells) schedule(static)
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
     if(cell.type_ != Fill::MATERIAL)
       continue;
     n_cells += cell.n_instances_;
-    #pragma omp parallel for schedule(runtime) reduction(+:n_hits)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       if( cell.was_hit[c] == 1 )
