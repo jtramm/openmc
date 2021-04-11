@@ -366,6 +366,7 @@ double calculate_miss_rate(void)
     if(cell.type_ != Fill::MATERIAL)
       continue;
     n_cells += cell.n_instances_;
+    #pragma omp parallel for schedule(runtime) reduction(+:n_hits)
     for( int c = 0; c < cell.n_instances_; c++ )
     {
       if( cell.was_hit[c] == 1 )
