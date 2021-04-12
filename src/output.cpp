@@ -654,6 +654,7 @@ write_tallies()
           std::string score_name = score > 0 ? reaction_name(score)
             : score_names.at(score);
           double mean, stdev;
+          printf("n realizations = %d\n", tally.n_realizations_);
           std::tie(mean, stdev) = mean_stdev(
             &tally.results_(filter_index, score_index, 0), tally.n_realizations_);
           fmt::print(tallies_out, "{0:{1}}{2:<36} {3:.6} +/- {4:.6}\n",

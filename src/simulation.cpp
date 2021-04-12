@@ -281,6 +281,10 @@ void copy_scalar_fluxes(void)
 void tally_fission_rates(void)
 {
   using namespace openmc;
+  auto& only_tally {*model::tallies[0]};
+  only_tally.active_ = true;
+  setup_active_tallies();
+
   int negroups = data::mg.num_energy_groups_;
 
   for( int i = 0; i < model::cells.size(); i++ )
@@ -302,7 +306,8 @@ void tally_fission_rates(void)
       auto* filt = dynamic_cast<MeshFilter*>(filt_base);
       int mesh_idx = filt->mesh();
       
-      uint64_t score_index = model::meshes[mesh_idx]->get_bin(p);
+      uint64_t tally_array_id = model::meshes[mesh_idx]->get_bin(p);
+      //printf("score_index = %d\n", score_index);
         
       double volume = cell.volume[c];
 
@@ -316,11 +321,12 @@ void tally_fission_rates(void)
         auto& tally {*model::tallies[0]};
     
         #pragma omp atomic
-        tally.results_(0, score_index, TallyResult::VALUE) += score;
+        tally.results_(tally_array_id, 0, TallyResult::VALUE) += score;
       }
 
     }
   }
+  accumulate_tallies();
 }
 
 void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays, int iter)
@@ -496,8 +502,10 @@ int openmc_run_random_ray()
     simulation::current_batch++;
 
     // Increase number of realizations (only used for global tallies)
+    /*
     if( iter-1 > settings::n_inactive)
       simulation::n_realizations += 1;
+      */
 
     // Update neutron source
     update_neutron_source(k_eff);
@@ -526,6 +534,9 @@ int openmc_run_random_ray()
     // Add source to scalar flux
     add_source_to_scalar_flux();
     
+    if( iter-1 > settings::n_inactive)
+      tally_fission_rates();
+    
     // Compute k-eff
     k_eff = compute_k_eff(k_eff);
     simulation::k_generation.push_back(k_eff);
@@ -538,8 +549,6 @@ int openmc_run_random_ray()
     if( percent_missed > 0.01 )
       printf(" High FSR miss rate detected (%.4lf%%)! Consider increasing ray density by adding more particles and/or active distance.\n", percent_missed);
 
-    if( simulation::n_realizations > 0)
-      tally_fission_rates();
 
     // Output status data
     //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
@@ -563,6 +572,9 @@ int openmc_run_random_ray()
   header("RESULTS", 3);
   fmt::print(" k-effective                       = {:.5f} +/- {:.5f}\n",
     simulation::keff, simulation::keff_std);
+  
+  // Write tally results to tallies.out
+  if (settings::output_tallies && mpi::master) write_tallies();
 
   return 0;
 }

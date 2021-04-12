@@ -626,6 +626,7 @@ void Tally::accumulate()
 {
   // Increment number of realizations
   n_realizations_ += settings::reduce_tallies ? 1 : mpi::n_procs;
+  //printf("called tally accumulate\n");
 
   if (mpi::master || !settings::reduce_tallies) {
     // Calculate total source strength for normalization
@@ -640,6 +641,8 @@ void Tally::accumulate()
 
     // Account for number of source particles in normalization
     double norm = total_source / (settings::n_particles * settings::gen_per_batch);
+    if( settings::run_mode == RunMode::RANDOM_RAY)
+      norm = 1.0;
 
     // Accumulate each result
     #pragma omp parallel for
@@ -647,6 +650,7 @@ void Tally::accumulate()
       for (int j = 0; j < results_.shape()[1]; ++j) {
         double val = results_(i, j, TallyResult::VALUE) * norm;
         results_(i, j, TallyResult::VALUE) = 0.0;
+        //printf("adding %.3le to [%d, %d]\n", val, i, j);
         results_(i, j, TallyResult::SUM) += val;
         results_(i, j, TallyResult::SUM_SQ) += val*val;
       }
