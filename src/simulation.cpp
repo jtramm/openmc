@@ -23,6 +23,7 @@
 #include "openmc/timer.h"
 #include "openmc/tallies/derivative.h"
 #include "openmc/tallies/filter.h"
+#include "openmc/tallies/filter_mesh.h"
 #include "openmc/tallies/tally.h"
 #include "openmc/tallies/trigger.h"
 #include "openmc/track_output.h"
@@ -73,6 +74,10 @@ void initialize_cell_data()
 
     c.was_hit.resize(c.n_instances_);
     std::fill(c.was_hit.begin(), c.was_hit.end(), 0);
+    
+    c.positions.resize(c.n_instances_);
+    c.position_recorded.resize(c.n_instances_);
+    std::fill(c.position_recorded.begin(), c.position_recorded.end(), 0);
   }
 }
 
@@ -273,6 +278,51 @@ void copy_scalar_fluxes(void)
   }
 }
 
+void tally_fission_rates(void)
+{
+  using namespace openmc;
+  int negroups = data::mg.num_energy_groups_;
+
+  for( int i = 0; i < model::cells.size(); i++ )
+  {
+    Cell & cell = *model::cells[i];
+    if(cell.type_ != Fill::MATERIAL)
+      continue;
+    int material = cell.material_[0];
+    for( int c = 0; c < cell.n_instances_; c++ )
+    {
+      Position & p = cell.positions[c];
+      uint64_t tally_filter_idx = model::tallies[0]->filters(0);
+      //MeshFilter & mfilter= (MeshFilter) *model::tally_filters[tally_filter_idx];
+      //const auto& filt {*model::tally_filters[tally_filter_idx]};
+      //uint64_t mesh_idx = model::tally_filters[tally_filter_idx]->mesh();
+      //uint64_t mesh_idx = filt.mesh();
+  
+      const auto& filt_base = model::tally_filters[tally_filter_idx].get();
+      auto* filt = dynamic_cast<MeshFilter*>(filt_base);
+      int mesh_idx = filt->mesh();
+      
+      uint64_t score_index = model::meshes[mesh_idx]->get_bin(p);
+        
+      double volume = cell.volume[c];
+
+      for( int e = 0; e < negroups; e++ )
+      {
+        double Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::FISSION, e, NULL, NULL, NULL);
+        double phi = cell.scalar_flux_new[c * negroups + e];
+
+        double score = Sigma_f * phi * volume;
+
+        auto& tally {*model::tallies[0]};
+    
+        #pragma omp atomic
+        tally.results_(0, score_index, TallyResult::VALUE) += score;
+      }
+
+    }
+  }
+}
+
 void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays, int iter)
 {
   using namespace openmc;
@@ -409,6 +459,10 @@ int openmc_run_random_ray()
   header("RANDOM RAY K EIGENVALUE SIMULATION", 3);
   print_columns();
 
+  // Allocate tally results arrays if they're not allocated yet
+  for (auto& t : model::tallies) {
+    t->init_results();
+  }
   
   // Reset global variables -- this is done before loading state point (as that
   // will potentially populate k_generation and entropy)
@@ -483,6 +537,9 @@ int openmc_run_random_ray()
     double percent_missed = calculate_miss_rate();
     if( percent_missed > 0.01 )
       printf(" High FSR miss rate detected (%.4lf%%)! Consider increasing ray density by adding more particles and/or active distance.\n", percent_missed);
+
+    if( simulation::n_realizations > 0)
+      tally_fission_rates();
 
     // Output status data
     //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);

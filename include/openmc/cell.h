@@ -212,6 +212,8 @@ public:
   std::vector<double> volume_t;
   std::vector<double> volume;
   std::vector<int> was_hit;
+  std::vector<Position> positions;
+  std::vector<int> position_recorded;
 };
 
 struct CellInstanceItem {

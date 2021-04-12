@@ -252,10 +252,21 @@ Particle::attenuate_flux(double distance, bool is_active)
 {
   //printf("ray travelling %.3le distance...\n", distance);
   n_event_++;
+
   // Determine Cell Index etc.
   int coord_lvl = n_coord_ - 1;
   int i_cell = coord_[coord_lvl].cell;
   Cell& c {*model::cells[i_cell]};
+
+  // Tally position if not done already
+  if(!c.position_recorded[cell_instance_])
+  {
+    #pragma omp critical
+    {
+      c.positions[cell_instance_] = r();
+      c.position_recorded[cell_instance_] = 1;
+    }
+  }
 
   // Now we know we are in cell c, at index cell_instance_ (of particle)
   int negroups = data::mg.num_energy_groups_;
