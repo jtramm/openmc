@@ -287,43 +287,47 @@ void tally_fission_rates(void)
 
   int negroups = data::mg.num_energy_groups_;
 
-  for( int i = 0; i < model::cells.size(); i++ )
+  #pragma omp parallel
   {
-    Cell & cell = *model::cells[i];
-    if(cell.type_ != Fill::MATERIAL)
-      continue;
-    int material = cell.material_[0];
-    for( int c = 0; c < cell.n_instances_; c++ )
+    for( int i = 0; i < model::cells.size(); i++ )
     {
-      Position & p = cell.positions[c];
-      uint64_t tally_filter_idx = model::tallies[0]->filters(0);
-      //MeshFilter & mfilter= (MeshFilter) *model::tally_filters[tally_filter_idx];
-      //const auto& filt {*model::tally_filters[tally_filter_idx]};
-      //uint64_t mesh_idx = model::tally_filters[tally_filter_idx]->mesh();
-      //uint64_t mesh_idx = filt.mesh();
-  
-      const auto& filt_base = model::tally_filters[tally_filter_idx].get();
-      auto* filt = dynamic_cast<MeshFilter*>(filt_base);
-      int mesh_idx = filt->mesh();
-      
-      uint64_t tally_array_id = model::meshes[mesh_idx]->get_bin(p);
-      //printf("score_index = %d\n", score_index);
-        
-      double volume = cell.volume[c];
-
-      for( int e = 0; e < negroups; e++ )
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      int material = cell.material_[0];
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
       {
-        double Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::FISSION, e, NULL, NULL, NULL);
-        double phi = cell.scalar_flux_new[c * negroups + e];
-
-        double score = Sigma_f * phi * volume;
-
-        auto& tally {*model::tallies[0]};
+        Position & p = cell.positions[c];
+        uint64_t tally_filter_idx = model::tallies[0]->filters(0);
+        //MeshFilter & mfilter= (MeshFilter) *model::tally_filters[tally_filter_idx];
+        //const auto& filt {*model::tally_filters[tally_filter_idx]};
+        //uint64_t mesh_idx = model::tally_filters[tally_filter_idx]->mesh();
+        //uint64_t mesh_idx = filt.mesh();
     
-        #pragma omp atomic
-        tally.results_(tally_array_id, 0, TallyResult::VALUE) += score;
-      }
+        const auto& filt_base = model::tally_filters[tally_filter_idx].get();
+        auto* filt = dynamic_cast<MeshFilter*>(filt_base);
+        int mesh_idx = filt->mesh();
+        
+        uint64_t tally_array_id = model::meshes[mesh_idx]->get_bin(p);
+        //printf("score_index = %d\n", score_index);
+          
+        double volume = cell.volume[c];
 
+        for( int e = 0; e < negroups; e++ )
+        {
+          double Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::FISSION, e, NULL, NULL, NULL);
+          double phi = cell.scalar_flux_new[c * negroups + e];
+
+          double score = Sigma_f * phi * volume;
+
+          auto& tally {*model::tallies[0]};
+      
+          #pragma omp atomic
+          tally.results_(tally_array_id, 0, TallyResult::VALUE) += score;
+        }
+
+      }
     }
   }
   accumulate_tallies();
@@ -534,13 +538,16 @@ int openmc_run_random_ray()
     // Add source to scalar flux
     add_source_to_scalar_flux();
     
-    if( iter-1 > settings::n_inactive)
-      tally_fission_rates();
-    
     // Compute k-eff
     k_eff = compute_k_eff(k_eff);
     simulation::k_generation.push_back(k_eff);
     calculate_average_keff();
+    
+    // Output status data
+    print_generation();
+    
+    if( iter > settings::n_inactive)
+      tally_fission_rates();
 
     // Set phi_old = phi_new
     copy_scalar_fluxes();
@@ -550,10 +557,8 @@ int openmc_run_random_ray()
       printf(" High FSR miss rate detected (%.4lf%%)! Consider increasing ray density by adding more particles and/or active distance.\n", percent_missed);
 
 
-    // Output status data
     //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
     //std::cout << std::endl;
-    print_generation();
     
   }
   
@@ -877,6 +882,7 @@ void finalize_batch()
   // Reset global tally results
   if (simulation::current_batch <= settings::n_inactive) {
     xt::view(simulation::global_tallies, xt::all()) = 0.0;
+    //printf("seting n_realizations to 0 (current_batch = %d, n_inactive = %d\n", simulation::current_batch, settings::n_inactive);
     simulation::n_realizations = 0;
   }
 

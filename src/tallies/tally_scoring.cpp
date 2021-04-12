@@ -2079,7 +2079,7 @@ score_general_mg(Particle& p, int i_tally, int start_index, int filter_index,
       continue;
     }
 
-    printf("filter_index = %d  score_index = %d  score*filter_weight = %.3lf\n", filter_index, score_index, score*filter_weight);
+    //printf("filter_index = %d  score_index = %d  score*filter_weight = %.3lf\n", filter_index, score_index, score*filter_weight);
 
     // Update tally results
     #pragma omp atomic
