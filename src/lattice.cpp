@@ -195,12 +195,11 @@ RectLattice::RectLattice(pugi::xml_node lat_node)
       for (int ix = 0; ix < nx; ix++) {
         int indx1 = nx*ny*iz + nx*(ny-iy-1) + ix;
         int indx2 = nx*ny*iz + nx*iy + ix;
-        if( univ_words.size() == 1 )
-        {
+        if( univ_words.size() == 1 ) {
           universes_[indx1] = std::stoi(univ_words[0]);
-        }
-        else
+        }else {
           universes_[indx1] = std::stoi(univ_words[indx2]);
+        }
       }
     }
   }

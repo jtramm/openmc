@@ -40,7 +40,6 @@ void print_usage();
 //! Display current version and copright/license information
 void print_version();
 
-
 //! Display header listing what physical values will displayed
 void print_columns();
 
@@ -49,7 +48,6 @@ void print_generation();
 
 //! Display time elapsed for various stages of a run
 void print_runtime();
-void show_time(const char* label, double secs, int indent_level=0);
 
 //! Display results for global tallies including k-effective estimators
 void print_results();

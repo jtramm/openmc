@@ -42,6 +42,7 @@ class Mgxs {
     AngleDistributionType scatter_format; // flag for if this is legendre, histogram, or tabular
     int num_groups;     // number of energy groups
     int num_delayed_groups; // number of delayed neutron groups
+    std::vector<XsData> xs; // Cross section data
     // MGXS Incoming Flux Angular grid information
     bool is_isotropic; // used to skip search for angle indices if isotropic
     int n_pol;
@@ -103,7 +104,6 @@ class Mgxs {
     double awr;         // atomic weight ratio
     bool fissionable;   // Is this fissionable
     std::vector<CacheData> cache; // index and data cache
-    std::vector<XsData> xs; // Cross section data
 
     Mgxs() = default;
 

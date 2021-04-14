@@ -378,7 +378,7 @@ void print_generation()
 
 //==============================================================================
 
-void show_time(const char* label, double secs, int indent_level)
+void show_time(const char* label, double secs, int indent_level=0)
 {
   int width = 33 - indent_level*2;
   fmt::print("{0:{1}} {2:<{3}} = {4:>10.4e} seconds\n",
@@ -654,7 +654,6 @@ write_tallies()
           std::string score_name = score > 0 ? reaction_name(score)
             : score_names.at(score);
           double mean, stdev;
-          //printf("n realizations = %d\n", tally.n_realizations_);
           std::tie(mean, stdev) = mean_stdev(
             &tally.results_(filter_index, score_index, 0), tally.n_realizations_);
           fmt::print(tallies_out, "{0:{1}}{2:<36} {3:.6} +/- {4:.6}\n",

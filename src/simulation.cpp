@@ -430,9 +430,8 @@ double calculate_miss_rate(void)
 
   uint64_t n_cells = 0;
   uint64_t n_hits  = 0;
-  
-  int negroups = data::mg.num_energy_groups_;
-  //#pragma omp parallel for reduction(+:n_hits, n_cells) schedule(static)
+
+  // Note - not parallelized as this is over cells only, not cells x egroups
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & cell = *model::cells[i];
@@ -449,7 +448,6 @@ double calculate_miss_rate(void)
 
   uint64_t n_misses = n_cells - n_hits;
   double miss_rate = (double) n_misses / (double) n_cells;
-  //printf("n_missed = %lu\n", n_misses);
 
   return miss_rate * 100.0;
 }
@@ -519,12 +517,6 @@ int openmc_run_random_ray()
     // Increment current batch
     simulation::current_batch++;
 
-    // Increase number of realizations (only used for global tallies)
-    /*
-    if( iter-1 > settings::n_inactive)
-      simulation::n_realizations += 1;
-      */
-
     // Update neutron source
     update_neutron_source(k_eff);
 
@@ -560,6 +552,7 @@ int openmc_run_random_ray()
     // Output status data
     print_generation();
     
+    // Tally fission rates
     if( iter > settings::n_inactive)
       tally_fission_rates();
 
@@ -569,19 +562,14 @@ int openmc_run_random_ray()
     double percent_missed = calculate_miss_rate();
     if( percent_missed > 0.01 )
       printf(" High FSR miss rate detected (%.4lf%%)! Consider increasing ray density by adding more particles and/or active distance.\n", percent_missed);
-
-
-    //fmt::print("  {:>9}   {:8.5f}", std::to_string(iter), k_eff);
-    //std::cout << std::endl;
-    
   }
   
   openmc::simulation::time_total.stop();
 
   // display header block
   header("Timing Statistics", 6);
-  show_time("Total time elapsed", simulation::time_total.elapsed());
-  show_time("Time in transport only", simulation::time_transport.elapsed(), 1);
+  printf(" Total time elapsed                = %.4le [s]\n", simulation::time_total.elapsed());
+  printf(" Time in transport only            = %.3le [s]\n", simulation::time_transport.elapsed(), 1);
   printf(" Total Geometric Intersections     = %.4e\n", (double) total_geometric_intersections);
   int negroups = data::mg.num_energy_groups_;
   double total_integrations = (double) total_geometric_intersections * negroups;
@@ -589,8 +577,7 @@ int openmc_run_random_ray()
   printf(" Time per Integration              = %.4lf [ns]\n", simulation::time_transport.elapsed() * 1.0e9 / total_integrations);
 
   header("RESULTS", 3);
-  fmt::print(" k-effective                       = {:.5f} +/- {:.5f}\n",
-    simulation::keff, simulation::keff_std);
+  fmt::print(" k-effective                       = {:.5f} +/- {:.5f}\n", simulation::keff, simulation::keff_std);
   
   // Write tally results to tallies.out
   if (settings::output_tallies && mpi::master) write_tallies();

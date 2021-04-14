@@ -45,12 +45,9 @@ IdData::set_value(size_t y, size_t x, const Particle& p, int level) {
   if (p.n_coord_ <= level) {
     data_(y, x, 0) = NOT_FOUND;
   } else {
-    //data_(y, x, 0) = model::cells.at(p.coord_.at(level).cell)->id_;
-
-    // Determine Cell Index etc.
+    // determine distribcell ID
     int coord_lvl = p.n_coord_ - 1;
     int i_cell = p.coord_[coord_lvl].cell;
-    // determin offset
     int cell_id = 0;
     for( int c = 0; c < i_cell; c++ )
     {
@@ -63,6 +60,7 @@ IdData::set_value(size_t y, size_t x, const Particle& p, int level) {
     Cell& c {*model::cells[i_cell]};
     int instance = p.cell_instance_;
     cell_id += instance;
+    // set distribcell ID
     data_(y, x, 0) = cell_id;
   }
 
@@ -181,8 +179,6 @@ void create_ppm(Plot const& pl)
         continue;
       }
       if (PlotColorBy::cells == pl.color_by_) {
-        //data(x,y) = pl.colors_[model::cell_map[id]];
-        //data(x,y) = pl.colors_[id % pl.colors_.size()];
         data(x,y) = pl.colors_[id];
       } else if (PlotColorBy::mats == pl.color_by_) {
         if (id == MATERIAL_VOID) {
@@ -382,16 +378,15 @@ Plot::set_default_colors(pugi::xml_node plot_node)
   }
   if ("cell" == pl_color_by) {
     color_by_ = PlotColorBy::cells;
+    // Determine number of distribcells
     uint64_t n_cells = 0;
     for( int i = 0; i < model::cells.size(); i++ )
-      {
-        Cell & cell = *model::cells[i];
-        if(cell.type_ != Fill::MATERIAL)
-          continue;
-
-        n_cells += cell.n_instances_;
-      }
-    //colors_.resize(model::cells.size());
+    {
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      n_cells += cell.n_instances_;
+    }
     colors_.resize(n_cells);
   } else if("material" == pl_color_by) {
     color_by_ = PlotColorBy::mats;

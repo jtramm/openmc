@@ -344,11 +344,6 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
     }
   }
 
-
-  // TODO: Handle reflections, BCs, etc
-  // Reflective I think this is done now, as far as I can tell, in the bc handler
-  // Vacuum applies correct condition, but does not reflect the ray correctly I think
-
   // Advance particle
   for (int j = 0; j < n_coord_; ++j) {
     coord_[j].r += distance * coord_[j].u;
@@ -394,69 +389,6 @@ Particle::event_advance()
   if (!model::active_tallies.empty()) {
     score_track_derivative(*this, distance);
   }
-  
-  /*
-  // Random Ray Stuff ////////////////////////////////////////////////////////
-  
-  // Determine Cell Index etc.
-  int coord_lvl = n_coord_ - 1;
-  int i_cell = coord_[coord_lvl].cell;
-  Cell& c {*model::cells[i_cell]};
-
-  // Now we know we are in cell c, at index cell_instance_ (of particle)
-  int negroups = data::mg.num_energy_groups_;
-
-  // Number of energy groups
-  const int temperature_index = 0;
-  XsData & xs = data::mg.macro_xs_[material_].xs[temperature_index];
-
-  float * Q   = c.source.data()            + negroups * cell_instance_;
-  float * phi = c.scalar_flux_new.data()   + negroups * cell_instance_;
-
-  // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
-  for( int e = 0; e < negroups; e++ )
-  {
-    const int angle_index = 0;
-    float Sigma_t = xs.total(angle_index, e);
-    float tau = Sigma_t * distance;
-    float exponential = cjosey_exponential(tau);
-    float delta_psi = (angular_flux_[e] - Q[e]) * exponential;
-
-    // IF active or immortal
-    {
-      const float tally = FOUR_PI * delta_psi;
-
-      #pragma omp atomic
-      phi[e] += tally;
-    }
-
-    angular_flux_[e] -= delta_psi;
-  }
-    
-  //#pragma omp atomic write
-  c.was_hit[cell_instance_] = 1;
-
-  #pragma omp atomic
-  c.volume_t[cell_instance_] += distance;
-  */
-
-  /*
-  printf("i_cell = %d, n_instance = %d, material size = %d, sqrtkT size = %d\n", i_cell, c.n_instances_, c.material_.size(), c.sqrtkT_.size());
-  int cell_id = 0;
-  for( int i = 0; i < i_cell; i++ )
-  {
-    Cell& d {*model::cells[i]};
-    cell_id += d.n_instances_;
-  }
-  cell_id += cell_instance_;
-
-  //count total
-  int n_cells =0;
-  for( int i = 0; i < model::cells.size(); i++ )
-    n_cells += model::cells[i]->n_instances_;
-
-  printf("travelling distance = %.4lf through cell ID = %d (of %d)\n", distance, cell_id, n_cells);
-  */
 }
 
 void
