@@ -29,6 +29,7 @@ from openmc.mixin import *
 from openmc.plotter import *
 from openmc.search import *
 from openmc.polynomial import *
+from openmc.pincell import *
 from . import examples
 
 # Import a few convencience functions that used to be here
