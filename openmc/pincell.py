@@ -25,6 +25,10 @@ def define_pincell(pitch, region_outer_radii, region_materials, n_sectors_per_re
         total_area = np.pi * (r_outer ** 2) - np.pi * (r_inner ** 2)
         sub_region_area = total_area / n_sub_regions
 
+        radius_delta = (r_outer - r_inner) / n_sub_regions
+        if n_sub_regions < 3 :
+            radius_delta *= (2.0/3.0)
+
         r_last = r_inner
 
         inner_cylinder = openmc.ZCylinder(x0=0, y0=0, r=r_last)
@@ -32,6 +36,9 @@ def define_pincell(pitch, region_outer_radii, region_materials, n_sectors_per_re
         for sr in range(n_sub_regions):
             # Compute next radius outwards
             r_next = math.sqrt( r_last**2 + sub_region_area / np.pi )
+
+            if r == n_regions - 1 :
+                r_next = r_last + radius_delta
             
             # If the next one is the final one, we manually set it to avoid changing it due to floating point rounding
             if sr == n_sub_regions -1 :
