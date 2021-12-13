@@ -323,7 +323,7 @@ void Nuclide::flatten_xs_data()
     total_energy_gridpoints_ += grid_[t].energy.size();
   }
 
-  total_index_gridpoints_ = n_temps * (settings::n_log_bins + 1);
+  total_index_gridpoints_ = n_temps * (data::ueg_size);
 
   // Allocate space for grid information and populate
   flat_grid_energy_ = new double[total_energy_gridpoints_];
@@ -335,7 +335,7 @@ void Nuclide::flatten_xs_data()
       flat_grid_energy_[energy_offset + e] = grid_[t].energy[e];
     }
 
-    int grid_offset = t * (settings::n_log_bins + 1);
+    int grid_offset = t * (data::ueg_size);
 
     for (int i = 0; i < grid_[t].grid_index.size(); i++) {
       flat_grid_index_[grid_offset + i] = grid_[t].grid_index[i];
@@ -738,7 +738,7 @@ void Nuclide::calculate_xs(int i_sab, int i_log_union, double sab_frac, Particle
     }
 
     // Offset index grid
-    int index_offset = i_temp * (settings::n_log_bins + 1);
+    int index_offset = i_temp * (data::ueg_size);
     int* grid_index = &flat_grid_index_[index_offset];
 
     // Offset energy grid
@@ -771,6 +771,8 @@ void Nuclide::calculate_xs(int i_sab, int i_log_union, double sab_frac, Particle
       // interval the energy is in
       int i_low  = grid_index[i_log_union];
       int i_high = grid_index[i_log_union + 1] + 1;
+      //printf("i_low, i_high = %d, %d\n", i_low, i_high);
+      //printf("LSP:%d\n", i_high-i_low);
 
       // Perform binary search over reduced range
       // Note the STL-based binary search seems to work on llvm/V100 but not elsewhere

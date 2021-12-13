@@ -124,7 +124,6 @@ int openmc_simulation_init()
   // Allocate & Copy simulation data from host -> device
   move_read_only_data_to_device();
 
-  generate_ueg();
 
   // If this is a restart run, load the state point data and binary source
   // file
@@ -614,11 +613,18 @@ void generate_ueg()
   // Add add energy points to grid
   for (int i = 0; i < data::nuclides_size; ++i) {
     Nuclide& nuc = data::nuclides[i];
+    for (auto& grid : nuc.grid_) {
+      for (auto& e : grid.energy ) {
+        energy_grid.push_back(e);
+      }
+    }
+  }
+    /*
     for (int e = 0; e < nuc.total_energy_gridpoints_; e++ )
     {
       energy_grid.push_back(nuc.flat_grid_energy_[e]);
     }
-  }
+    */
   // Compression and sorting
   std::cout << "# GP = " << energy_grid.size() << " min = " << energy_grid[0] << " max = " << energy_grid[energy_grid.size()-1] << std::endl;
   std::sort( energy_grid.begin(), energy_grid.end() );
@@ -644,11 +650,6 @@ void generate_ueg()
   data::ueg_size = hash_grid.size();
   memcpy(data::ueg, hash_grid.data(), hash_grid.size() * sizeof(float));
   
-  // We transfer here instead of device_alloc.cpp as we are currently using the device pointers inside of the nuclides,
-  // which don't get stitched up until the data movements functions are run. So, we'd need to use the host pointers instead
-  // in the above function if we wanted to move this data movement to the device_alloc routines.
-  #pragma omp target update to(data::ueg_size)
-  #pragma omp target enter data map(to: data::ueg[:data::ueg_size])
 }
 
 void initialize_data()
@@ -713,6 +714,9 @@ void initialize_data()
       }
     }
   }
+  
+  // Generate unionized energy grid
+  generate_ueg();
 
   // Set up logarithmic grid for nuclides
   for (int i = 0; i < data::nuclides_size; ++i) {

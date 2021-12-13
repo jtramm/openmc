@@ -160,6 +160,8 @@ void move_read_only_data_to_device()
     ts.copy_to_device();
   }
   
+  #pragma omp target update to(data::ueg_size)
+  #pragma omp target enter data map(to: data::ueg[:data::ueg_size])
 
   // Photon data /////////////////////////////////////////////////////
 
