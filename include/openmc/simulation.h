@@ -71,6 +71,8 @@ void calculate_work();
 //! Initialize nuclear data before a simulation
 void initialize_data();
 
+void generate_ueg();
+
 //! Initialize a batch
 void initialize_batch();
 

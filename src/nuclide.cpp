@@ -529,6 +529,7 @@ void Nuclide::init_grid()
   // Create equally log-spaced energy grid
   auto umesh = xt::linspace(0.0, M*spacing, M+1);
 
+  // For each temperature
   for (auto& grid : grid_) {
     // Resize array for storing grid indices
     grid.grid_index.resize(M + 1);

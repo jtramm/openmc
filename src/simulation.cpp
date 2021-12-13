@@ -123,6 +123,8 @@ int openmc_simulation_init()
   // Allocate & Copy simulation data from host -> device
   move_read_only_data_to_device();
 
+  generate_ueg();
+
   // If this is a restart run, load the state point data and binary source
   // file
   if (settings::restart_run) {
@@ -603,6 +605,43 @@ void calculate_work()
     i_bank += work_i;
     simulation::work_index[i + 1] = i_bank;
   }
+}
+
+void generate_ueg()
+{
+  std::vector<double> energy_grid;
+  // Add add energy points to grid
+  for (int i = 0; i < data::nuclides_size; ++i) {
+    Nuclide& nuc = data::nuclides[i];
+    for (int e = 0; e < nuc.total_energy_gridpoints_; e++ )
+    {
+      energy_grid.push_back(nuc.flat_grid_energy_[e]);
+    }
+  }
+  // Compression and sorting
+  std::cout << "# GP = " << energy_grid.size() << " min = " << energy_grid[0] << " max = " << energy_grid[energy_grid.size()-1] << std::endl;
+  std::sort( energy_grid.begin(), energy_grid.end() );
+  energy_grid.erase( std::unique( energy_grid.begin(), energy_grid.end() ), energy_grid.end() );
+  std::cout << "# GP = " << energy_grid.size() << " min = " << energy_grid[0] << " max = " << energy_grid[energy_grid.size()-1] << std::endl;
+
+  // Set number of energy bins per grid point
+  int hash_size = 50;
+
+  // Create "hash" array with nbins (each bin being every "mth" energy from egrid)
+  std::vector<float> hash_grid;
+  for (int i = 0; i < energy_grid.size(); i++)
+  {
+    if ( i % hash_size == 0 )
+      hash_grid.push_back(static_cast<float>(energy_grid[i]));
+  } 
+  if (hash_grid.back() != static_cast<float>(energy_grid.back()))
+      hash_grid.push_back(static_cast<float>(energy_grid.back()));
+  
+  std::cout << "# GP = " << hash_grid.size() << " min = " << hash_grid[0] << " max = " << hash_grid[hash_grid.size()-1] << std::endl;
+
+  // Re-use log hash bin indices
+
+  exit(0);
 }
 
 void initialize_data()
