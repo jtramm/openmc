@@ -191,6 +191,8 @@ extern std::unordered_map<std::string, int> nuclide_map;
 #pragma omp declare target
 extern Nuclide* nuclides;
 extern size_t nuclides_size;
+extern float * ueg;
+extern int ueg_size;
 #pragma omp end declare target
 extern size_t nuclides_capacity;
 

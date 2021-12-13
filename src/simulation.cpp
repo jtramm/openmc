@@ -120,6 +120,7 @@ int openmc_simulation_init()
   simulation::entropy.clear();
   openmc_reset();
 
+
   // Allocate & Copy simulation data from host -> device
   move_read_only_data_to_device();
 
@@ -625,13 +626,13 @@ void generate_ueg()
   std::cout << "# GP = " << energy_grid.size() << " min = " << energy_grid[0] << " max = " << energy_grid[energy_grid.size()-1] << std::endl;
 
   // Set number of energy bins per grid point
-  int hash_size = 50;
+  //int hash_size = 50;
 
   // Create "hash" array with nbins (each bin being every "mth" energy from egrid)
   std::vector<float> hash_grid;
   for (int i = 0; i < energy_grid.size(); i++)
   {
-    if ( i % hash_size == 0 )
+    if ( i % settings::hash_size == 0 )
       hash_grid.push_back(static_cast<float>(energy_grid[i]));
   } 
   if (hash_grid.back() != static_cast<float>(energy_grid.back()))
@@ -639,9 +640,15 @@ void generate_ueg()
   
   std::cout << "# GP = " << hash_grid.size() << " min = " << hash_grid[0] << " max = " << hash_grid[hash_grid.size()-1] << std::endl;
 
-  // Re-use log hash bin indices
-
-  exit(0);
+  data::ueg = new float[hash_grid.size()]; 
+  data::ueg_size = hash_grid.size();
+  memcpy(data::ueg, hash_grid.data(), hash_grid.size() * sizeof(float));
+  
+  // We transfer here instead of device_alloc.cpp as we are currently using the device pointers inside of the nuclides,
+  // which don't get stitched up until the data movements functions are run. So, we'd need to use the host pointers instead
+  // in the above function if we wanted to move this data movement to the device_alloc routines.
+  #pragma omp target update to(data::ueg_size)
+  #pragma omp target enter data map(to: data::ueg[:data::ueg_size])
 }
 
 void initialize_data()

@@ -769,7 +769,8 @@ void Material::calculate_neutron_xs(Particle& p) const
 {
   // Find energy index on energy grid
   int neutron = static_cast<int>(Particle::Type::neutron);
-  int i_grid = std::log(p.E_/data::energy_min[neutron])/simulation::log_spacing;
+  //int i_grid = std::log(p.E_/data::energy_min[neutron])/simulation::log_spacing;
+  int i_grid = lower_bound_index(data::ueg, data::ueg + data::ueg_size, p.E_);
 
   // Determine if this material has S(a,b) tables
   bool check_sab = (thermal_tables_.size() > 0);

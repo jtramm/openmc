@@ -91,6 +91,7 @@ std::array<double, 4> energy_cutoff {0.0, 1000.0, 0.0, 0.0};
 int legendre_to_tabular_points {C_NONE};
 int max_order {0};
 int n_log_bins {8000};
+int hash_size {50};
 int n_batches;
 int n_max_batches;
 ResScatMethod res_scat_method {ResScatMethod::rvs};

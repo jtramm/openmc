@@ -41,6 +41,9 @@ std::unordered_map<std::string, int> nuclide_map;
 Nuclide* nuclides;
 size_t nuclides_size;
 size_t nuclides_capacity;
+
+float * ueg;
+int ueg_size;
 } // namespace data
 
 //==============================================================================
@@ -516,6 +519,7 @@ void Nuclide::create_derived(const Function1DFlatContainer* prompt_photons, cons
   }
 }
 
+/*
 void Nuclide::init_grid()
 {
   int neutron = static_cast<int>(Particle::Type::neutron);
@@ -539,6 +543,29 @@ void Nuclide::init_grid()
     int j = 0;
     for (int k = 0; k <= M; ++k) {
       while (std::log(grid.energy[j + 1]/E_min) <= umesh(k)) {
+        // Ensure that for isotopes where maxval(grid.energy) << E_max that
+        // there are no out-of-bounds issues.
+        if (j + 2 == grid.energy.size()) break;
+        ++j;
+      }
+      grid.grid_index[k] = j;
+    }
+  }
+}
+*/
+
+void Nuclide::init_grid()
+{
+  // For each temperature
+  for (auto& grid : grid_) {
+    // Resize array for storing grid indices
+    grid.grid_index.resize(data::ueg_size);
+
+    // Determine corresponding indices in nuclide grid to energies on
+    // equal-logarithmic grid
+    int j = 0;
+    for (int k = 0; k < data::ueg_size; ++k) {
+      while (grid.energy[j + 1] <= data::ueg[k]) {
         // Ensure that for isotopes where maxval(grid.energy) << E_max that
         // there are no out-of-bounds issues.
         if (j + 2 == grid.energy.size()) break;

@@ -60,6 +60,7 @@ void move_settings_to_device()
   #pragma omp target update to(settings::check_overlaps)
   #pragma omp target update to(settings::max_particles_in_flight)
   #pragma omp target update to(settings::minimum_sort_items)
+  #pragma omp target update to(settings::hash_size)
 
   // message_passing.h
   #pragma omp target update to(mpi::rank)
@@ -158,6 +159,7 @@ void move_read_only_data_to_device()
   for (auto& ts : data::thermal_scatt) {
     ts.copy_to_device();
   }
+  
 
   // Photon data /////////////////////////////////////////////////////
 
