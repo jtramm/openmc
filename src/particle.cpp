@@ -302,14 +302,12 @@ Particle::attenuate_flux(double distance, bool is_active)
   }
 }
 
-bool
+void
 Particle::event_advance_ray(double distance_inactive, double distance_active)
 {
   // Find the distance to the nearest boundary
   boundary_ = distance_to_boundary(*this);
   double distance = boundary_.distance;
-
-  bool was_active = is_active_;
 
   // Check for final termination
   if(is_active_)

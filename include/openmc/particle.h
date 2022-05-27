@@ -235,7 +235,7 @@ public:
   // Coarse-grained particle events
   void event_calculate_xs();
   void event_advance();
-  bool event_advance_ray(double distance_inactive, double distance_active);
+  void event_advance_ray(double distance_inactive, double distance_active);
   void event_cross_surface();
   void event_collide();
   void event_revive_from_secondary();
