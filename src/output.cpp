@@ -404,6 +404,7 @@ void print_runtime()
   show_time("Total time in simulation", time_inactive.elapsed() +
     time_active.elapsed());
   show_time("Time in transport only", time_transport.elapsed(), 1);
+
   if (settings::event_based) {
     show_time("Particle initialization", time_event_init.elapsed(), 2);
     show_time("XS lookups", time_event_calculate_xs.elapsed(), 2);

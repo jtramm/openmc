@@ -32,6 +32,14 @@ extern Timer time_event_surface_crossing;
 extern Timer time_event_collision;
 extern Timer time_event_death;
 
+extern Timer time_update_src;
+extern Timer time_zero_flux;
+extern Timer time_normalize_flux;
+extern Timer time_add_source_to_flux;
+extern Timer time_compute_keff;
+extern Timer time_tally_fission_rates;
+extern Timer time_swap_fluxes;
+
 } // namespace simulation
 
 //==============================================================================

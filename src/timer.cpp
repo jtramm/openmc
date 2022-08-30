@@ -27,6 +27,14 @@ Timer time_event_surface_crossing;
 Timer time_event_collision;
 Timer time_event_death;
 
+Timer time_update_src;
+Timer time_zero_flux;
+Timer time_normalize_flux;
+Timer time_add_source_to_flux;
+Timer time_compute_keff;
+Timer time_tally_fission_rates;
+Timer time_swap_fluxes;
+
 } // namespace simulation
 
 //==============================================================================
@@ -85,6 +93,13 @@ void reset_timers()
   simulation::time_event_surface_crossing.reset();
   simulation::time_event_collision.reset();
   simulation::time_event_death.reset();
+  simulation::time_update_src.reset();
+  simulation::time_zero_flux.reset();
+  simulation::time_normalize_flux.reset();
+  simulation::time_add_source_to_flux.reset();
+  simulation::time_compute_keff.reset();
+  simulation::time_tally_fission_rates.reset();
+  simulation::time_swap_fluxes.reset();
 }
 
 } // namespace openmc

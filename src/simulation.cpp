@@ -126,7 +126,7 @@ void update_neutron_source(double k_eff)
 
             float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
             float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_in, NULL,             NULL, NULL);
-          
+
             float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_in, &energy_group_out, NULL, NULL);
 
             scatter_source += Sigma_s    * scalar_flux;
@@ -518,10 +518,14 @@ int openmc_run_random_ray()
     simulation::current_batch++;
 
     // Update neutron source
+    simulation::time_update_src.start();
     update_neutron_source(k_eff);
+    simulation::time_update_src.stop();
 
     // Reset scalar flux to zero
+    simulation::time_zero_flux.start();
     set_scalar_flux_to_zero();
+    simulation::time_zero_flux.stop();
   
     // Start timer for transport
     simulation::time_transport.start();
@@ -539,25 +543,35 @@ int openmc_run_random_ray()
     simulation::time_transport.stop();
 
     // Normalize scalar flux and update volumes
+    simulation::time_normalize_flux.start();
     normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
+    simulation::time_normalize_flux.stop();
 
     // Add source to scalar flux
+    simulation::time_add_source_to_flux.start();
     add_source_to_scalar_flux();
+    simulation::time_add_source_to_flux.stop();
     
     // Compute k-eff
+    simulation::time_compute_keff.start();
     k_eff = compute_k_eff(k_eff);
     simulation::k_generation.push_back(k_eff);
     calculate_average_keff();
+    simulation::time_compute_keff.stop();
     
     // Output status data
     print_generation();
     
     // Tally fission rates
+    simulation::time_tally_fission_rates.start();
     if( iter > settings::n_inactive)
       tally_fission_rates();
+    simulation::time_tally_fission_rates.stop();
 
     // Set phi_old = phi_new
+    simulation::time_swap_fluxes.start();
     copy_scalar_fluxes();
+    simulation::time_swap_fluxes.stop();
 
     double percent_missed = calculate_miss_rate();
     if( percent_missed > 0.01 )
@@ -570,6 +584,15 @@ int openmc_run_random_ray()
   header("Timing Statistics", 6);
   printf(" Total time elapsed                = %.4le [s]\n", simulation::time_total.elapsed());
   printf(" Time in transport only            = %.3le [s]\n", simulation::time_transport.elapsed(), 1);
+
+  printf(" Time in update src only           = %.3le [s]\n", simulation::time_update_src.elapsed(), 1);
+  printf(" Time in zeroing flux only         = %.3le [s]\n", simulation::time_zero_flux.elapsed(), 1);
+  printf(" Time in flux normalization only   = %.3le [s]\n", simulation::time_normalize_flux.elapsed(), 1);
+  printf(" Time in add source to flux only   = %.3le [s]\n", simulation::time_add_source_to_flux.elapsed(), 1);
+  printf(" Time in compte keff only          = %.3le [s]\n", simulation::time_compute_keff.elapsed(), 1);
+  printf(" Time in fission rate tally only   = %.3le [s]\n", simulation::time_tally_fission_rates.elapsed(), 1);
+  printf(" Time in flux swap only            = %.3le [s]\n", simulation::time_swap_fluxes.elapsed(), 1);
+
   printf(" Total Geometric Intersections     = %.4e\n", (double) total_geometric_intersections);
   int negroups = data::mg.num_energy_groups_;
   double total_integrations = (double) total_geometric_intersections * negroups;
