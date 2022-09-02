@@ -215,10 +215,8 @@ public:
   vector<double> sqrtkT_;
 
   //! Definition of spatial region as Boolean expression of half-spaces
-  vector<std::int32_t> region_;
-  //! Reverse Polish notation for region expression
-  vector<std::int32_t> rpn_;
-  bool simple_;  //!< Does the region contain only intersections?
+  vector<int32_t> region_;
+  bool simple_; //!< Does the region contain only intersections?
 
   //! \brief Neighboring cells in the same universe.
   NeighborList neighbors_;
@@ -244,7 +242,7 @@ protected:
   bool contains_complex(Position r, Direction u, int32_t on_surface) const;
   #pragma omp end declare target
   BoundingBox bounding_box_simple() const;
-  static BoundingBox bounding_box_complex(vector<int32_t> rpn);
+  static BoundingBox bounding_box_complex(vector<int32_t> postfix);
 
   //! Applies DeMorgan's laws to a section of the RPN
   //! \param start Starting point for token modification
