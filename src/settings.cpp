@@ -92,7 +92,7 @@ std::array<double, 4> energy_cutoff {0.0, 1000.0, 0.0, 0.0};
 int legendre_to_tabular_points {C_NONE};
 int max_order {0};
 int n_log_bins {8000};
-int n_batches;
+int n_batches {-1};
 int n_max_batches;
 ResScatMethod res_scat_method {ResScatMethod::rvs};
 double res_scat_energy_min {0.01};
@@ -147,9 +147,11 @@ void get_run_parameters(pugi::xml_node node_base)
       "max_particles_in_flight"));
   }
 
-  // Get number of basic batches
-  if (check_for_node(node_base, "batches")) {
-    n_batches = std::stoi(get_node_value(node_base, "batches"));
+  // Get number of basic batches if it wasn't specified as a command-line argument
+  if (n_batches == -1) {
+    if (check_for_node(node_base, "batches")) {
+      n_batches = std::stoi(get_node_value(node_base, "batches"));
+    }
   }
   if (!trigger_on) n_max_batches = n_batches;
 

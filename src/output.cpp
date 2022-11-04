@@ -304,6 +304,7 @@ void print_usage()
     fmt::print(
       "Usage: openmc [options] [directory]\n\n"
       "Options:\n"
+      "  -b,                    Number of batches\n"
       "  -c, --volume           Run in stochastic volume calculation mode\n"
       "  -g, --geometry-debug   Run with geometry debugging on\n"
       "  -n, --particles        Number of particles per generation\n"

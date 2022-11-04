@@ -138,6 +138,10 @@ parse_command_line(int argc, char* argv[])
       } else if (arg == "-n" || arg == "--particles") {
         i += 1;
         settings::n_particles = std::stoll(argv[i]);
+      
+      } else if (arg == "-b" || arg == "--batches") {
+        i += 1;
+        settings::n_batches = std::stoi(argv[i]);
 
       } else if (arg == "-e" || arg == "--event") {
         settings::event_based = true;
