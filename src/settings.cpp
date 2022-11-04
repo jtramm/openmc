@@ -1,6 +1,7 @@
 #include "openmc/settings.h"
 
 #include <cmath> // for ceil, pow
+#include <ctime>
 #include <limits> // for numeric_limits
 #include <string>
 
@@ -391,8 +392,12 @@ void read_settings_xml()
   }
 
   // Copy random number seed if specified
+  // If seed is set to -1, select a random seed
   if (check_for_node(root, "seed")) {
     auto seed = std::stoll(get_node_value(root, "seed"));
+    if (seed == -1) {
+      seed = time(NULL);
+    }
     openmc_set_seed(seed);
   }
 
