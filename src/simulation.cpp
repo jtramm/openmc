@@ -560,7 +560,9 @@ int openmc_run_random_ray()
     simulation::time_compute_keff.stop();
     
     // Output status data
-    print_generation();
+    if (mpi::master && settings::verbosity >= 7) {
+      print_generation();
+    }
     
     // Tally fission rates
     simulation::time_tally_fission_rates.start();
