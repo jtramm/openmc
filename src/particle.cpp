@@ -250,6 +250,8 @@ float cjosey_exponential(float tau)
 void
 Particle::attenuate_flux(double distance, bool is_active)
 {
+  assert(distance > 0.0 );
+
   //printf("ray travelling %.3le distance...\n", distance);
   n_event_++;
 
@@ -272,17 +274,24 @@ Particle::attenuate_flux(double distance, bool is_active)
   int negroups = data::mg.num_energy_groups_;
   int idx = cell_instance_ * negroups;
 
-  //printf("p_id = %d   distance = %.3lf  is_active = %d\n", id_, distance, is_active);
+  bool is_problem_cell = false;
+  //if( i_cell == 288 && cell_instance_ == 1508 )
+  //  is_problem_cell = true;
+
+  if (is_problem_cell)
+  printf("p_id = %d   distance = %.3lf  is_active = %d\n", id_, distance, is_active);
   // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
   for( int e = 0; e < negroups; e++ )
   {
     float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
-    //printf("Material = %d idx = %d e = %d cell_instance = %d idx+e = %d  source size = %d  cell ID = %d  cell name = %s\n", material_, idx, e, cell_instance_, idx+e, c.source.size(), i_cell, c.name().c_str());
+  if (is_problem_cell)
+    printf("Material = %d idx = %d e = %d cell_instance = %d idx+e = %d  source size = %d  cell ID = %d  cell name = %s\n", material_, idx, e, cell_instance_, idx+e, c.source.size(), i_cell, c.name().c_str());
     //assert(idx+e < c.source.size());
     float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
-    //printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
+  if (is_problem_cell)
+    printf("Material = %d Sigma_t = %.2le  angular_flux = %.2le  source = %.2le delta_psi = %.2le\n", material_, Sigma_t, angular_flux_[e], c.source[idx+e], delta_psi);
 
     if(is_active)
     {
@@ -298,7 +307,7 @@ Particle::attenuate_flux(double distance, bool is_active)
     c.was_hit[cell_instance_] = 1;
 
     #pragma omp atomic
-    c.volume_t[cell_instance_] += distance;
+    c.volume[cell_instance_] += distance;
   }
 }
 
@@ -309,12 +318,17 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
   boundary_ = distance_to_boundary(*this);
   double distance = boundary_.distance;
 
+  assert(distance > 0.0);
+  if(distance <= 0.0)
+    fatal_error("negative distance from ray tracer detected");
   // Check for final termination
   if(is_active_)
   {
     if(distance_travelled_ + distance >= distance_active)
     {
       distance = distance_active - distance_travelled_;
+      if(distance <= 0.0)
+        fatal_error("negative active distance correction detected");
       alive_ = false;
     }
     distance_travelled_ += distance;
@@ -329,8 +343,16 @@ Particle::event_advance_ray(double distance_inactive, double distance_active)
       is_active_ = true;
       //printf("ray activating!\n");
       double distance_dead = distance_inactive - distance_travelled_;
-      double distance_alive = distance - distance_dead;
       attenuate_flux(distance_dead,  false);
+
+      double distance_alive = distance - distance_dead;
+     
+      // Ensure we haven't travelled past the active phase as well
+      if (distance_alive > distance_active)
+      {
+        distance_alive = distance_active;
+        alive_ = false;
+      }
       attenuate_flux(distance_alive, true);
       
       distance_travelled_ = distance_alive;
@@ -772,6 +794,7 @@ Particle::cross_periodic_bc(const Surface& surf, Position new_r,
 void
 Particle::mark_as_lost(const char* message)
 {
+  printf("Lost a particle\n");
   // Print warning and write lost particle file
   warning(message);
   write_restart();
