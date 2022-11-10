@@ -189,9 +189,7 @@ void add_source_to_scalar_flux(void)
 {
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
-  int n_neg = 0;
-  double min_flux = 0.0;
-  #pragma omp parallel reduction(+:n_neg) reduction(min:min_flux)
+  #pragma omp parallel
   {
     for( int i = 0; i < model::cells.size(); i++ )
     {
@@ -210,46 +208,13 @@ void add_source_to_scalar_flux(void)
           if (volume != 0)
             cell.scalar_flux_new[idx] /= (Sigma_t * volume);
           cell.scalar_flux_new[idx] += cell.source[idx];
+
           if( cell.was_hit[c] == 0 )
             cell.scalar_flux_new[idx] = cell.scalar_flux_old[idx];
-          if (cell.scalar_flux_new[idx] < 0.0)
-          {
-            n_neg++;
-            if( cell.scalar_flux_new[idx] < min_flux )
-              min_flux = cell.scalar_flux_new[idx];
-            //printf("negative scalar flux detected! phi = %.5lf\n", cell.scalar_flux_new[idx]);
-            //cell.scalar_flux_new[idx] = 0.0;
-          }
         }
       }
     }
   }
-  /*
-  if (min_flux < -1000.0)
-  {
-    printf("Number of negative flux bins = %d. Most negative = %.5lf\n", n_neg, min_flux);
-    for( int i = 0; i < model::cells.size(); i++ )
-    {
-      Cell & cell = *model::cells[i];
-      if(cell.type_ != Fill::MATERIAL)
-        continue;
-      int material = cell.material_[0];
-      for( int c = 0; c < cell.n_instances_; c++ )
-      {
-        double volume = cell.volume[c];
-        for( int e = 0; e < negroups; e++ )
-        {
-          uint64_t idx = c * negroups + e;
-          if (cell.scalar_flux_new[idx] == min_flux)
-          {
-            printf("Minimum Flux found in cell %d, instance %d, group %d\n", i, c, e);
-          }
-        }
-      }
-    }
-    fatal_error("Flux instability detected!\n");
-  }
-  */
 }
 
 double compute_k_eff(double k_eff_old)
