@@ -277,7 +277,9 @@ Particle::attenuate_flux(double distance, bool is_active)
   // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
   for( int e = 0; e < negroups; e++ )
   {
-    float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+    //float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+    int m_idx = material_ * negroups + e; 
+    float Sigma_t = data::Sigma_t_flat[m_idx];
     float tau = Sigma_t * distance;
     float exponential = cjosey_exponential(tau);
     //assert(idx+e < c.source.size());

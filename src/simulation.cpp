@@ -93,11 +93,6 @@ void set_scalar_flux_to_zero()
     std::fill(c.volume.begin(), c.volume.end(), 0.0);
   }
 }
-  
-std::vector<float> Sigma_t_flat;
-std::vector<float> Sigma_s_flat;
-std::vector<float> nu_Sigma_f_flat;
-std::vector<float> Chi_flat;
 
 void prep_xs()
 {
@@ -105,20 +100,33 @@ void prep_xs()
   int negroups = data::mg.num_energy_groups_;
   int zero = 0;
 
-  for (auto& m : data::mg.macro_xs_) {
+  for (int mat = 0; mat < model::materials.size(); mat++) {
+    auto& m = data::mg.macro_xs_[mat];
     for (int e = 0; e < negroups; e++) {
-      float Sigma_t = m.get_xs(MgxsType::TOTAL,       e, NULL, NULL, NULL);
-      Sigma_t_flat.push_back(Sigma_t);
+      if (m.exists_in_model) {
+        float Sigma_t = m.get_xs(MgxsType::TOTAL,       e, NULL, NULL, NULL);
+        data::Sigma_t_flat.push_back(Sigma_t);
 
-      float nu_Sigma_f = m.get_xs(MgxsType::NU_FISSION, e, NULL,             NULL, NULL);
-      nu_Sigma_f_flat.push_back(nu_Sigma_f);
+        float nu_Sigma_f = m.get_xs(MgxsType::NU_FISSION, e, NULL,             NULL, NULL);
+        data::nu_Sigma_f_flat.push_back(nu_Sigma_f);
+        
+        float Sigma_f = m.get_xs(MgxsType::FISSION, e, NULL,             NULL, NULL);
+        data::Sigma_f_flat.push_back(Sigma_f);
 
-      float Chi =     m.get_xs(MgxsType::CHI_PROMPT, e, &zero, NULL, NULL);
-      Chi_flat.push_back(Chi);
-
-      for (int ee = 0; ee < negroups; ee++) {
-        float Sigma_s    = m.get_xs(MgxsType::NU_SCATTER, ee, &e, NULL, NULL);
-        Sigma_s_flat.push_back(Sigma_s);
+        for (int ee = 0; ee < negroups; ee++) {
+          float Sigma_s    = m.get_xs(MgxsType::NU_SCATTER, ee, &e, NULL, NULL);
+          data::Sigma_s_flat.push_back(Sigma_s);
+          float Chi =     m.get_xs(MgxsType::CHI_PROMPT, ee, &e, NULL, NULL);
+          data::Chi_flat.push_back(Chi);
+        }
+      } else {
+        data::Sigma_t_flat.push_back(0);
+        data::nu_Sigma_f_flat.push_back(0);
+        data::Sigma_f_flat.push_back(0);
+        for (int ee = 0; ee < negroups; ee++) {
+          data::Sigma_s_flat.push_back(0);
+          data::Chi_flat.push_back(0);
+        }
       }
 
     }
@@ -147,7 +155,7 @@ void update_neutron_source(double k_eff)
         {
           int out_idx = material * negroups + energy_group_out; 
 
-          float Sigma_t = Sigma_t_flat[out_idx];
+          float Sigma_t = data::Sigma_t_flat[out_idx];
 
           float scatter_source = 0.0;
           float fission_source = 0.0;
@@ -159,56 +167,9 @@ void update_neutron_source(double k_eff)
 
             float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
 
-            float Sigma_s = Sigma_s_flat[in_idx];
-            float nu_Sigma_f = nu_Sigma_f_flat[idx];
-            float Chi = Chi_flat[idx];
-
-            scatter_source += Sigma_s    * scalar_flux;
-            fission_source += nu_Sigma_f * scalar_flux * Chi;
-          }
-
-          fission_source *= inverse_k_eff;
-          float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
-          cell.source[c * negroups + energy_group_out] = new_isotropic_source;
-        }
-      }
-    }
-  }
-}
-
-void old_update_neutron_source(double k_eff)
-{
-  using namespace openmc;
-  double inverse_k_eff = 1.0 / k_eff;
-  int negroups = data::mg.num_energy_groups_;
-  int ncells = 0;
-
-  #pragma omp parallel
-  {
-    for( int i = 0; i < model::cells.size(); i++ )
-    {
-      Cell & cell = *model::cells[i];
-      if(cell.type_ != Fill::MATERIAL)
-        continue;
-      int material = cell.material_[0];
-      #pragma omp for schedule(static) nowait
-      for( int c = 0; c < cell.n_instances_; c++ )
-      {
-        for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
-        {
-          float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL,       energy_group_out, NULL, NULL, NULL);
-
-          float scatter_source = 0.0;
-          float fission_source = 0.0;
-
-          for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
-          {
-            float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
-
-            float Sigma_s    = data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER, energy_group_in, &energy_group_out, NULL, NULL);
-            float nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, energy_group_in, NULL,             NULL, NULL);
-
-            float Chi =     data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT, energy_group_in, &energy_group_out, NULL, NULL);
+            float Sigma_s = data::Sigma_s_flat[in_idx];
+            float nu_Sigma_f = data::nu_Sigma_f_flat[idx];
+            float Chi = data::Chi_flat[in_idx];
 
             scatter_source += Sigma_s    * scalar_flux;
             fission_source += nu_Sigma_f * scalar_flux * Chi;
@@ -285,7 +246,8 @@ void add_source_to_scalar_flux(void)
         double volume = cell.volume[c];
         for( int e = 0; e < negroups; e++ )
         {
-          float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+          int m_idx = material * negroups + e; 
+          float Sigma_t = data::Sigma_t_flat[m_idx];
           uint64_t idx = c * negroups + e;
           if (volume != 0)
             cell.scalar_flux_new[idx] /= (Sigma_t * volume);
@@ -324,7 +286,8 @@ double compute_k_eff(double k_eff_old)
         double cell_fission_source_new = 0;
         for( int e = 0; e < negroups; e++ )
         {
-          double nu_Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION, e, NULL, NULL, NULL);
+          int m_idx = material * negroups + e; 
+          float nu_Sigma_f = data::nu_Sigma_f_flat[m_idx];
           cell_fission_source_old += nu_Sigma_f * cell.scalar_flux_old[c * negroups + e];
           cell_fission_source_new += nu_Sigma_f * cell.scalar_flux_new[c * negroups + e];
         }
@@ -398,7 +361,8 @@ void tally_fission_rates(void)
 
           for( int e = 0; e < negroups; e++ )
           {
-            double Sigma_f = data::mg.macro_xs_[material].get_xs(MgxsType::FISSION, e, NULL, NULL, NULL);
+            int m_idx = material * negroups + e; 
+            float Sigma_f = data::Sigma_f_flat[m_idx];
             double phi = cell.scalar_flux_new[c * negroups + e];
 
             double score = Sigma_f * phi * volume;

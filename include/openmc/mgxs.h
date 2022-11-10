@@ -104,8 +104,10 @@ class Mgxs {
     double awr;         // atomic weight ratio
     bool fissionable;   // Is this fissionable
     std::vector<CacheData> cache; // index and data cache
+    bool exists_in_model = true;
 
     Mgxs() = default;
+    Mgxs(bool exists) : exists_in_model(exists) {;}
 
     //! \brief Constructor that loads the Mgxs object from the HDF5 file
     //!

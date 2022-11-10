@@ -63,6 +63,11 @@ public:
 };
 
 namespace data {
+  extern std::vector<float> Sigma_t_flat;
+  extern std::vector<float> Sigma_s_flat;
+  extern std::vector<float> nu_Sigma_f_flat;
+  extern std::vector<float> Sigma_f_flat;
+  extern std::vector<float> Chi_flat;
   extern MgxsInterface mg;
 }
 

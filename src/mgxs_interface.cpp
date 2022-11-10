@@ -26,6 +26,11 @@ namespace openmc {
 
 namespace data {
   MgxsInterface mg;
+  std::vector<float> Sigma_t_flat;
+  std::vector<float> Sigma_s_flat;
+  std::vector<float> nu_Sigma_f_flat;
+  std::vector<float> Sigma_f_flat;
+  std::vector<float> Chi_flat;
 }
 
 MgxsInterface::MgxsInterface(const std::string& path_cross_sections,
@@ -143,7 +148,7 @@ void MgxsInterface::create_macro_xs()
           num_energy_groups_, num_delayed_groups_);
     } else {
       // Preserve the ordering of materials by including a blank entry
-      macro_xs_.emplace_back();
+      macro_xs_.emplace_back(false);
     }
   }
 }
