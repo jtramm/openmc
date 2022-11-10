@@ -93,8 +93,90 @@ void set_scalar_flux_to_zero()
     std::fill(c.volume.begin(), c.volume.end(), 0.0);
   }
 }
+  
+std::vector<float> Sigma_t_flat;
+std::vector<float> Sigma_s_flat;
+std::vector<float> nu_Sigma_f_flat;
+std::vector<float> Chi_flat;
+
+void prep_xs()
+{
+  using namespace openmc;
+  int negroups = data::mg.num_energy_groups_;
+  int zero = 0;
+
+  for (auto& m : data::mg.macro_xs_) {
+    for (int e = 0; e < negroups; e++) {
+      float Sigma_t = m.get_xs(MgxsType::TOTAL,       e, NULL, NULL, NULL);
+      Sigma_t_flat.push_back(Sigma_t);
+
+      float nu_Sigma_f = m.get_xs(MgxsType::NU_FISSION, e, NULL,             NULL, NULL);
+      nu_Sigma_f_flat.push_back(nu_Sigma_f);
+
+      float Chi =     m.get_xs(MgxsType::CHI_PROMPT, e, &zero, NULL, NULL);
+      Chi_flat.push_back(Chi);
+
+      for (int ee = 0; ee < negroups; ee++) {
+        float Sigma_s    = m.get_xs(MgxsType::NU_SCATTER, ee, &e, NULL, NULL);
+        Sigma_s_flat.push_back(Sigma_s);
+      }
+
+    }
+  }
+}
 
 void update_neutron_source(double k_eff)
+{
+  using namespace openmc;
+  double inverse_k_eff = 1.0 / k_eff;
+  int negroups = data::mg.num_energy_groups_;
+  int ncells = 0;
+
+  #pragma omp parallel
+  {
+    for( int i = 0; i < model::cells.size(); i++ )
+    {
+      Cell & cell = *model::cells[i];
+      if(cell.type_ != Fill::MATERIAL)
+        continue;
+      int material = cell.material_[0];
+      #pragma omp for schedule(static) nowait
+      for( int c = 0; c < cell.n_instances_; c++ )
+      {
+        for( int energy_group_out = 0; energy_group_out < negroups; energy_group_out++ )
+        {
+          int out_idx = material * negroups + energy_group_out; 
+
+          float Sigma_t = Sigma_t_flat[out_idx];
+
+          float scatter_source = 0.0;
+          float fission_source = 0.0;
+
+          for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
+          {
+            int in_idx = material * negroups * negroups + energy_group_out * negroups + energy_group_in; 
+            int idx = material * negroups + energy_group_in; 
+
+            float scalar_flux = cell.scalar_flux_old[c * negroups + energy_group_in];
+
+            float Sigma_s = Sigma_s_flat[in_idx];
+            float nu_Sigma_f = nu_Sigma_f_flat[idx];
+            float Chi = Chi_flat[idx];
+
+            scatter_source += Sigma_s    * scalar_flux;
+            fission_source += nu_Sigma_f * scalar_flux * Chi;
+          }
+
+          fission_source *= inverse_k_eff;
+          float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
+          cell.source[c * negroups + energy_group_out] = new_isotropic_source;
+        }
+      }
+    }
+  }
+}
+
+void old_update_neutron_source(double k_eff)
 {
   using namespace openmc;
   double inverse_k_eff = 1.0 / k_eff;
@@ -514,6 +596,9 @@ int openmc_run_random_ray()
   double distance_active = settings::ray_distance_active;
   double distance_inactive = settings::ray_distance_inactive;
   double total_active_distance_per_iteration = distance_active * nrays;
+
+  // Serialize Material XS data
+  prep_xs();
 
   // Power Iteration Loop
   for( int iter = 1; iter <= n_iters_total; iter++ )
