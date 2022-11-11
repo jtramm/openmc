@@ -84,6 +84,7 @@ void initialize_cell_data()
 void set_scalar_flux_to_zero()
 {
   using namespace openmc;
+  #pragma omp parallel for
   for( int i = 0; i < model::cells.size(); i++ )
   {
     Cell & c = *model::cells[i];
