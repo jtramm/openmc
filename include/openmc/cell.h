@@ -210,6 +210,7 @@ public:
   std::vector<float> scalar_flux_old;
   std::vector<float> source;
   std::vector<double> volume_t;
+  std::vector<omp_lock_t> locks;
   std::vector<double> volume;
   std::vector<int> was_hit;
   std::vector<Position> positions;

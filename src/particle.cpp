@@ -250,7 +250,7 @@ float cjosey_exponential(float tau)
 void
 Particle::attenuate_flux(double distance, bool is_active)
 {
-  assert(distance > 0.0 );
+  //assert(distance > 0.0 );
 
   //printf("ray travelling %.3le distance...\n", distance);
   n_event_++;
@@ -260,47 +260,98 @@ Particle::attenuate_flux(double distance, bool is_active)
   int i_cell = coord_[coord_lvl].cell;
   Cell& c {*model::cells[i_cell]};
 
-  // Tally position if not done already
-  if(!c.position_recorded[cell_instance_])
-  {
-    #pragma omp critical
-    {
-      c.positions[cell_instance_] = r();
-      c.position_recorded[cell_instance_] = 1;
-    }
-  }
-
   // Now we know we are in cell c, at index cell_instance_ (of particle)
   int negroups = data::mg.num_energy_groups_;
   int idx = cell_instance_ * negroups;
 
+  float delta_psi[69];
+
   // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
+  #pragma omp simd
   for( int e = 0; e < negroups; e++ )
   {
     //float Sigma_t = data::mg.macro_xs_[material_].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
     int m_idx = material_ * negroups + e; 
     float Sigma_t = data::Sigma_t_flat[m_idx];
     float tau = Sigma_t * distance;
-    float exponential = cjosey_exponential(tau);
-    //assert(idx+e < c.source.size());
-    float delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
-
-    if(is_active)
+    //float exponential = cjosey_exponential(tau);
+    float exponential;
+    // Below is a manual inlining of the cjosey_exponential() function
+    // to ensure SIMD vectorization works
     {
-      #pragma omp atomic
-      c.scalar_flux_new[idx+e] += delta_psi;
+      const float c1n = -1.0000013559236386308;
+      const float c2n = 0.23151368626911062025;
+      const float c3n = -0.061481916409314966140;
+      const float c4n = 0.0098619906458127653020;
+      const float c5n = -0.0012629460503540849940;
+      const float c6n = 0.00010360973791574984608;
+      const float c7n = -0.000013276571933735820960;
+
+      const float c0d = 1.0;
+      const float c1d = -0.73151337729389001396;
+      const float c2d = 0.26058381273536471371;
+      const float c3d = -0.059892419041316836940;
+      const float c4d = 0.0099070188241094279067;
+      const float c5d = -0.0012623388962473160860;
+      const float c6d = 0.00010361277635498731388;
+      const float c7d = -0.000013276569500666698498;
+
+      float x = -tau;
+      float num, den;
+
+      den = c7d;
+      den = den * x + c6d;
+      den = den * x + c5d;
+      den = den * x + c4d;
+      den = den * x + c3d;
+      den = den * x + c2d;
+      den = den * x + c1d;
+      den = den * x + c0d;
+
+      num = c7n;
+      num = num * x + c6n;
+      num = num * x + c5n;
+      num = num * x + c4n;
+      num = num * x + c3n;
+      num = num * x + c2n;
+      num = num * x + c1n;
+      num = num * x;
+
+      exponential = num / den;
     }
 
-    angular_flux_[e] -= delta_psi;
+    //assert(idx+e < c.source.size());
+    float new_delta_psi = (angular_flux_[e] - c.source[idx+e]) * exponential;
+    delta_psi[e] = new_delta_psi;
+    angular_flux_[e] -= new_delta_psi;
   }
-    
+
   if(is_active)
   {
-    c.was_hit[cell_instance_] = 1;
+    omp_set_lock(&(c.locks[cell_instance_]));
+    #pragma omp simd
+    for( int e = 0; e < negroups; e++ )
+    {
+      c.scalar_flux_new[idx+e] += delta_psi[e];
+      //c.scalar_flux_new[idx+e] += delta_psi;
+    }
 
-    #pragma omp atomic
+    if(c.was_hit[cell_instance_] == 0)
+      c.was_hit[cell_instance_] = 1;
+
     c.volume[cell_instance_] += distance;
+
+    // Tally position if not done already
+    if(!c.position_recorded[cell_instance_])
+    {
+      c.positions[cell_instance_] = r();
+      c.position_recorded[cell_instance_] = 1;
+    }
+
+    omp_unset_lock(&(c.locks[cell_instance_]));
+
   }
+
 }
 
 void

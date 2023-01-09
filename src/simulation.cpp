@@ -68,6 +68,9 @@ void initialize_cell_data()
     
     c.volume.resize(c.n_instances_);
     //std::fill(c.volume.begin(), c.volume.end(), 1.0);
+    c.locks.resize(c.n_instances_);
+    for( int j = 0; j < c.n_instances_; j++ )
+      omp_init_lock(&(c.locks[j]));
 
     c.volume_t.resize(c.n_instances_);
     std::fill(c.volume_t.begin(), c.volume_t.end(), 0.0);
