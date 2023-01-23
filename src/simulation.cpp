@@ -164,6 +164,7 @@ void update_neutron_source(double k_eff)
           float scatter_source = 0.0;
           float fission_source = 0.0;
 
+          #pragma omp simd
           for( int energy_group_in = 0; energy_group_in < negroups; energy_group_in++ )
           {
             int in_idx = material * negroups * negroups + energy_group_out * negroups + energy_group_in; 
@@ -182,7 +183,9 @@ void update_neutron_source(double k_eff)
           fission_source *= inverse_k_eff;
           float new_isotropic_source = (scatter_source + fission_source)  / Sigma_t;
           cell.source[c * negroups + energy_group_out] = new_isotropic_source;
+          cell.scalar_flux_new[c*negroups + energy_group_out] = 0.0f;
         }
+        cell.volume[c] = 0.0f;
       }
     }
   }
@@ -208,7 +211,7 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
 
-  double normalization_factor =        1.0 /  total_active_distance_per_iteration;
+  float  normalization_factor =        1.0 /  total_active_distance_per_iteration;
   double volume_normalization_factor = 1.0 / (total_active_distance_per_iteration * iter);
 
   #pragma omp parallel
@@ -232,10 +235,12 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
   }
 }
 
-void add_source_to_scalar_flux(void)
+void add_source_to_scalar_flux(double total_active_distance_per_iteration, int iter)
 {
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
+  float  normalization_factor =        1.0 /  total_active_distance_per_iteration;
+  double volume_normalization_factor = 1.0 / (total_active_distance_per_iteration * iter);
   #pragma omp parallel
   {
     for( int i = 0; i < model::cells.size(); i++ )
@@ -247,18 +252,23 @@ void add_source_to_scalar_flux(void)
       #pragma omp for schedule(static) nowait
       for( int c = 0; c < cell.n_instances_; c++ )
       {
-        double volume = cell.volume[c];
+        cell.volume_t[c] += cell.volume[c];
+        double volume = cell.volume_t[c] * volume_normalization_factor;
+        cell.volume[c] = volume;
         for( int e = 0; e < negroups; e++ )
         {
           int m_idx = material * negroups + e; 
           float Sigma_t = data::Sigma_t_flat[m_idx];
           uint64_t idx = c * negroups + e;
+          float scalar_flux_new = cell.scalar_flux_new[idx] * normalization_factor;
           if (volume != 0)
-            cell.scalar_flux_new[idx] /= (Sigma_t * volume);
-          cell.scalar_flux_new[idx] += cell.source[idx];
+            scalar_flux_new /= (Sigma_t * volume);
+          scalar_flux_new += cell.source[idx];
 
           if( cell.was_hit[c] == 0 )
-            cell.scalar_flux_new[idx] = cell.scalar_flux_old[idx];
+            scalar_flux_new = cell.scalar_flux_old[idx];
+
+          cell.scalar_flux_new[idx] = scalar_flux_new;
         }
       }
     }
@@ -310,13 +320,15 @@ void copy_scalar_fluxes(void)
 {
   using namespace openmc;
   int negroups = data::mg.num_energy_groups_;
-  #pragma omp parallel
+  //#pragma omp parallel
   {
     for( int i = 0; i < model::cells.size(); i++ )
     {
       Cell & cell = *model::cells[i];
       if(cell.type_ != Fill::MATERIAL)
         continue;
+      cell.scalar_flux_old.swap(cell.scalar_flux_new);
+      /*
       #pragma omp for schedule(static) nowait
       for( int c = 0; c < cell.n_instances_; c++ )
       {
@@ -326,6 +338,7 @@ void copy_scalar_fluxes(void)
           cell.scalar_flux_old[idx] = cell.scalar_flux_new[idx];
         }
       }
+      */
     }
   }
 }
@@ -510,7 +523,6 @@ double calculate_miss_rate(void)
 int openmc_run_random_ray()
 {
   using namespace openmc;
-  openmc::simulation::time_total.start();
 
   print_inputs();
 
@@ -567,6 +579,8 @@ int openmc_run_random_ray()
 
   // Serialize Material XS data
   prep_xs();
+  
+  openmc::simulation::time_total.start();
 
   // Power Iteration Loop
   for( int iter = 1; iter <= n_iters_total; iter++ )
@@ -580,9 +594,9 @@ int openmc_run_random_ray()
     simulation::time_update_src.stop();
 
     // Reset scalar and volumes flux to zero
-    simulation::time_zero_flux.start();
-    set_scalar_flux_to_zero();
-    simulation::time_zero_flux.stop();
+    //simulation::time_zero_flux.start();
+    //set_scalar_flux_to_zero();
+    //simulation::time_zero_flux.stop();
   
     // Start timer for transport
     simulation::time_transport.start();
@@ -600,13 +614,14 @@ int openmc_run_random_ray()
     simulation::time_transport.stop();
 
     // Normalize scalar flux and update volumes
-    simulation::time_normalize_flux.start();
-    normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
-    simulation::time_normalize_flux.stop();
+    //simulation::time_normalize_flux.start();
+    //normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
+    //simulation::time_normalize_flux.stop();
 
     // Add source to scalar flux
     simulation::time_add_source_to_flux.start();
-    add_source_to_scalar_flux();
+    //add_source_to_scalar_flux();
+    add_source_to_scalar_flux(total_active_distance_per_iteration, iter);
     simulation::time_add_source_to_flux.stop();
     
     // Compute k-eff
