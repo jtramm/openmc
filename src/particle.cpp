@@ -344,7 +344,8 @@ Particle::attenuate_flux(double distance, bool is_active)
     // Tally position if not done already
     if(!c.position_recorded[cell_instance_])
     {
-      c.positions[cell_instance_] = r();
+      Position midpoint = r() + u() * (distance/2.0);
+      c.positions[cell_instance_] = midpoint;
       c.position_recorded[cell_instance_] = 1;
     }
 
