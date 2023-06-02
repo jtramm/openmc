@@ -382,7 +382,8 @@ void tally_fission_rates(void)
             float Sigma_f = data::Sigma_f_flat[m_idx];
             double phi = cell.scalar_flux_new[c * negroups + e];
 
-            double score = Sigma_f * phi * volume;
+            //double score = Sigma_f * phi * volume;
+            double score = phi * volume;
 
             auto& tally {*model::tallies[0]};
         
@@ -443,7 +444,6 @@ void initialize_ray(openmc::Particle & p, uint64_t index_source, uint64_t nrays,
     if (!exhaustive_find_cell(p)) {
       p.mark_as_lost("Could not find the cell containing particle "
         + std::to_string(p.id_));
-      exit(1);
     }
 
     // Set birth cell attribute
@@ -607,7 +607,9 @@ int openmc_run_random_ray()
     {
       Particle p;
       initialize_ray(p, i, nrays, iter);
-      total_geometric_intersections += transport_history_based_single_ray(p, distance_inactive, distance_active);
+      if (p.alive_) {
+        total_geometric_intersections += transport_history_based_single_ray(p, distance_inactive, distance_active);
+      }
     }
     
     // Start timer for transport
