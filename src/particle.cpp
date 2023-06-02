@@ -264,7 +264,7 @@ Particle::attenuate_flux(double distance, bool is_active)
   int negroups = data::mg.num_energy_groups_;
   int idx = cell_instance_ * negroups;
 
-  float delta_psi[69];
+  float delta_psi[7];
 
   // Now xs is an array of XsData, each one corresponding to one (outgoing) energy group
   #pragma omp simd
