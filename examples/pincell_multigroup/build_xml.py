@@ -13,13 +13,8 @@ groups = openmc.mgxs.EnergyGroups(group_edges=[
     1e-5, 0.0635, 10.0, 1.0e2, 1.0e3, 0.5e6, 1.0e6, 20.0e6])
 
 # Instantiate the 7-group (C5G7) cross section data
-uo2_xsdata = openmc.XSdata('UO2', groups)
+uo2_xsdata = openmc.XSdata('UO2', groups, temperatures=[294.0, 600.0])
 uo2_xsdata.order = 0
-uo2_xsdata.set_total(
-    [0.1779492, 0.3298048, 0.4803882, 0.5543674, 0.3118013, 0.3951678,
-     0.5644058])
-uo2_xsdata.set_absorption([8.0248E-03, 3.7174E-03, 2.6769E-02, 9.6236E-02,
-                           3.0020E-02, 1.1126E-01, 2.8278E-01])
 scatter_matrix = np.array(
     [[[0.1275370, 0.0423780, 0.0000094, 0.0000000, 0.0000000, 0.0000000, 0.0000000],
       [0.0000000, 0.3244560, 0.0016314, 0.0000000, 0.0000000, 0.0000000, 0.0000000],
@@ -29,15 +24,23 @@ scatter_matrix = np.array(
       [0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0012968, 0.2658020, 0.0168090],
       [0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0085458, 0.2730800]]])
 scatter_matrix = np.rollaxis(scatter_matrix, 0, 3)
-uo2_xsdata.set_scatter_matrix(scatter_matrix)
-uo2_xsdata.set_fission([7.21206E-03, 8.19301E-04, 6.45320E-03,
-                        1.85648E-02, 1.78084E-02, 8.30348E-02,
-                        2.16004E-01])
-uo2_xsdata.set_nu_fission([2.005998E-02, 2.027303E-03, 1.570599E-02,
-                           4.518301E-02, 4.334208E-02, 2.020901E-01,
-                           5.257105E-01])
-uo2_xsdata.set_chi([5.8791E-01, 4.1176E-01, 3.3906E-04, 1.1761E-07, 0.0000E+00,
-                    0.0000E+00, 0.0000E+00])
+
+# Original C5G7 data
+uo2_xsdata.set_total([0.1779492, 0.3298048, 0.4803882, 0.5543674, 0.3118013, 0.3951678, 0.5644058], temperature=294.0)
+uo2_xsdata.set_absorption([8.0248E-03, 3.7174E-03, 2.6769E-02, 9.6236E-02, 3.0020E-02, 1.1126E-01, 2.8278E-01], temperature=294.0)
+uo2_xsdata.set_scatter_matrix(scatter_matrix, temperature=294.0)
+uo2_xsdata.set_fission([7.21206E-03, 8.19301E-04, 6.45320E-03, 1.85648E-02, 1.78084E-02, 8.30348E-02, 2.16004E-01], temperature=294.0)
+uo2_xsdata.set_nu_fission([2.005998E-02, 2.027303E-03, 1.570599E-02, 4.518301E-02, 4.334208E-02, 2.020901E-01, 5.257105E-01], temperature=294.0)
+uo2_xsdata.set_chi([5.8791E-01, 4.1176E-01, 3.3906E-04, 1.1761E-07, 0.0000E+00, 0.0000E+00, 0.0000E+00], temperature=294.0)
+
+# Altered C5G7 data (permuted Chi)
+uo2_xsdata.set_total([0.1779492, 0.3298048, 0.4803882, 0.5543674, 0.3118013, 0.3951678, 0.5644058], temperature=600.0)
+uo2_xsdata.set_absorption([8.0248E-03, 3.7174E-03, 2.6769E-02, 9.6236E-02, 3.0020E-02, 1.1126E-01, 2.8278E-01], temperature=600.0)
+uo2_xsdata.set_scatter_matrix(scatter_matrix, temperature=600.0)
+uo2_xsdata.set_fission([7.21206E-03, 8.19301E-04, 6.45320E-03, 1.85648E-02, 1.78084E-02, 8.30348E-02, 2.16004E-01], temperature=600.0)
+uo2_xsdata.set_nu_fission([2.005998E-02, 2.027303E-03, 1.570599E-02, 4.518301E-02, 4.334208E-02, 2.020901E-01, 5.257105E-01], temperature=600.0)
+uo2_xsdata.set_chi([4.1176E-01, 5.8791E-01, 3.3906E-04, 1.1761E-07, 0.0000E+00, 0.0000E+00, 0.0000E+00], temperature=600.0)
+
 
 h2o_xsdata = openmc.XSdata('LWTR', groups)
 h2o_xsdata.order = 0
@@ -86,6 +89,7 @@ materials_file.export_to_xml()
 # Define problem geometry
 
 # Create a surface for the fuel outer radius
+fuel_ir = openmc.ZCylinder(r=0.25, name='Fuel IR')
 fuel_or = openmc.ZCylinder(r=0.54, name='Fuel OR')
 
 # Create a region represented as the inside of a rectangular prism
@@ -93,11 +97,14 @@ pitch = 1.26
 box = openmc.rectangular_prism(pitch, pitch, boundary_type='reflective')
 
 # Instantiate Cells
-fuel = openmc.Cell(fill=uo2, region=-fuel_or, name='fuel')
+fuel_inner = openmc.Cell(fill=uo2, region=-fuel_ir, name='fuel inner')
+fuel_inner.temperature = 600.0
+fuel_outer = openmc.Cell(fill=uo2, region=+fuel_ir & -fuel_or, name='fuel outer')
+fuel_outer.temperature = 294.0
 moderator = openmc.Cell(fill=water, region=+fuel_or & box, name='moderator')
 
 # Create a geometry with the two cells and export to XML
-geometry = openmc.Geometry([fuel, moderator])
+geometry = openmc.Geometry([fuel_inner, fuel_outer, moderator])
 geometry.export_to_xml()
 
 ###############################################################################
@@ -106,9 +113,9 @@ geometry.export_to_xml()
 # Instantiate a Settings object, set all runtime parameters, and export to XML
 settings = openmc.Settings()
 settings.energy_mode = "multi-group"
-settings.batches = 100
-settings.inactive = 10
-settings.particles = 1000
+settings.batches = 10
+settings.inactive = 5
+settings.particles = 10000
 
 # Create an initial uniform spatial source distribution over fissionable zones
 lower_left = (-pitch/2, -pitch/2, -1)
