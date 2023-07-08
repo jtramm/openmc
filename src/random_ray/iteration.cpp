@@ -63,6 +63,8 @@ int openmc_run_random_ray(void)
   double distance_active = settings::ray_distance_active;
   double distance_inactive = settings::ray_distance_inactive;
   double total_active_distance_per_iteration = distance_active * nrays;
+  
+  random_ray::segments.resize(nrays);
 
   openmc::simulation::time_total.start();
 
@@ -81,8 +83,11 @@ int openmc_run_random_ray(void)
 
     // Reset scalar fluxes, iteration volume tallies, and region hit flags to zero
     parallel_fill<float>(random_ray::scalar_flux_new, 0.0f);
-    parallel_fill<double>(random_ray::volume, 0.0);
+    parallel_fill<double>(random_ray::tracklength, 0.0);
     parallel_fill<int>(random_ray::was_hit, 0);
+
+    for (int i = 0; i < nrays; i++)
+      random_ray::segments[i].clear();
 
     // Start timer for transport
     simulation::time_transport.start();
@@ -96,11 +101,29 @@ int openmc_run_random_ray(void)
       total_geometric_intersections += r.transport_history_based_single_ray(distance_inactive, distance_active);
     }
 
+    // Update Volumes
+    normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
+    
+    // Actual Transport Sweep
+    #pragma omp parallel for schedule(runtime)
+    for (int r = 0; r < nrays; r++) {
+      int negroups = data::mg.num_energy_groups_;
+      std::vector<float> angular_flux(negroups, 0.0);
+      std::vector<float> delta_psi(negroups, 0.0);
+
+      for (int s = 0; s < random_ray::segments[r].size(); s++ ) {
+        Segment& seg = random_ray::segments[r][s];
+        if (s == 0 ) {
+          for (int e = 0; e < negroups; e++) {
+            angular_flux[e] = random_ray::source[seg.cell * negroups + e];
+          }
+        }
+        attenuate_segment(seg, angular_flux, delta_psi);
+      }
+    }
+
     // Stop timer for transport
     simulation::time_transport.stop();
-
-    // Normalize scalar flux and update volumes
-    normalize_scalar_flux_and_volumes(total_active_distance_per_iteration, iter);
 
     // Add source to scalar flux
     int64_t n_hits = add_source_to_scalar_flux();
@@ -183,23 +206,31 @@ void update_neutron_source(double k_eff)
 
 void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteration, int iter)
 {
-  int negroups = data::mg.num_energy_groups_;
+  //int negroups = data::mg.num_energy_groups_;
 
+  /*
   float  normalization_factor =        1.0 /  total_active_distance_per_iteration;
   double volume_normalization_factor = 1.0 / (total_active_distance_per_iteration * iter);
+  */
 
+  /*
   // Normalize Scalar flux to total distance travelled by all rays this iteration
   #pragma omp parallel for
   for (int64_t e = 0; e < random_ray::scalar_flux_new.size(); e++) {
     random_ray::scalar_flux_new[e] *= normalization_factor;
   }
+  */
 
   // Accumulate cell-wise ray length tallies collected this iteration, then
   // update the simulation-averaged cell-wise volume estimates
   #pragma omp parallel for
   for (int64_t sr = 0; sr < random_ray::n_source_regions; sr++) {
-    random_ray::volume_t[sr] += random_ray::volume[sr];
-    random_ray::volume[sr] = random_ray::volume_t[sr] * volume_normalization_factor;
+    random_ray::volume_t[sr] += random_ray::tracklength[sr];
+    random_ray::volume[sr] = random_ray::volume_t[sr] / iter;
+    random_ray::corr[sr] = random_ray::volume[sr] / random_ray::tracklength[sr];
+    double corr = random_ray::corr[sr];
+    if( ! (corr > 0.01 && corr < 10.0 ) )
+      printf("corr = %.6le tl = %.6le volume_t = %.6le volume = %.6le\n", corr, random_ray::tracklength[sr], random_ray::volume_t[sr], random_ray::volume[sr]);
   }
 }
 

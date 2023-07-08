@@ -25,7 +25,9 @@ std::vector<int> material;
 std::vector<int> position_recorded;
 std::vector<Position> position;
 std::vector<double> volume;
+std::vector<double> tracklength;
 std::vector<double> volume_t;
+std::vector<double> corr;
 std::vector<int> was_hit;
 
 // 1D arrays representing values for all source regions x energy groups
@@ -65,7 +67,9 @@ void initialize_source_regions()
   random_ray::position_recorded.assign(random_ray::n_source_regions, 0);
   random_ray::position.resize(random_ray::n_source_regions);
   random_ray::volume.assign(random_ray::n_source_regions, 0.0);
+  random_ray::tracklength.assign(random_ray::n_source_regions, 0.0);
   random_ray::volume_t.assign(random_ray::n_source_regions, 0.0);
+  random_ray::corr.assign(random_ray::n_source_regions, 0.0);
   random_ray::was_hit.assign(random_ray::n_source_regions, 0);
 
   // Initialize element-wise arrays

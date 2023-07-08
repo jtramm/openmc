@@ -7,6 +7,10 @@
 
 namespace openmc {
 
+namespace random_ray {
+ std::vector<std::vector<Segment>> segments;
+} // namespace random_ray
+
 //==============================================================================
 // Ray implementation
 //==============================================================================
@@ -103,6 +107,9 @@ void Ray::attenuate_flux(double distance, bool is_active)
   int64_t source_region_group_idx = source_region_idx * negroups;
   int material = this->material();
 
+  random_ray::segments[id()].emplace_back(distance, source_region_idx, material, is_active);
+
+  /*
   for( int e = 0; e < negroups; e++ )
   {
     float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
@@ -112,26 +119,76 @@ void Ray::attenuate_flux(double distance, bool is_active)
     delta_psi_[e] = new_delta_psi;
     angular_flux_[e] -= new_delta_psi;
   }
+  */
 
   if(is_active)
   {
     random_ray::lock[source_region_idx].lock();
 
-    for (int e = 0; e < negroups; e++) {
-      random_ray::scalar_flux_new[source_region_group_idx + e] += delta_psi_[e];
+    /*
+    if (!is_rt_only_)
+    {
+      for (int e = 0; e < negroups; e++) {
+        random_ray::scalar_flux_new[source_region_group_idx + e] += delta_psi_[e];
+      }
     }
+    */
 
     if (random_ray::was_hit[source_region_idx] == 0) {
       random_ray::was_hit[source_region_idx] = 1;
     }
 
-    random_ray::volume[source_region_idx] += distance;
+    random_ray::tracklength[source_region_idx] += distance;
 
     // Tally position if not done already
     if (!random_ray::position_recorded[source_region_idx]) {
       Position midpoint = r() + u() * (distance/2.0);
       random_ray::position[source_region_idx] = midpoint;
       random_ray::position_recorded[source_region_idx] = 1;
+    }
+
+    random_ray::lock[source_region_idx].unlock();
+  }
+}
+
+void attenuate_segment(Segment& s, std::vector<float>& angular_flux, std::vector<float>& delta_psi)
+{
+  int negroups = data::mg.num_energy_groups_;
+
+  double dist_correction = random_ray::corr[s.cell];
+  double distance;
+  if(s.is_active)
+    distance = s.length_physical * dist_correction;
+  else
+    distance = s.length_physical;
+  int64_t source_region_idx = s.cell;
+  int64_t source_region_group_idx = source_region_idx * negroups;
+  int material = s.material;
+
+  for( int e = 0; e < negroups; e++ )
+  {
+    float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+    float tau = Sigma_t * distance;
+    float exponential = cjosey_exponential(tau);
+    float new_delta_psi = (angular_flux[e] - random_ray::source[source_region_group_idx + e]) * exponential;
+    delta_psi[e] = new_delta_psi;
+    angular_flux[e] -= new_delta_psi;
+  }
+
+  if(s.is_vac)
+  {
+    for( int e = 0; e < negroups; e++ )
+    {
+      angular_flux[e] = 0.0;
+    }
+  }
+
+  if(s.is_active)
+  {
+    random_ray::lock[source_region_idx].lock();
+
+    for (int e = 0; e < negroups; e++) {
+      random_ray::scalar_flux_new[source_region_group_idx + e] += delta_psi[e];
     }
 
     random_ray::lock[source_region_idx].unlock();

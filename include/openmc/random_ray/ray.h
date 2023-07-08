@@ -5,6 +5,34 @@
 
 namespace openmc {
 
+#define NEGROUPS 7
+
+struct Segment {
+  double length_physical;
+  //double length_corrected;
+  int64_t cell;
+  int material;
+  //int is_end_vac;
+  bool is_active;
+  bool is_vac {0};
+  /*
+  float flux_in[NEGROUPS];
+  float flux_out_true[NEGROUPS];
+  float flux_out_adjusted[NEGROUPS];
+  */
+  Segment(double length_phys, int64_t cell_val, int mat_val, bool is_act)
+    : length_physical(length_phys),
+    cell(cell_val),
+    material(mat_val),
+    is_active(is_act)
+  {
+  }
+};
+
+namespace random_ray {
+extern std::vector<std::vector<Segment>> segments;
+} // namespace random_ray
+
 /*
  * The Ray class encompasses data and methods for transporting random rays
  * through the model. It is a small extension of the Particle class.
@@ -32,12 +60,15 @@ public:
   double distance_travelled_ {0};
   bool is_active_ {false};
   bool is_alive_ {true};
+  bool is_rt_only_ {true};
+  int curr_segment_ {0};
 }; // class Ray
 
 //==============================================================================
 // Non-member functions
 //==============================================================================
 inline float cjosey_exponential(const float tau);
+void attenuate_segment(Segment& s, std::vector<float>& angular_flux, std::vector<float>& delta_psi);
 
 } // namespace openmc
 

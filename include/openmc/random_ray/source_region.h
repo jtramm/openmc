@@ -25,9 +25,12 @@ extern std::vector<Position> position;
 extern std::vector<float> scalar_flux_new;
 extern std::vector<float> scalar_flux_old;
 extern std::vector<float> source;
+extern std::vector<double> tracklength;
+extern std::vector<double> corr;
 extern std::vector<double> volume;
 extern std::vector<double> volume_t;
 extern std::vector<int> was_hit;
+
 
 } // namespace random_ray
 

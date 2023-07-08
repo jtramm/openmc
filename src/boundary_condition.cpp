@@ -26,6 +26,7 @@ void VacuumBC::handle_particle(Particle& p, const Surface& surf) const
     // Set ray's angular flux spectrum to vacuum conditions (zero)
     Ray* r = static_cast<Ray*>(&p);
     std::fill(r->angular_flux_.begin(), r->angular_flux_.end(), 0.0);
+    random_ray::segments[r->id()].back().is_vac = true;
 
   } else {
     p.cross_vacuum_bc(surf);
