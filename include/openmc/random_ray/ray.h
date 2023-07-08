@@ -20,6 +20,7 @@ struct Segment {
   float flux_out_true[NEGROUPS];
   float flux_out_adjusted[NEGROUPS];
   */
+  Segment() = default;
   Segment(double length_phys, int64_t cell_val, int mat_val, bool is_act)
     : length_physical(length_phys),
     cell(cell_val),

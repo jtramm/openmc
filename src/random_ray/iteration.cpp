@@ -87,7 +87,7 @@ int openmc_run_random_ray(void)
     parallel_fill<int>(random_ray::was_hit, 0);
 
     for (int i = 0; i < nrays; i++)
-      random_ray::segments[i].clear();
+      random_ray::segments[i].resize(0);
 
     // Start timer for transport
     simulation::time_transport.start();

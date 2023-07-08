@@ -172,15 +172,6 @@ void attenuate_segment(Segment& s, std::vector<float>& angular_flux, std::vector
     float exponential = cjosey_exponential(tau);
     float new_delta_psi = (angular_flux[e] - random_ray::source[source_region_group_idx + e]) * exponential;
     delta_psi[e] = new_delta_psi;
-    angular_flux[e] -= new_delta_psi;
-  }
-
-  if(s.is_vac)
-  {
-    for( int e = 0; e < negroups; e++ )
-    {
-      angular_flux[e] = 0.0;
-    }
   }
 
   if(s.is_active)
@@ -192,6 +183,27 @@ void attenuate_segment(Segment& s, std::vector<float>& angular_flux, std::vector
     }
 
     random_ray::lock[source_region_idx].unlock();
+  }
+  
+  
+  /*
+  distance = s.length_physical;
+  for( int e = 0; e < negroups; e++ )
+  {
+    float Sigma_t = data::mg.macro_xs_[material].get_xs(MgxsType::TOTAL, e, NULL, NULL, NULL);
+    float tau = Sigma_t * distance;
+    float exponential = cjosey_exponential(tau);
+    float new_delta_psi = (angular_flux[e] - random_ray::source[source_region_group_idx + e]) * exponential;
+    delta_psi[e] = new_delta_psi;
+  }
+  */
+
+  if(s.is_vac) {
+    for( int e = 0; e < negroups; e++ )
+      angular_flux[e] = 0.0;
+  } else {
+    for( int e = 0; e < negroups; e++ )
+      angular_flux[e] -= delta_psi[e];
   }
 }
 
