@@ -157,7 +157,7 @@ void attenuate_segment(Segment& s, std::vector<float>& angular_flux, std::vector
 
   double dist_correction = random_ray::corr[s.cell];
   double distance;
-  if(s.is_active)
+  if(dist_correction > 1e-3 && dist_correction < 1e3)
     distance = s.length_physical * dist_correction;
   else
     distance = s.length_physical;
