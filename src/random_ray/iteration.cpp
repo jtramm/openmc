@@ -229,8 +229,8 @@ void normalize_scalar_flux_and_volumes(double total_active_distance_per_iteratio
     random_ray::volume[sr] = random_ray::volume_t[sr] / iter;
     random_ray::corr[sr] = random_ray::volume[sr] / random_ray::tracklength[sr];
     double corr = random_ray::corr[sr];
-    if( ! (corr > 0.01 && corr < 10.0 ) )
-      printf("corr = %.6le tl = %.6le volume_t = %.6le volume = %.6le\n", corr, random_ray::tracklength[sr], random_ray::volume_t[sr], random_ray::volume[sr]);
+    //if( ! (corr > 0.01 && corr < 10.0 ) )
+    //  printf("corr = %.6le tl = %.6le volume_t = %.6le volume = %.6le\n", corr, random_ray::tracklength[sr], random_ray::volume_t[sr], random_ray::volume[sr]);
   }
 }
 

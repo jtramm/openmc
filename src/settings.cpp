@@ -3,6 +3,7 @@
 #include <cmath>  // for ceil, pow
 #include <limits> // for numeric_limits
 #include <string>
+#include <time.h>
 
 #include <fmt/core.h>
 #ifdef _OPENMP
@@ -409,6 +410,9 @@ void read_settings_xml(pugi::xml_node root)
   // Copy random number seed if specified
   if (check_for_node(root, "seed")) {
     auto seed = std::stoll(get_node_value(root, "seed"));
+    if (seed == -1) {
+      seed = time(NULL);
+    }
     openmc_set_seed(seed);
   }
 
