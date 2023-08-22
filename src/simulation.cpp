@@ -132,7 +132,7 @@ int openmc_simulation_init()
     write_message("Resuming simulation...", 6);
   } else {
     // Only initialize primary source bank for eigenvalue simulations
-    if (settings::run_mode == RunMode::EIGENVALUE) {
+    if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
       initialize_source();
     }
   }
@@ -322,10 +322,12 @@ Particle*  device_particles {nullptr};
 
 void allocate_banks()
 {
-  if (settings::run_mode == RunMode::EIGENVALUE) {
+  if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
     // Allocate source bank
     simulation::source_bank.resize(simulation::work_per_rank);
+  }
 
+  if (settings::run_mode == RunMode::EIGENVALUE) {
     // Allocate fission bank
     init_fission_bank(3*simulation::work_per_rank);
   }
@@ -501,15 +503,14 @@ void finalize_generation()
 double initialize_history(Particle& p, int index_source)
 {
   // set defaults
-  if (settings::run_mode == RunMode::EIGENVALUE) {
+  if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
     // set defaults for eigenvalue simulations from primary bank
     p.from_source(simulation::device_source_bank[index_source - 1]);
   } else if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    printf("fixed source mode not yet supported on device.\n");
     /*
     // initialize random number seed
     int64_t id = (simulation::total_gen + overall_generation() - 1)*settings::n_particles +
-      simulation::work_index[mpi::rank] + index_source;
+      simulation::device_work_index[mpi::rank] + index_source;
     uint64_t seed = init_seed(id, STREAM_SOURCE);
     // sample from external source distribution or custom library then set
     auto site = sample_external_source(&seed);

@@ -1094,6 +1094,8 @@ double Surface::distance(Position r, Direction u, bool coincident) const
 
 Direction Surface::normal(Position r) const
 {
+  //printf("Hello from surface normal!\n");
+  //printf("type = %d\n", type_);
   switch(type_){
     case SurfaceType::SurfaceXPlane:    return SurfaceXPlane_normal(r);    break;
     case SurfaceType::SurfaceYPlane:    return SurfaceYPlane_normal(r);    break;
@@ -1108,6 +1110,7 @@ Direction Surface::normal(Position r) const
     case SurfaceType::SurfaceZCone:     return SurfaceZCone_normal(r);     break;
     case SurfaceType::SurfaceQuadric:   return SurfaceQuadric_normal(r);   break;
   }
+  //printf("Goodbye from surface normal!\n");
 }
 
 void Surface::to_hdf5_inner(hid_t group_id) const

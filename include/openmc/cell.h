@@ -20,7 +20,8 @@
 #include "openmc/surface.h"
 #include "openmc/vector.h"
 
-#define RPN_SIZE 24 // complex cell
+//#define RPN_SIZE 24 // complex cell
+#define RPN_SIZE 627 // fusion fixed src 627
 
 namespace openmc {
 
