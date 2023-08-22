@@ -578,9 +578,10 @@ IncoherentInelasticAE::sample(double E_in, double& E_out, double& mu,
 void IncoherentInelasticAE::serialize(DataBuffer& buffer) const
 {
   buffer.add(static_cast<int>(AngleEnergyType::INCOHERENT_INELASTIC)); // 4
+  buffer.align(8); // 4
 
   // Calculate offsets for distributions
-  size_t offset = 4 + 4 + aligned((8 + 4)*energy_.size(), 8);
+  size_t offset = 4 + 4 + 8 + aligned((8 + 4)*energy_.size(), 8);
   std::vector<int> offsets;
   for (const auto& dist : distribution_) {
     offsets.push_back(offset);
@@ -591,7 +592,7 @@ void IncoherentInelasticAE::serialize(DataBuffer& buffer) const
   }
 
   // Write energy grid and offsets
-  buffer.add(static_cast<int>(energy_.size()));  // 4
+  buffer.add(static_cast<size_t>(energy_.size()));  // 8
   buffer.add(energy_);                           // 8*energy size
   buffer.add(offsets);                           // 4*energy size
   buffer.align(8);
@@ -611,12 +612,12 @@ void IncoherentInelasticAE::serialize(DataBuffer& buffer) const
 IncoherentInelasticAEFlat::IncoherentInelasticAEFlat(const uint8_t* data)
   : data_(data)
 {
-  n_energy_ =  *reinterpret_cast<const size_t*>(data_ + 4);
+  n_energy_ =  *reinterpret_cast<const size_t*>(data_ + 8);
 }
 
 gsl::span<const double> IncoherentInelasticAEFlat::energy() const
 {
-  auto start = reinterpret_cast<const double*>(data_ + 8);
+  auto start = reinterpret_cast<const double*>(data_ + 16);
   return {start, n_energy_};
 }
 
@@ -653,7 +654,7 @@ double DistEnergySabFlat::mu(gsl::index i, gsl::index j) const
 
 DistEnergySabFlat IncoherentInelasticAEFlat::distribution(gsl::index i) const
 {
-  auto offsets = reinterpret_cast<const int*>(data_ + 8 + 8*n_energy_);
+  auto offsets = reinterpret_cast<const int*>(data_ + 16 + 8*n_energy_);
   return DistEnergySabFlat(data_ + offsets[i]);
 }
 
