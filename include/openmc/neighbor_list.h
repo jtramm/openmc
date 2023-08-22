@@ -8,7 +8,7 @@
 #include <assert.h>
 
 //#define NEIGHBOR_SIZE 13 // limited by SMR
-#define NEIGHBOR_SIZE 700 // limited by SMR
+#define NEIGHBOR_SIZE 200 // Fusion
 
 namespace openmc{
 

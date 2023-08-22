@@ -132,7 +132,7 @@ int openmc_simulation_init()
     write_message("Resuming simulation...", 6);
   } else {
     // Only initialize primary source bank for eigenvalue simulations
-    if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
+    if (settings::run_mode == RunMode::EIGENVALUE) {
       initialize_source();
     }
   }
@@ -506,8 +506,10 @@ double initialize_history(Particle& p, int index_source)
   if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
     // set defaults for eigenvalue simulations from primary bank
     p.from_source(simulation::device_source_bank[index_source - 1]);
-  } else if (settings::run_mode == RunMode::FIXED_SOURCE) {
+  }
+  
     /*
+  else if (settings::run_mode == RunMode::FIXED_SOURCE) {
     // initialize random number seed
     int64_t id = (simulation::total_gen + overall_generation() - 1)*settings::n_particles +
       simulation::device_work_index[mpi::rank] + index_source;
@@ -515,8 +517,8 @@ double initialize_history(Particle& p, int index_source)
     // sample from external source distribution or custom library then set
     auto site = sample_external_source(&seed);
     p.from_source(site);
-    */
   }
+    */
   p.current_work_ = index_source;
 
   // set identifier for particle
@@ -852,6 +854,10 @@ void transport_event_based()
   // In practice, this optimization has a few percent improvement in performance. Improvements are largest
   // when # particles per iteration <= max # particles in flight.
   const int64_t max_revival_period = 100;
+    
+  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+    initialize_source();
+  }
 
   // Transfer source/fission bank to device
   #pragma omp target update to(simulation::device_source_bank[:simulation::source_bank.size()])
@@ -947,6 +953,16 @@ void transport_event_based()
   #ifdef OPENMC_MPI
   MPI_Barrier( mpi::intracomm );
   #endif
+  #pragma omp target update from(model::device_cells[0:model::cells.size()])
+  for( auto& cell : model::cells ) {
+    for(int i = 0; i < NEIGHBOR_SIZE; i++){
+      int n = cell.neighbors_.list_[i];
+      if (n == -1) {
+        printf("cell ID %d has %d neighbors\n", cell.id_, i);
+        break;
+      }
+    }
+  }
 }
 
 } // namespace openmc

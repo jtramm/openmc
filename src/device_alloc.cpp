@@ -383,6 +383,7 @@ void release_data_from_device()
   for (int i = 0; i < model::tallies_size; ++i) {
     model::tallies[i].release_from_device();
   }
+  
 }
 
 

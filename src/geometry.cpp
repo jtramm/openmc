@@ -384,6 +384,8 @@ bool neighbor_list_find_cell(Particle& p)
   if (found)
     return found;
 
+  //printf("Didn't find valid neighbor. Doing full search of universe\n");
+
   // The particle could not be found in the neighbor list.  Try searching all
   // cells in this universe, and update the neighbor list if we find a new
   // neighboring cell.

@@ -355,6 +355,21 @@ void initialize_source()
   }
 }
 
+void initialize_fixed_source()
+{
+  // Generation source sites from specified distribution in user input
+  #pragma omp parallel for
+  for (int64_t i = 0; i < simulation::work_per_rank; ++i) {
+    // initialize random number seed
+    int64_t id = (simulation::total_gen + overall_generation() - 1)*settings::n_particles +
+      simulation::device_work_index[mpi::rank] + i + 1;
+    uint64_t seed = init_seed(id, STREAM_SOURCE);
+
+    // sample external source distribution
+    simulation::source_bank[i] = sample_external_source(&seed);
+  }
+}
+
 Particle::Bank sample_external_source(uint64_t* seed)
 {
   // Determine total source strength
