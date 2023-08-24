@@ -226,7 +226,7 @@ int openmc_next_batch(int* status)
     initialize_generation();
   
     if (settings::run_mode == RunMode::FIXED_SOURCE) {
-      initialize_source();
+      initialize_fixed_source();
     }
 
     // Start timer for transport
@@ -966,6 +966,7 @@ void transport_event_based()
   #ifdef OPENMC_MPI
   MPI_Barrier( mpi::intracomm );
   #endif
+  /*
   #pragma omp target update from(model::device_cells[0:model::cells.size()])
   for( auto& cell : model::cells ) {
     for(int i = 0; i < NEIGHBOR_SIZE; i++){
@@ -976,6 +977,7 @@ void transport_event_based()
       }
     }
   }
+  */
 }
 
 } // namespace openmc

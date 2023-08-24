@@ -129,13 +129,6 @@ void move_read_only_data_to_device()
   if (mpi::master) {
     std::cout << " Moving " << model::cells.size() << " cells to device..." << std::endl;
   }
-  int max = 0;
-  for( auto& cell : model::cells ) {
-    int rpn = cell.rpn_.size();
-    if( rpn > max)
-      max = rpn;
-  }
-  std::cout << "Max RPN per cell =" << max << std::endl;
 
   model::device_cells = model::cells.data();
   #pragma omp target enter data map(to: model::device_cells[0:model::cells.size()])

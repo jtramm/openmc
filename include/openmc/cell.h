@@ -20,9 +20,6 @@
 #include "openmc/surface.h"
 #include "openmc/vector.h"
 
-//#define RPN_SIZE 24 // complex cell
-#define RPN_SIZE 627 // fusion fixed src 627
-
 namespace openmc {
 
 //==============================================================================
@@ -220,7 +217,7 @@ public:
   bool simple_; //!< Does the region contain only intersections?
 
   //! \brief Neighboring cells in the same universe.
-  NeighborList neighbors_;
+  vector<NeighborList> neighbors_;
 
   Position translation_ {0, 0, 0}; //!< Translation vector for filled universe
 
