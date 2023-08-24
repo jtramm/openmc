@@ -115,8 +115,8 @@ tokenize(const std::string region_spec) {
 //! precedence than unions using parentheses.
 //==============================================================================
 
-std::vector<int32_t>::iterator add_parentheses(
-  std::vector<int32_t>::iterator start, std::vector<int32_t>& infix)
+vector<int32_t>::iterator add_parentheses(
+  vector<int32_t>::iterator start, vector<int32_t>& infix)
 {
   int32_t start_token = *start;
   // Add left parenthesis
@@ -174,7 +174,7 @@ std::vector<int32_t>::iterator add_parentheses(
   return return_iterator;
 }
 
-void add_precedence(std::vector<int32_t>& infix)
+void add_precedence(openmc::vector<int32_t>& infix)
 {
   int32_t current_op = 0;
 
@@ -451,13 +451,7 @@ void Cell::copy_to_device()
   material_.copy_to_device();
   sqrtkT_.copy_to_device();
   region_.copy_to_device();
-  rpn_.copy_to_device();
   offset_.copy_to_device();
-
-  // Ensure RPN size for cell is below threshold for complex geometry stack
-  if (rpn_.size() > RPN_SIZE) {
-    fatal_error("RPN cell definition is too large for static complex CSG evaluation stack. Increase size of RPN_SIZE macro.");
-  }
 }
 
 //==============================================================================
@@ -789,7 +783,7 @@ Cell::to_hdf5(hid_t cell_group) const
 BoundingBox Cell::bounding_box_simple() const {
   BoundingBox bbox;
   for (int32_t token : region_) {
-    bbox &= model::surfaces[abs(token) - 1]->bounding_box(token > 0);
+    bbox &= model::surfaces[abs(token) - 1].bounding_box(token > 0);
   }
   return bbox;
 }
@@ -809,7 +803,7 @@ void Cell::apply_demorgan(vector<int32_t>::iterator start,
   } while (start < stop);
 }
 
-vector<int32_t>::iterator CSGCell::find_left_parenthesis(
+vector<int32_t>::iterator Cell::find_left_parenthesis(
   vector<int32_t>::iterator start, const vector<int32_t>& infix)
 {
   // start search at zero
@@ -842,7 +836,7 @@ vector<int32_t>::iterator CSGCell::find_left_parenthesis(
   return it;
 }
 
-void CSGCell::remove_complement_ops(vector<int32_t>& infix)
+void Cell::remove_complement_ops(vector<int32_t>& infix)
 {
   auto it = std::find(infix.begin(), infix.end(), OP_COMPLEMENT);
   while (it != infix.end()) {
@@ -874,7 +868,7 @@ void CSGCell::remove_complement_ops(vector<int32_t>& infix)
   }
 }
 
-BoundingBox CSGCell::bounding_box_complex(vector<int32_t> postfix)
+BoundingBox Cell::bounding_box_complex(vector<int32_t> postfix)
 {
   vector<BoundingBox> stack(postfix.size());
   int i_stack = -1;
@@ -897,7 +891,7 @@ BoundingBox CSGCell::bounding_box_complex(vector<int32_t> postfix)
   return stack.front();
 }
 
-BoundingBox CSGCell::bounding_box() const
+BoundingBox Cell::bounding_box() const
 {
   if (simple_) {
     return bounding_box_simple();
@@ -951,7 +945,7 @@ Cell::contains_complex(Position r, Direction u, int32_t on_surface) const
         in_cell = false;
       } else {
         // Note the off-by-one indexing
-        bool sense = model::surfaces[abs(token) - 1]->sense(r, u);
+        bool sense = model::device_surfaces[abs(token) - 1].sense(r, u);
         in_cell = (sense == (token > 0));
       }
     } else if ((token == OP_UNION && in_cell == true) ||
@@ -1082,7 +1076,7 @@ UniversePartitioner::UniversePartitioner(const Universe& univ)
   // O(log(n)) insertions that will ensure entries are not repeated.
   for (auto i_cell : univ.cells_) {
     //for (auto token : model::cells[i_cell]->rpn_) {
-    for (auto token : model::cells[i_cell].rpn_) {
+    for (auto token : model::cells[i_cell].region_) {
       if (token < OP_UNION) {
         auto i_surf = std::abs(token) - 1;
         const auto* surf = &model::surfaces[i_surf];
@@ -1111,7 +1105,7 @@ UniversePartitioner::UniversePartitioner(const Universe& univ)
     int32_t lower_token = 0, upper_token = 0;
     double min_z, max_z;
     //for (auto token : model::cells[i_cell]->rpn_) {
-    for (auto token : model::cells[i_cell].rpn_) {
+    for (auto token : model::cells[i_cell].region_) {
       if (token < OP_UNION) {
         const auto* surf = &model::surfaces[std::abs(token) - 1];
         //if (const auto* zplane = dynamic_cast<const SurfaceZPlane*>(surf)) {
@@ -1130,7 +1124,7 @@ UniversePartitioner::UniversePartitioner(const Universe& univ)
       }
     }
 
-    // If there are no bounding z-planes, add this cell to all partitions.
+    // If thregion are no bounding z-planes, add this cell to all partitions.
     if (lower_token == 0) {
       for (auto& p : partitions_) p.push_back(i_cell);
       continue;
