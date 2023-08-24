@@ -123,16 +123,19 @@ void dispatch_xs_event(int buffer_idx)
   // Determine if the particle requires an XS lookup or not
   bool needs_lookup = p.event_calculate_xs_dispatch();
 
+  int cell_id = p.coord_[p.n_coord_ - 1].cell;
+  int surface_id = p.boundary_.surface_index;
+
   if (needs_lookup) {
     // If a lookup is needed, dispatch to fuel vs. non-fuel lookup queue
     if (!model::materials[p.material_].fissionable_) {
-      simulation::calculate_nonfuel_xs_queue.thread_safe_append({p.E_, p.material_, buffer_idx});
+      simulation::calculate_nonfuel_xs_queue.thread_safe_append({p.E_, p.material_, buffer_idx, cell_id, surface_id});
     } else {
-      simulation::calculate_fuel_xs_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::calculate_fuel_xs_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     }
   } else {
     // Otherwise, particle can move directly to the advance particle queue
-    simulation::advance_particle_queue.thread_safe_append({p.E_, buffer_idx});
+    simulation::advance_particle_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
   }
 }
 
@@ -254,10 +257,12 @@ void process_advance_particle_events()
     int buffer_idx = simulation::advance_particle_queue[i].idx;
     Particle& p = simulation::device_particles[buffer_idx];
     p.event_advance();
+    int cell_id = p.coord_[p.n_coord_ - 1].cell;
+    int surface_id = p.boundary_.surface_index;
     if (p.collision_distance_ > p.boundary_.distance) {
-      simulation::surface_crossing_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::surface_crossing_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     } else {
-      simulation::collision_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::collision_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     }
   }
   simulation::surface_crossing_queue.sync_size_device_to_host();
@@ -283,6 +288,13 @@ void process_advance_particle_events()
 
 void process_surface_crossing_events()
 {
+  // Sort fuel lookup queue by energy
+  if (settings::sort_surface_crossing) {
+    simulation::time_event_sort.start();
+    device_sort_event_queue_item_by_cell(simulation::surface_crossing_queue.device_data(), simulation::surface_crossing_queue.device_data() + simulation::surface_crossing_queue.size());
+    simulation::time_event_sort.stop();
+  }
+
   simulation::time_event_surface_crossing.start();
 
   int n_particles = simulation::surface_crossing_queue.size();
@@ -294,7 +306,11 @@ void process_surface_crossing_events()
     if (p.alive())
       dispatch_xs_event(buffer_idx);
     else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
+    {
+      int cell_id = p.coord_[p.n_coord_ - 1].cell;
+      int surface_id = p.boundary_.surface_index;
+      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
+    }
   }
 
   simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
@@ -319,7 +335,11 @@ void process_collision_events()
     if (p.alive())
       dispatch_xs_event(buffer_idx);
     else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
+    {
+      int cell_id = p.coord_[p.n_coord_ - 1].cell;
+      int surface_id = p.boundary_.surface_index;
+      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
+    }
   }
 
   simulation::calculate_fuel_xs_queue.sync_size_device_to_host();

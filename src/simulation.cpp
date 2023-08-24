@@ -224,6 +224,10 @@ int openmc_next_batch(int* status)
     #pragma omp target update to(current_gen)
 
     initialize_generation();
+  
+    if (settings::run_mode == RunMode::FIXED_SOURCE) {
+      initialize_source();
+    }
 
     // Start timer for transport
     simulation::time_transport.start();
@@ -855,10 +859,6 @@ void transport_event_based()
   // when # particles per iteration <= max # particles in flight.
   const int64_t max_revival_period = 100;
     
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    initialize_source();
-  }
-
   // Transfer source/fission bank to device
   #pragma omp target update to(simulation::device_source_bank[:simulation::source_bank.size()])
   simulation::fission_bank.copy_host_to_device();
@@ -881,6 +881,10 @@ void transport_event_based()
   process_init_events(n_particles);
 
   int event = 0;
+  int n_xs = 0;
+  int n_advance = 0;
+  int n_surf = 0;
+  int n_coll = 0;
 
   // Event-based transport loop
   while (true) {
@@ -915,12 +919,16 @@ void transport_event_based()
     } else if (max == simulation::calculate_fuel_xs_queue.size()) {
       process_calculate_xs_events_fuel();
     } else if (max == simulation::calculate_nonfuel_xs_queue.size()) {
+      n_xs++;
       process_calculate_xs_events_nonfuel();
     } else if (max == simulation::advance_particle_queue.size()) {
+      n_advance++;
       process_advance_particle_events();
     } else if (max == simulation::surface_crossing_queue.size()) {
+      n_surf++;
       process_surface_crossing_events();
     } else if (max == simulation::collision_queue.size()) {
+      n_coll++;
       process_collision_events();
     }
 
@@ -935,6 +943,11 @@ void transport_event_based()
     }
     */
   }
+  printf("xs events      = %d\n", n_xs);
+  printf("advance events = %d\n", n_advance);
+  printf("surf events    = %d\n", n_surf);
+  printf("coll events    = %d\n", n_coll);
+  printf("tot events     = %d\n", event);
 
   // Execute death event for all particles
   process_death_events(n_particles);

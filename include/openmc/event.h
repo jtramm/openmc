@@ -25,13 +25,15 @@ struct EventQueueItem{
   int idx;      //!< particle index in event-based particle buffer
   int material; //!< material that particle is in
   float E;      //!< particle energy
+  int cell_id;     //!< cell ID
+  int surface_id;
 
   // Constructors
   EventQueueItem() = default;
-  EventQueueItem(double energy, int buffer_idx) :
-    idx(buffer_idx), material(0), E(static_cast<float>(energy)) {}
-  EventQueueItem(double energy, int mat, int buffer_idx) :
-    idx(buffer_idx), material(mat), E(static_cast<float>(energy)) {}
+  EventQueueItem(double energy, int buffer_idx, int cell_id, int surface_id) :
+    idx(buffer_idx), material(0), E(static_cast<float>(energy)), cell_id(cell_id), surface_id(surface_id)  {}
+  EventQueueItem(double energy, int mat, int buffer_idx, int cell_id, int surface_id) :
+    idx(buffer_idx), material(mat), E(static_cast<float>(energy)), cell_id(cell_id), surface_id(surface_id) {}
 
   // Compare by particle type, then by material type (4.5% fuel/7.0% fuel/cladding/etc),
   // then by energy.
@@ -145,6 +147,7 @@ void process_revival_events();
 //! \param begin A pointer to the beginning of the queue
 //! \param end A pointer to the end of the queue
 void device_sort_event_queue_item(EventQueueItem* begin, EventQueueItem* end);
+void device_sort_event_queue_item_by_cell(EventQueueItem* begin, EventQueueItem* end);
 #endif
 
 #ifdef SYCL_SORT

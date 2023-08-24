@@ -88,6 +88,7 @@ int64_t max_particles_in_flight {-1};
 
 bool sort_fissionable_xs_lookups {true};
 bool sort_non_fissionable_xs_lookups {true};
+bool sort_surface_crossing {true};
 
 ElectronTreatment electron_treatment {ElectronTreatment::TTB};
 std::array<double, 4> energy_cutoff {0.0, 1000.0, 0.0, 0.0};
