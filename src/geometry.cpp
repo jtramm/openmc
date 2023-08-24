@@ -371,6 +371,7 @@ bool neighbor_list_find_cell(Particle& p)
   auto i_cell = p.coord_[coord_lvl].cell;
   //Cell& c {model::cells[i_cell]};
   Cell& c {model::device_cells[i_cell]};
+  int i_surface = std::abs(p.surface_);
 
   // Search for the particle in that cell's neighbor list.  Return if we
   // found the particle.
@@ -378,7 +379,7 @@ bool neighbor_list_find_cell(Particle& p)
   //#pragma omp target update to(p, c)
   //#pragma omp target map(from: found)
   {
-    found = find_cell_inner(p, &c.neighbors_);
+    found = find_cell_inner(p, &c.neighbors_[i_surface]);
   }
   //#pragma omp target update from(p, c)
   if (found)
@@ -400,7 +401,7 @@ bool neighbor_list_find_cell(Particle& p)
     //#pragma omp target update to(p, c)
     //#pragma omp target
     {
-    c.neighbors_.push_back(p.coord_[coord_lvl].cell);
+    c.neighbors_[i_surface].push_back(p.coord_[coord_lvl].cell);
     }
     //#pragma omp target update from(p, c)
   }
