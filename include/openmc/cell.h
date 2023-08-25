@@ -216,7 +216,8 @@ public:
   vector<int32_t> region_;
   bool simple_; //!< Does the region contain only intersections?
 
-  //! \brief Neighboring cells in the same universe.
+  //! \brief Stores a neighbor list corresponding to each surface in the simulation,
+  //! storing neighboring cells in the same universe.
   vector<NeighborList> neighbors_;
 
   Position translation_ {0, 0, 0}; //!< Translation vector for filled universe

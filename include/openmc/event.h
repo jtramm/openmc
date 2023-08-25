@@ -22,11 +22,11 @@ namespace openmc {
 // result in any benefits if not enough particles are present for them to achieve
 // consistent locality improvements. 
 struct EventQueueItem{
-  int idx;      //!< particle index in event-based particle buffer
-  int material; //!< material that particle is in
-  float E;      //!< particle energy
-  int cell_id;     //!< cell ID
-  int surface_id;
+  int idx;        //!< particle index in event-based particle buffer
+  int material;   //!< material that particle is in
+  float E;        //!< particle energy
+  int cell_id;    //!< cell ID
+  int surface_id; //!< surface ID
 
   // Constructors
   EventQueueItem() = default;
@@ -34,40 +34,14 @@ struct EventQueueItem{
     idx(buffer_idx), material(0), E(static_cast<float>(energy)), cell_id(cell_id), surface_id(surface_id)  {}
   EventQueueItem(double energy, int mat, int buffer_idx, int cell_id, int surface_id) :
     idx(buffer_idx), material(mat), E(static_cast<float>(energy)), cell_id(cell_id), surface_id(surface_id) {}
-
-  // Compare by particle type, then by material type (4.5% fuel/7.0% fuel/cladding/etc),
-  // then by energy.
-  // TODO: Currently in OpenMC, the material ID corresponds not only to a general
-  // type, but also specific isotopic densities. Ideally we would
-  // like to be able to just sort by general material type, regardless of densities.
-  // A more general material type ID may be added in the future, in which case we
-  // can update the material field of this struct to contain the more general id.
-
-  /*
-  #ifdef COMPILE_CUDA_COMPARATOR
-  __host__ __device__
-  #endif
-  bool operator<(const EventQueueItem& rhs) const
-  {
-    if (material == rhs.material) {
-      return E < rhs.E;
-    } else {
-      return material < rhs.material;
-    }
-  }
-  
-  // This is needed by the implementation of parallel quicksort
-  bool operator>(const EventQueueItem& rhs) const
-  {
-    if (material == rhs.material) {
-      return E > rhs.E;
-    } else {
-      return material > rhs.material;
-    }
-  }
-  */
 };
+
+// Enumeration used for specifying which way you want to sort a queue
 enum SortBy { material_energy, cell_surface };
+
+// Comparators for sorting queues. The "G" variants are required
+// for the parallel qsort host implementation in addition to the regular
+// comparators.
 
 struct MatECmp {
   #ifdef COMPILE_CUDA_COMPARATOR
@@ -120,7 +94,6 @@ struct CellSurfCmpG {
     }
   }
 };
-
 
 //==============================================================================
 // Global variable declarations
