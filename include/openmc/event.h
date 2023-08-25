@@ -88,9 +88,9 @@ struct MatECmpG {
   #endif
   bool operator()(const EventQueueItem& o1, const EventQueueItem& o2) {
     if (o1.material == o2.material) {
-      return o1.E < o2.E;
+      return o1.E > o2.E;
     } else {
-      return o1.material < o2.material;
+      return o1.material > o2.material;
     }
   }
 };

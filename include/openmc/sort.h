@@ -42,8 +42,8 @@
 
 #include<algorithm>
 
-template <class T, class compare>
-void quickSort_parallel_internal(T* arr, int left, int right, int cutoff, compare comp, compare compG)
+template <class T, class compare1, class compare2>
+void quickSort_parallel_internal(T* arr, int left, int right, int cutoff, compare1 comp, compare2 compG)
 {
   int i = left;
   int j = right;
@@ -62,19 +62,19 @@ void quickSort_parallel_internal(T* arr, int left, int right, int cutoff, compar
   }
 
   if ((right-left) < cutoff) {
-    if (left < j)  { quickSort_parallel_internal(arr, left, j,  cutoff); }
-    if (i < right) { quickSort_parallel_internal(arr, i, right, cutoff); }
+    if (left < j)  { quickSort_parallel_internal(arr, left, j,  cutoff, comp, compG); }
+    if (i < right) { quickSort_parallel_internal(arr, i, right, cutoff, comp, compG); }
   } else {
     #pragma omp task
-    { quickSort_parallel_internal(arr, left, j, cutoff); }
+    { quickSort_parallel_internal(arr, left, j, cutoff, comp, compG); }
     #pragma omp task
-    { quickSort_parallel_internal(arr, i, right, cutoff); }
+    { quickSort_parallel_internal(arr, i, right, cutoff, comp, compG); }
   }
 
 }
 
-template <class T, class compare>
-void quickSort_parallel(T* arr, int lenArray, compare comp, compare compG)
+template <class T, class compare1, class compare2>
+void quickSort_parallel(T* arr, int lenArray, compare1 comp, compare2 compG)
 {
   // Set minumum problem size to still spawn threads for
   int cutoff = 1000;
