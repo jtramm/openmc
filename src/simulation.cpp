@@ -881,10 +881,6 @@ void transport_event_based()
   process_init_events(n_particles);
 
   int event = 0;
-  int n_xs = 0;
-  int n_advance = 0;
-  int n_surf = 0;
-  int n_coll = 0;
 
   // Event-based transport loop
   while (true) {
@@ -919,16 +915,12 @@ void transport_event_based()
     } else if (max == simulation::calculate_fuel_xs_queue.size()) {
       process_calculate_xs_events_fuel();
     } else if (max == simulation::calculate_nonfuel_xs_queue.size()) {
-      n_xs++;
       process_calculate_xs_events_nonfuel();
     } else if (max == simulation::advance_particle_queue.size()) {
-      n_advance++;
       process_advance_particle_events();
     } else if (max == simulation::surface_crossing_queue.size()) {
-      n_surf++;
       process_surface_crossing_events();
     } else if (max == simulation::collision_queue.size()) {
-      n_coll++;
       process_collision_events();
     }
 

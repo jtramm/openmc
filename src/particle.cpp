@@ -564,7 +564,6 @@ Particle::cross_surface()
   if (neighbor_list_find_cell(*this))
     return;
 
-  printf("Couldn't find neighbor, launching exhaustive find cell...\n");
   // ==========================================================================
   // COULDN'T FIND PARTICLE IN NEIGHBORING CELLS, SEARCH ALL CELLS
 
