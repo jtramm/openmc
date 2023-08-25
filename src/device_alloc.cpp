@@ -126,8 +126,12 @@ void move_read_only_data_to_device()
 
   // Cells //////////////////////////////////////////////////////////
 
+  sz = model::cells.size() * model::surfaces.size() * NEIGHBOR_SIZE * sizeof(int32_t);
+  double nb = (double) sz / 1.0e6;
+
   if (mpi::master) {
     std::cout << " Moving " << model::cells.size() << " cells to device..." << std::endl;
+    std::cout << " Moving cell-surface neighbor lists to device of size: " << nb << " MB" << std::endl;
   }
 
   model::device_cells = model::cells.data();

@@ -7,8 +7,7 @@
 #include <mutex>
 #include <assert.h>
 
-//#define NEIGHBOR_SIZE 13 // limited by SMR
-#define NEIGHBOR_SIZE 35 // Fusion
+#define NEIGHBOR_SIZE 13 // limited by SMR
 
 namespace openmc{
 
