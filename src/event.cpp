@@ -37,7 +37,7 @@ int sort_counter{0};
 // Non-member functions
 //==============================================================================
 
-void sort_queue(SharedArray<EventQueueItem>& queue)
+void sort_queue(SharedArray<EventQueueItem>& queue, SortBy sort_by)
 {
   simulation::time_event_sort.start();
 
@@ -45,20 +45,40 @@ void sort_queue(SharedArray<EventQueueItem>& queue)
   {
     simulation::sort_counter++;
 
-    #ifdef CUDA_THRUST_SORT
-    device_sort_event_queue_item(queue.device_data(), queue.device_data() + queue.size());
-    #elif SYCL_SORT
-    sort_queue_SYCL(queue.device_data(), queue.device_data() + queue.size());
-    #else
-    // Transfer queue information to the host
-    #pragma omp target update from(queue.data_[:queue.size()])
+    switch(sort_by) {
+      case material_energy:
+        #ifdef CUDA_THRUST_SORT
+        thrust_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+        #elif SYCL_SORT
+        SYCL_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+        #else
+        // Transfer queue information to the host
+        #pragma omp target update from(queue.data_[:queue.size()])
 
-    // Sort queue via OpenMP parallel sort implementation
-    quickSort_parallel(queue.data(), queue.size());
+        // Sort queue via OpenMP parallel sort implementation
+        quickSort_parallel(queue.data(), queue.size(), MatECmp(), MatECmpG());
 
-    // Transfer queue information back to the device
-    #pragma omp target update to(queue.data_[:queue.size()])
-    #endif
+        // Transfer queue information back to the device
+        #pragma omp target update to(queue.data_[:queue.size()])
+        #endif
+        break;
+      case cell_surface:
+        #ifdef CUDA_THRUST_SORT
+        thrust_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+        #elif SYCL_SORT
+        SYCL_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+        #else
+        // Transfer queue information to the host
+        #pragma omp target update from(queue.data_[:queue.size()])
+
+        // Sort queue via OpenMP parallel sort implementation
+        quickSort_parallel(queue.data(), queue.size(), CellSurfCmp(), CellSurfCmpG());
+
+        // Transfer queue information back to the device
+        #pragma omp target update to(queue.data_[:queue.size()])
+        #endif
+        break;
+    }
   }
 
   simulation::time_event_sort.stop();
@@ -181,7 +201,7 @@ void process_calculate_xs_events_nonfuel()
 {
   // Sort non fuel lookup queue by material and energy
   if (settings::sort_non_fissionable_xs_lookups) {
-    sort_queue(simulation::calculate_nonfuel_xs_queue);
+    sort_queue(simulation::calculate_nonfuel_xs_queue, SortBy::material_energy);
   }
 
   simulation::time_event_calculate_xs.start();
@@ -214,7 +234,7 @@ void process_calculate_xs_events_fuel()
 {
   // Sort fuel lookup queue by energy
   if (settings::sort_fissionable_xs_lookups) {
-    sort_queue(simulation::calculate_fuel_xs_queue);
+    sort_queue(simulation::calculate_fuel_xs_queue, SortBy::material_energy);
   }
 
   // The below line can be used to check if the queue has actually been sorted.
@@ -290,9 +310,7 @@ void process_surface_crossing_events()
 {
   // Sort fuel lookup queue by energy
   if (settings::sort_surface_crossing) {
-    simulation::time_event_sort.start();
-    device_sort_event_queue_item_by_cell(simulation::surface_crossing_queue.device_data(), simulation::surface_crossing_queue.device_data() + simulation::surface_crossing_queue.size());
-    simulation::time_event_sort.stop();
+    sort_queue(simulation::surface_crossing_queue, SortBy::cell_surface);
   }
 
   simulation::time_event_surface_crossing.start();

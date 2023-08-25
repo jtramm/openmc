@@ -10,9 +10,14 @@
 
 namespace openmc{
 
-void device_sort_event_queue_item(EventQueueItem* begin, EventQueueItem* end)
+void thrust_sort_MatE(EventQueueItem* begin, EventQueueItem* end)
 {
-  thrust::sort(thrust::device, begin, end);
+  thrust::sort(thrust::device, begin, end, MatECmp());
+}
+
+void thrust_sort_CellSurf(EventQueueItem* begin, EventQueueItem* end)
+{
+  thrust::sort(thrust::device, begin, end, CellSurfCmp());
 }
 
 }
