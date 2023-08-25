@@ -943,11 +943,6 @@ void transport_event_based()
     }
     */
   }
-  printf("xs events      = %d\n", n_xs);
-  printf("advance events = %d\n", n_advance);
-  printf("surf events    = %d\n", n_surf);
-  printf("coll events    = %d\n", n_coll);
-  printf("tot events     = %d\n", event);
 
   // Execute death event for all particles
   process_death_events(n_particles);
@@ -966,18 +961,6 @@ void transport_event_based()
   #ifdef OPENMC_MPI
   MPI_Barrier( mpi::intracomm );
   #endif
-  /*
-  #pragma omp target update from(model::device_cells[0:model::cells.size()])
-  for( auto& cell : model::cells ) {
-    for(int i = 0; i < NEIGHBOR_SIZE; i++){
-      int n = cell.neighbors_.list_[i];
-      if (n == -1) {
-        printf("cell ID %d has %d neighbors\n", cell.id_, i);
-        break;
-      }
-    }
-  }
-  */
 }
 
 } // namespace openmc
