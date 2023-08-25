@@ -6,9 +6,14 @@
 
 namespace openmc{
 
-void sort_queue_SYCL(EventQueueItem* begin, EventQueueItem* end)
+void SYCL_sort_MatE(EventQueueItem* begin, EventQueueItem* end)
 {
-  std::sort( oneapi::dpl::execution::dpcpp_default, begin, end);
+  std::sort( oneapi::dpl::execution::dpcpp_default, begin, end, MatECmp());
+}
+
+void SYCL_sort_CellSurf(EventQueueItem* begin, EventQueueItem* end)
+{
+  std::sort( oneapi::dpl::execution::dpcpp_default, begin, end, CellSurfCmp());
 }
 
 } // end namespace openmc

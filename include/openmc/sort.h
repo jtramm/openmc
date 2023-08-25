@@ -42,17 +42,17 @@
 
 #include<algorithm>
 
-template <class T>
-void quickSort_parallel_internal(T* arr, int left, int right, int cutoff)
+template <class T, class compare>
+void quickSort_parallel_internal(T* arr, int left, int right, int cutoff, compare comp, compare compG)
 {
   int i = left;
   int j = right;
   T pivot = arr[(left + right) / 2];
 
   while (i <= j) {
-    while (arr[i] < pivot)
+    while (comp(arr[i],pivot))
       i++;
-    while (arr[j] > pivot)
+    while (compG(arr[j],pivot))
       j--;
     if (i <= j) {
       std::swap(arr[i], arr[j]);
@@ -73,8 +73,8 @@ void quickSort_parallel_internal(T* arr, int left, int right, int cutoff)
 
 }
 
-template <class T>
-void quickSort_parallel(T* arr, int lenArray)
+template <class T, class compare>
+void quickSort_parallel(T* arr, int lenArray, compare comp, compare compG)
 {
   // Set minumum problem size to still spawn threads for
   int cutoff = 1000;
@@ -90,6 +90,6 @@ void quickSort_parallel(T* arr, int lenArray)
   #pragma omp parallel num_threads(numThreads)
   {
     #pragma omp single nowait
-    { quickSort_parallel_internal(arr, 0, lenArray-1, cutoff); }
+    { quickSort_parallel_internal(arr, 0, lenArray-1, cutoff, comp, compG); }
   }
 }

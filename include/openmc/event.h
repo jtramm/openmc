@@ -42,6 +42,8 @@ struct EventQueueItem{
   // like to be able to just sort by general material type, regardless of densities.
   // A more general material type ID may be added in the future, in which case we
   // can update the material field of this struct to contain the more general id.
+
+  /*
   #ifdef COMPILE_CUDA_COMPARATOR
   __host__ __device__
   #endif
@@ -61,6 +63,60 @@ struct EventQueueItem{
       return E > rhs.E;
     } else {
       return material > rhs.material;
+    }
+  }
+  */
+};
+enum SortBy { material_energy, cell_surface };
+
+struct MatECmp {
+  #ifdef COMPILE_CUDA_COMPARATOR
+  __host__ __device__
+  #endif
+  bool operator()(const EventQueueItem& o1, const EventQueueItem& o2) {
+    if (o1.material == o2.material) {
+      return o1.E < o2.E;
+    } else {
+      return o1.material < o2.material;
+    }
+  }
+};
+
+struct MatECmpG {
+  #ifdef COMPILE_CUDA_COMPARATOR
+  __host__ __device__
+  #endif
+  bool operator()(const EventQueueItem& o1, const EventQueueItem& o2) {
+    if (o1.material == o2.material) {
+      return o1.E < o2.E;
+    } else {
+      return o1.material < o2.material;
+    }
+  }
+};
+
+struct CellSurfCmp {
+  #ifdef COMPILE_CUDA_COMPARATOR
+  __host__ __device__
+  #endif
+  bool operator()(const EventQueueItem& o1, const EventQueueItem& o2) {
+    if (o1.cell_id  == o2.cell_id) {
+      return o1.surface_id < o2.surface_id;
+    } else {
+      return o1.cell_id < o2.cell_id;
+    }
+  }
+};
+
+struct CellSurfCmpG {
+  #ifdef COMPILE_CUDA_COMPARATOR
+  __host__ __device__
+  #endif
+  bool operator()(const EventQueueItem& o1, const EventQueueItem& o2) {
+    if (o1.cell_id  == o2.cell_id) {
+      return o1.surface_id > o2.surface_id;
+    } else {
+      return o1.cell_id > o2.cell_id;
     }
   }
 };
@@ -146,8 +202,8 @@ void process_revival_events();
 //
 //! \param begin A pointer to the beginning of the queue
 //! \param end A pointer to the end of the queue
-void device_sort_event_queue_item(EventQueueItem* begin, EventQueueItem* end);
-void device_sort_event_queue_item_by_cell(EventQueueItem* begin, EventQueueItem* end);
+void thrust_sort_MatE(EventQueueItem* begin, EventQueueItem* end);
+void thrust_sort_CellSurf(EventQueueItem* begin, EventQueueItem* end);
 #endif
 
 #ifdef SYCL_SORT
@@ -155,7 +211,8 @@ void device_sort_event_queue_item_by_cell(EventQueueItem* begin, EventQueueItem*
 //
 //! \param begin A pointer to the beginning of the queue
 //! \param end A pointer to the end of the queue
-void sort_queue_SYCL(EventQueueItem* begin, EventQueueItem* end);
+void SYCL_sort_MatE(EventQueueItem* begin, EventQueueItem* end);
+void SYCL_sort_CellSurf(EventQueueItem* begin, EventQueueItem* end);
 #endif
 
 } // namespace openmc
