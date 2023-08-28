@@ -1124,7 +1124,7 @@ UniversePartitioner::UniversePartitioner(const Universe& univ)
       }
     }
 
-    // If thregion are no bounding z-planes, add this cell to all partitions.
+    // If there are no bounding z-planes, add this cell to all partitions.
     if (lower_token == 0) {
       for (auto& p : partitions_) p.push_back(i_cell);
       continue;
