@@ -42,13 +42,6 @@ public:
   //! \param[in] group HDF5 group containing data
   explicit ReactionProduct(hid_t group);
 
-  //! Sample an outgoing angle and energy
-  //! \param[in] E_in Incoming energy in [eV]
-  //! \param[out] E_out Outgoing energy in [eV]
-  //! \param[out] mu Outgoing cosine with respect to current direction
-  //! \param[inout] seed Pseudorandom seed pointer
-  void sample(double E_in, double& E_out, double& mu, uint64_t* seed) const;
-
   void serialize(DataBuffer& buffer) const;
 
   Particle::Type particle_; //!< Particle type
