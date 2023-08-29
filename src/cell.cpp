@@ -127,8 +127,13 @@ vector<int32_t>::iterator add_parentheses(
   }
   start++;
 
-  // Initialize return iterator
-  auto return_iterator = infix.begin();
+  // Keep track of return iterator distance. If we don't encounter a left
+  // parenthesis, we return an iterator corresponding to wherever the right
+  // parenthesis is inserted. If a left parenthesis is encountered, an iterator
+  // corresponding to the left parenthesis is returned. Also note that we keep
+  // track of a *distance* instead of an iterator because the underlying memory
+  // allocation may change.
+  std::size_t return_it_dist = 0;
 
   // Add right parenthesis
   // While the start iterator is within the bounds of infix
@@ -141,9 +146,9 @@ vector<int32_t>::iterator add_parentheses(
       // add right parenthesis, right parenthesis position depends on the
       // operator, when the operator is a union then do not include the operator
       // in the region, when the operator is an intersection then include the
-      // operato and next surface
+      // operator and next surface
       if (*start == OP_LEFT_PAREN) {
-        return_iterator = start;
+        return_it_dist = std::distance(infix.begin(), start);
         int depth = 1;
         do {
           start++;
@@ -157,26 +162,29 @@ vector<int32_t>::iterator add_parentheses(
         } while (depth > 0);
       } else {
         start = infix.insert(
-          start_token == OP_UNION ? start - 1 : start, OP_RIGHT_PAREN);
-        if (return_iterator == infix.begin()) {
-          return_iterator = start - 1;
+            start_token == OP_UNION ? start - 1 : start, OP_RIGHT_PAREN);
+        if (return_it_dist > 0) {
+          return infix.begin() + return_it_dist;
+        } else {
+          return start - 1;
         }
-        return return_iterator;
       }
     }
   }
   // If we get here a right parenthesis hasn't been placed,
   // return iterator
   infix.push_back(OP_RIGHT_PAREN);
-  if (return_iterator == infix.begin()) {
-    return_iterator = start - 1;
+  if (return_it_dist > 0) {
+    return infix.begin() + return_it_dist;
+  } else {
+    return start - 1;
   }
-  return return_iterator;
 }
 
 void add_precedence(openmc::vector<int32_t>& infix)
 {
   int32_t current_op = 0;
+  std::size_t current_dist = 0;
 
   for (auto it = infix.begin(); it != infix.end(); it++) {
     int32_t token = *it;
@@ -185,14 +193,21 @@ void add_precedence(openmc::vector<int32_t>& infix)
       if (current_op == 0) {
         // Set the current operator if is hasn't been set
         current_op = token;
+        current_dist = std::distance(infix.begin(), it);
       } else if (token != current_op) {
         // If the current operator doesn't match the token, add parenthesis to assert precedence
-        it = add_parentheses(it, infix);
+        if (current_op == OP_INTERSECTION) {
+          it = add_parentheses(infix.begin() + current_dist, infix);
+        } else {
+          it = add_parentheses(it, infix);
+        }
         current_op = 0;
+        current_dist = 0;
       }
     } else if (token > OP_COMPLEMENT) {
       // If the token is a parenthesis reset the current operator
       current_op = 0;
+      current_dist = 0;
     }
   }
 }
@@ -1127,7 +1142,7 @@ UniversePartitioner::UniversePartitioner(const Universe& univ)
       }
     }
 
-    // If thregion are no bounding z-planes, add this cell to all partitions.
+    // If there are no bounding z-planes, add this cell to all partitions.
     if (lower_token == 0) {
       for (auto& p : partitions_) p.push_back(i_cell);
       continue;
