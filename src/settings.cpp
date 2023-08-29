@@ -85,6 +85,7 @@ int32_t gen_per_batch {1};
 int64_t n_particles {-1};
 
 int64_t max_particles_in_flight {-1};
+double fuel_lookup_bias {2.0};
 
 bool sort_fissionable_xs_lookups {true};
 bool sort_non_fissionable_xs_lookups {true};

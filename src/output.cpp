@@ -320,6 +320,7 @@ void print_usage()
       "  --no-sort-non-fissionable-xs  Do not sort event-based non-fissionable material xs lookups\n"
       "  --no-sort-surface-crossing    Do not sort event-based surface crossing\n"
       "  --no-sort-device              Do not sort event-based queues on device (use host instead)\n"
+      "  -x, --xs-event-bias    Bias against fuel XS lookup event selection (higher means even needs more particles)\n"
       "  -v, --version          Show version information\n"
       "  -h, --help             Show this message\n");
   }
@@ -450,6 +451,8 @@ void print_runtime()
       fmt::print("GPU Device\n");
     else 
       fmt::print("CPU Host\n");
+
+    fmt::print(" Event-Based Fuel XS Queue Bias    = {:.2f}\n", settings::fuel_lookup_bias);
   }
 
   fmt::print(" Faddeeva Implementation           = ");

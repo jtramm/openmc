@@ -167,6 +167,10 @@ parse_command_line(int argc, char* argv[])
       } else if (arg == "-i" || arg == "--inflight") {
         i += 1;
         settings::max_particles_in_flight = std::stoll(argv[i]);
+      
+      } else if (arg == "-x" || arg == "--xs-event-bias") {
+        i += 1;
+        settings::fuel_lookup_bias = std::stod(argv[i]);
 
       } else if (arg == "-r" || arg == "--restart") {
         i += 1;
