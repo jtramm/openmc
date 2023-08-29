@@ -168,6 +168,10 @@ parse_command_line(int argc, char* argv[])
         i += 1;
         settings::max_particles_in_flight = std::stoll(argv[i]);
       
+      } else if (arg == "-b" || arg == "--n-log-bins") {
+        i += 1;
+        settings::n_log_bins = std::stoi(argv[i]);
+      
       } else if (arg == "-x" || arg == "--xs-event-bias") {
         i += 1;
         settings::fuel_lookup_bias = std::stod(argv[i]);

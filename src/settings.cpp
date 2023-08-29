@@ -100,7 +100,7 @@ ElectronTreatment electron_treatment {ElectronTreatment::TTB};
 std::array<double, 4> energy_cutoff {0.0, 1000.0, 0.0, 0.0};
 int legendre_to_tabular_points {C_NONE};
 int max_order {0};
-int n_log_bins {4000};
+int n_log_bins {-1};
 int n_batches;
 int n_max_batches;
 ResScatMethod res_scat_method {ResScatMethod::rvs};
@@ -158,7 +158,7 @@ void get_run_parameters(pugi::xml_node node_base)
       max_particles_in_flight = 1000000;
     }
   }
-
+  
   // Get number of basic batches
   if (check_for_node(node_base, "batches")) {
     n_batches = std::stoi(get_node_value(node_base, "batches"));
@@ -421,15 +421,21 @@ void read_settings_xml()
         "multigroup mode");
     }
   }
-
+  
   // Number of bins for logarithmic grid
-  if (check_for_node(root, "log_grid_bins")) {
-    n_log_bins = std::stoi(get_node_value(root, "log_grid_bins"));
-    if (n_log_bins < 1) {
-      fatal_error("Number of bins for logarithmic grid must be greater "
-        "than zero.");
+  // if it wasn't specified as a command-line argument. If it wasn't
+  // set by the user anywhere, set it to a reasonable default value.
+  if (n_log_bins == -1) {
+    if (check_for_node(root, "log_grid_bins")) {
+      n_log_bins = std::stoi(get_node_value(root, "log_grid_bins"));
+      if (n_log_bins < 1) {
+        fatal_error("Number of bins for logarithmic grid must be greater "
+            "than zero.");
+    } else {
+      n_log_bins = 4000;
     }
   }
+
 
   // Number of OpenMP threads
   if (check_for_node(root, "threads")) {
