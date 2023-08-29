@@ -431,6 +431,7 @@ void read_settings_xml()
       if (n_log_bins < 1) {
         fatal_error("Number of bins for logarithmic grid must be greater "
             "than zero.");
+      }
     } else {
       n_log_bins = 4000;
     }

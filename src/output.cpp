@@ -455,7 +455,7 @@ void print_runtime()
 
     fmt::print(" Event-Based Fuel XS Queue Bias    = {:.2f}\n", settings::fuel_lookup_bias);
   }
-  fmt::print(" Number of Log Hash Bins           = {:d}\n", settings:n_log_bins);
+  fmt::print(" Number of Log Hash Bins           = {:d}\n", settings::n_log_bins);
 
   fmt::print(" Faddeeva Implementation           = ");
   #ifdef NEW_FADDEEVA
