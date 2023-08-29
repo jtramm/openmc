@@ -89,6 +89,11 @@ int64_t max_particles_in_flight {-1};
 bool sort_fissionable_xs_lookups {true};
 bool sort_non_fissionable_xs_lookups {true};
 bool sort_surface_crossing {true};
+#if defined(CUDA_THRUST_SORT) || defined(SYCL_SORT)
+bool sort_on_device {true};
+#else
+bool sort_on_device {false};
+#endif
 
 ElectronTreatment electron_treatment {ElectronTreatment::TTB};
 std::array<double, 4> energy_cutoff {0.0, 1000.0, 0.0, 0.0};

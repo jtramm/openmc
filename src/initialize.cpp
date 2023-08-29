@@ -156,6 +156,9 @@ parse_command_line(int argc, char* argv[])
       
       } else if (arg == "--no-sort-surface-crossing") {
         settings::sort_surface_crossing = false;
+      
+      } else if (arg == "--no-sort-device") {
+        settings::sort_on_device = false;
 
       } else if (arg == "-m" || arg == "--minimum") {
         i += 1;

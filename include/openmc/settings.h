@@ -89,6 +89,7 @@ extern int64_t max_particles_in_flight; //!< Max num. event-based particles in f
 extern bool sort_fissionable_xs_lookups; //!< Sort fissionable material XS lookups in event-based mode
 extern bool sort_non_fissionable_xs_lookups; //!< Sort non-fissionable material XS lookups in event-based mode
 extern bool sort_surface_crossing; //!< Sort surface crossings in event-based mode
+extern bool sort_on_device; //!< Sort queues on device rather than on host
 
 #pragma omp declare target
 extern ElectronTreatment electron_treatment;       //!< how to treat secondary electrons

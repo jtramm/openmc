@@ -319,6 +319,7 @@ void print_usage()
       "  --no-sort-fissionable-xs      Do not sort event-based fissionable material xs lookups\n"
       "  --no-sort-non-fissionable-xs  Do not sort event-based non-fissionable material xs lookups\n"
       "  --no-sort-surface-crossing    Do not sort event-based surface crossing\n"
+      "  --no-sort-device              Do not sort event-based queues on device (use host instead)\n"
       "  -v, --version          Show version information\n"
       "  -h, --help             Show this message\n");
   }

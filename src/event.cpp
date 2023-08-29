@@ -47,36 +47,40 @@ void sort_queue(SharedArray<EventQueueItem>& queue, SortBy sort_by)
 
     switch(sort_by) {
       case material_energy:
-        #ifdef CUDA_THRUST_SORT
-        thrust_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
-        #elif SYCL_SORT
-        SYCL_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
-        #else
-        // Transfer queue information to the host
-        #pragma omp target update from(queue.data_[:queue.size()])
+        if( settings::sort_on_device ) {
+          #ifdef CUDA_THRUST_SORT
+          thrust_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+          #elif SYCL_SORT
+          SYCL_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+          #endif
+        } else {
+          // Transfer queue information to the host
+          #pragma omp target update from(queue.data_[:queue.size()])
 
-        // Sort queue via OpenMP parallel sort implementation
-        quickSort_parallel(queue.data(), queue.size(), MatECmp(), MatECmpG());
+          // Sort queue via OpenMP parallel sort implementation
+          quickSort_parallel(queue.data(), queue.size(), MatECmp(), MatECmpG());
 
-        // Transfer queue information back to the device
-        #pragma omp target update to(queue.data_[:queue.size()])
-        #endif
+          // Transfer queue information back to the device
+          #pragma omp target update to(queue.data_[:queue.size()])
+        }
         break;
       case cell_surface:
-        #ifdef CUDA_THRUST_SORT
-        thrust_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
-        #elif SYCL_SORT
-        SYCL_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
-        #else
-        // Transfer queue information to the host
-        #pragma omp target update from(queue.data_[:queue.size()])
+        if( settings::sort_on_device ) {
+          #ifdef CUDA_THRUST_SORT
+          thrust_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+          #elif SYCL_SORT
+          SYCL_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+          #endif
+        } else {
+          // Transfer queue information to the host
+          #pragma omp target update from(queue.data_[:queue.size()])
 
-        // Sort queue via OpenMP parallel sort implementation
-        quickSort_parallel(queue.data(), queue.size(), CellSurfCmp(), CellSurfCmpG());
+          // Sort queue via OpenMP parallel sort implementation
+          quickSort_parallel(queue.data(), queue.size(), CellSurfCmp(), CellSurfCmpG());
 
-        // Transfer queue information back to the device
-        #pragma omp target update to(queue.data_[:queue.size()])
-        #endif
+          // Transfer queue information back to the device
+          #pragma omp target update to(queue.data_[:queue.size()])
+        }
         break;
     }
   }
