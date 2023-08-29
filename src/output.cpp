@@ -444,11 +444,13 @@ void print_runtime()
   else
     fmt::print("CPU Host\n");
   
-  fmt::print(" Queue Sorting Location            = ");
-  if (settings::sort_on_device) 
-    fmt::print("GPU Device\n");
-  else 
-    fmt::print("CPU Host\n");
+  if (settings::event_based) {
+    fmt::print(" Event-Based Queue Sort Location   = ");
+    if (settings::sort_on_device) 
+      fmt::print("GPU Device\n");
+    else 
+      fmt::print("CPU Host\n");
+  }
 
   fmt::print(" Faddeeva Implementation           = ");
   #ifdef NEW_FADDEEVA
