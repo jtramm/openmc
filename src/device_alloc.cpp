@@ -126,9 +126,14 @@ void move_read_only_data_to_device()
 
   // Cells //////////////////////////////////////////////////////////
 
+  sz = model::cells.size() * model::surfaces.size() * NEIGHBOR_SIZE * sizeof(int32_t);
+  double nb = (double) sz / 1.0e6;
+
   if (mpi::master) {
     std::cout << " Moving " << model::cells.size() << " cells to device..." << std::endl;
+    std::cout << " Moving cell-surface neighbor lists to device of size: " << nb << " MB" << std::endl;
   }
+
   model::device_cells = model::cells.data();
   #pragma omp target enter data map(to: model::device_cells[0:model::cells.size()])
   for( auto& cell : model::cells ) {
@@ -375,6 +380,7 @@ void release_data_from_device()
   for (int i = 0; i < model::tallies_size; ++i) {
     model::tallies[i].release_from_device();
   }
+  
 }
 
 
