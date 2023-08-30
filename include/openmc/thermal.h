@@ -102,7 +102,7 @@ public:
   //! \param[inout] seed Pseudorandom seed pointer
   #pragma omp declare target
   void calculate_xs(double E, double sqrtkT, int* i_temp, double* elastic,
-                    double* inelastic, uint64_t* seed) const;
+                    double* inelastic, double sample) const;
   #pragma omp end declare target
 
   //! Determine whether table applies to a particular nuclide

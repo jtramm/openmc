@@ -148,7 +148,7 @@ ThermalScattering::ThermalScattering(hid_t group, const std::vector<double>& tem
 void
 ThermalScattering::calculate_xs(double E, double sqrtkT, int* i_temp,
                                 double* elastic, double* inelastic,
-                                uint64_t* seed) const
+                                double sample) const
 {
   // Determine temperature for S(a,b) table
   double kT = sqrtkT*sqrtkT;
@@ -166,7 +166,7 @@ ThermalScattering::calculate_xs(double E, double sqrtkT, int* i_temp,
     } else {
       // Randomly sample between temperature i and i+1
       double f = (kT - kTs_[i]) / (kTs_[i+1] - kTs_[i]);
-      if (f > prn(seed)) ++i;
+      if (f > sample) ++i;
     }
   }
 
