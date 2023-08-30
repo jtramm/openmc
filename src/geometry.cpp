@@ -386,7 +386,6 @@ bool neighbor_list_find_cell(Particle& p)
   if (found) {
     c.neighbors_.push_back(p.coord_[coord_lvl].cell);
   }
-
   return found;
 }
 
