@@ -858,7 +858,6 @@ void transport_event_based()
   // In practice, this optimization has a few percent improvement in performance. Improvements are largest
   // when # particles per iteration <= max # particles in flight.
   const int64_t max_revival_period = 100;
-    
   // Transfer source/fission bank to device
   #pragma omp target update to(simulation::device_source_bank[:simulation::source_bank.size()])
   simulation::fission_bank.copy_host_to_device();

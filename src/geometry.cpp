@@ -370,11 +370,10 @@ bool neighbor_list_find_cell(Particle& p)
   auto coord_lvl = p.n_coord_ - 1;
   auto i_cell = p.coord_[coord_lvl].cell;
   Cell& c {model::device_cells[i_cell]};
-  int i_surface = std::abs(p.surface_);
 
   // Search for the particle in that cell's neighbor list.  Return if we
   // found the particle.
-  bool found = find_cell_inner(p, &c.neighbors_[i_surface]);
+  bool found = find_cell_inner(p, &c.neighbors_);
   
   if (found)
     return found;
@@ -385,9 +384,8 @@ bool neighbor_list_find_cell(Particle& p)
   found = find_cell_inner(p, nullptr);
 
   if (found) {
-    c.neighbors_[i_surface].push_back(p.coord_[coord_lvl].cell);
+    c.neighbors_.push_back(p.coord_[coord_lvl].cell);
   }
-
   return found;
 }
 

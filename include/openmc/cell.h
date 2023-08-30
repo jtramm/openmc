@@ -218,7 +218,7 @@ public:
 
   //! \brief Stores a neighbor list corresponding to each surface in the simulation,
   //! storing neighboring cells in the same universe.
-  vector<NeighborList> neighbors_;
+  NeighborList neighbors_;
 
   Position translation_ {0, 0, 0}; //!< Translation vector for filled universe
 
