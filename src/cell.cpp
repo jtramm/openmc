@@ -467,7 +467,6 @@ void Cell::copy_to_device()
   sqrtkT_.copy_to_device();
   region_.copy_to_device();
   offset_.copy_to_device();
-  neighbors_.copy_to_device();
 }
 
 //==============================================================================
@@ -667,8 +666,6 @@ Cell::Cell(pugi::xml_node cell_node)
       rotation_length_ = 9;
     }
   }
-  
-  neighbors_.resize(model::surfaces.size()+1);
 }
 
 //==============================================================================
