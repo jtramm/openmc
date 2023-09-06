@@ -37,7 +37,7 @@ struct EventQueueItem{
 };
 
 // Enumeration used for specifying which way you want to sort a queue
-enum SortBy { material_energy, cell_surface };
+enum class SortBy { material_energy, cell_surface };
 
 // Comparators for sorting queues. The "G" variants are required
 // for the parallel qsort host implementation in addition to the regular
