@@ -319,6 +319,9 @@ void print_usage()
       "  --no-sort-fissionable-xs      Do not sort event-based fissionable material xs lookups\n"
       "  --no-sort-non-fissionable-xs  Do not sort event-based non-fissionable material xs lookups\n"
       "  --no-sort-surface-crossing    Do not sort event-based surface crossing\n"
+      "  --no-sort-device              Do not sort event-based queues on device (use host instead)\n"
+      "  -x, --xs-event-bias    Bias against fuel XS lookup event selection (higher means even needs more particles)\n"
+      "  -b, --n-log-bins       Number of logarithmic hash bins to use for XS lookup acceleration\n"
       "  -v, --version          Show version information\n"
       "  -h, --help             Show this message\n");
   }
@@ -442,6 +445,17 @@ void print_runtime()
     fmt::print("GPU Device\n");
   else
     fmt::print("CPU Host\n");
+  
+  if (settings::event_based) {
+    fmt::print(" Event-Based Queue Sort Location   = ");
+    if (settings::sort_on_device) 
+      fmt::print("GPU Device\n");
+    else 
+      fmt::print("CPU Host\n");
+
+    fmt::print(" Event-Based Fuel XS Queue Bias    = {:.2f}\n", settings::fuel_lookup_bias);
+  }
+  fmt::print(" Number of Log Hash Bins           = {:d}\n", settings::n_log_bins);
 
   fmt::print(" Faddeeva Implementation           = ");
   #ifdef NEW_FADDEEVA

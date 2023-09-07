@@ -837,7 +837,7 @@ void transport_event_based()
   // In practice, this has a several percent improvement in performance, as the fuel lookup
   // event runs more efficiently with more particles in comparison to other events (due to
   // the energy sort for the fuel lookup event which is not used for other events).
-  const int64_t fuel_lookup_bias = 2;
+  //const int64_t fuel_lookup_bias = 2;
 
   // The max revival period forces particles to be revived (if there are any in the revival queue)
   // every nth iteration rather than waiting for this queue to be the largest. While the kernel itself
@@ -898,7 +898,7 @@ void transport_event_based()
     // Require the fuel XS lookup event to be more full to run as compared to other events
     // This is motivated by this event having more benefit to running with more particles
     // due to the particle energy sort.
-    if ( max < fuel_lookup_bias * max_other_than_fuel_xs )
+    if ( static_cast<double>(max) < settings::fuel_lookup_bias * static_cast<double>(max_other_than_fuel_xs) )
       max = max_other_than_fuel_xs;
 
     // Execute event with the longest queue (or revival queue if the revival period is reached)

@@ -85,10 +85,12 @@ extern "C" int64_t n_particles;              //!< number of particles per genera
 #pragma omp end declare target
 
 extern int64_t max_particles_in_flight; //!< Max num. event-based particles in flight
+extern double fuel_lookup_bias; //!< Bias against selection of the fuel lookup event (higher means fuel lookup queue must be longer before running)
 
 extern bool sort_fissionable_xs_lookups; //!< Sort fissionable material XS lookups in event-based mode
 extern bool sort_non_fissionable_xs_lookups; //!< Sort non-fissionable material XS lookups in event-based mode
 extern bool sort_surface_crossing; //!< Sort surface crossings in event-based mode
+extern bool sort_on_device; //!< Sort queues on device rather than on host
 
 #pragma omp declare target
 extern ElectronTreatment electron_treatment;       //!< how to treat secondary electrons
