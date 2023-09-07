@@ -120,6 +120,7 @@ typedef std::unique_ptr<Source> create_custom_source_t(std::string parameters);
 
 //! Initialize source bank from file/distribution
 extern "C" void initialize_source();
+extern "C" void initialize_fixed_source();
 
 //! Sample a site from all external source distributions in proportion to their
 //! source strength

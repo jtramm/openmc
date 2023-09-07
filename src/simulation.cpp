@@ -224,6 +224,10 @@ int openmc_next_batch(int* status)
     #pragma omp target update to(current_gen)
 
     initialize_generation();
+  
+    if (settings::run_mode == RunMode::FIXED_SOURCE) {
+      initialize_fixed_source();
+    }
 
     // Start timer for transport
     simulation::time_transport.start();
@@ -322,10 +326,10 @@ Particle*  device_particles {nullptr};
 
 void allocate_banks()
 {
-  if (settings::run_mode == RunMode::EIGENVALUE) {
-    // Allocate source bank
-    simulation::source_bank.resize(simulation::work_per_rank);
+  // Allocate source bank
+  simulation::source_bank.resize(simulation::work_per_rank);
 
+  if (settings::run_mode == RunMode::EIGENVALUE) {
     // Allocate fission bank
     init_fission_bank(3*simulation::work_per_rank);
   }
@@ -500,22 +504,20 @@ void finalize_generation()
 
 double initialize_history(Particle& p, int index_source)
 {
-  // set defaults
-  if (settings::run_mode == RunMode::EIGENVALUE) {
-    // set defaults for eigenvalue simulations from primary bank
-    p.from_source(simulation::device_source_bank[index_source - 1]);
-  } else if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    printf("fixed source mode not yet supported on device.\n");
+  // Initialize eigenvalue or fixed source particles from primary source bank
+  p.from_source(simulation::device_source_bank[index_source - 1]);
+  
     /*
+  else if (settings::run_mode == RunMode::FIXED_SOURCE) {
     // initialize random number seed
     int64_t id = (simulation::total_gen + overall_generation() - 1)*settings::n_particles +
-      simulation::work_index[mpi::rank] + index_source;
+      simulation::device_work_index[mpi::rank] + index_source;
     uint64_t seed = init_seed(id, STREAM_SOURCE);
     // sample from external source distribution or custom library then set
     auto site = sample_external_source(&seed);
     p.from_source(site);
-    */
   }
+    */
   p.current_work_ = index_source;
 
   // set identifier for particle
@@ -851,7 +853,6 @@ void transport_event_based()
   // In practice, this optimization has a few percent improvement in performance. Improvements are largest
   // when # particles per iteration <= max # particles in flight.
   const int64_t max_revival_period = 100;
-
   // Transfer source/fission bank to device
   #pragma omp target update to(simulation::device_source_bank[:simulation::source_bank.size()])
   simulation::fission_bank.copy_host_to_device();

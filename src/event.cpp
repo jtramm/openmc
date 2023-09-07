@@ -37,7 +37,7 @@ int sort_counter{0};
 // Non-member functions
 //==============================================================================
 
-void sort_queue(SharedArray<EventQueueItem>& queue)
+void sort_queue(SharedArray<EventQueueItem>& queue, SortBy sort_by)
 {
   simulation::time_event_sort.start();
 
@@ -45,20 +45,40 @@ void sort_queue(SharedArray<EventQueueItem>& queue)
   {
     simulation::sort_counter++;
 
-    #ifdef CUDA_THRUST_SORT
-    device_sort_event_queue_item(queue.device_data(), queue.device_data() + queue.size());
-    #elif SYCL_SORT
-    sort_queue_SYCL(queue.device_data(), queue.device_data() + queue.size());
-    #else
-    // Transfer queue information to the host
-    #pragma omp target update from(queue.data_[:queue.size()])
+    switch(sort_by) {
+      case SortBy::material_energy:
+        #ifdef CUDA_THRUST_SORT
+        thrust_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+        #elif SYCL_SORT
+        SYCL_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
+        #else
+        // Transfer queue information to the host
+        #pragma omp target update from(queue.data_[:queue.size()])
 
-    // Sort queue via OpenMP parallel sort implementation
-    quickSort_parallel(queue.data(), queue.size());
+        // Sort queue via OpenMP parallel sort implementation
+        quickSort_parallel(queue.data(), queue.size(), MatECmp(), MatECmpG());
 
-    // Transfer queue information back to the device
-    #pragma omp target update to(queue.data_[:queue.size()])
-    #endif
+        // Transfer queue information back to the device
+        #pragma omp target update to(queue.data_[:queue.size()])
+        #endif
+        break;
+      case SortBy::cell_surface:
+        #ifdef CUDA_THRUST_SORT
+        thrust_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+        #elif SYCL_SORT
+        SYCL_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());
+        #else
+        // Transfer queue information to the host
+        #pragma omp target update from(queue.data_[:queue.size()])
+
+        // Sort queue via OpenMP parallel sort implementation
+        quickSort_parallel(queue.data(), queue.size(), CellSurfCmp(), CellSurfCmpG());
+
+        // Transfer queue information back to the device
+        #pragma omp target update to(queue.data_[:queue.size()])
+        #endif
+        break;
+    }
   }
 
   simulation::time_event_sort.stop();
@@ -123,16 +143,19 @@ void dispatch_xs_event(int buffer_idx)
   // Determine if the particle requires an XS lookup or not
   bool needs_lookup = p.event_calculate_xs_dispatch();
 
+  int cell_id = p.coord_[p.n_coord_ - 1].cell;
+  int surface_id = p.boundary_.surface_index;
+
   if (needs_lookup) {
     // If a lookup is needed, dispatch to fuel vs. non-fuel lookup queue
     if (!model::materials[p.material_].fissionable_) {
-      simulation::calculate_nonfuel_xs_queue.thread_safe_append({p.E_, p.material_, buffer_idx});
+      simulation::calculate_nonfuel_xs_queue.thread_safe_append({p.E_, p.material_, buffer_idx, cell_id, surface_id});
     } else {
-      simulation::calculate_fuel_xs_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::calculate_fuel_xs_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     }
   } else {
     // Otherwise, particle can move directly to the advance particle queue
-    simulation::advance_particle_queue.thread_safe_append({p.E_, buffer_idx});
+    simulation::advance_particle_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
   }
 }
 
@@ -178,7 +201,7 @@ void process_calculate_xs_events_nonfuel()
 {
   // Sort non fuel lookup queue by material and energy
   if (settings::sort_non_fissionable_xs_lookups) {
-    sort_queue(simulation::calculate_nonfuel_xs_queue);
+    sort_queue(simulation::calculate_nonfuel_xs_queue, SortBy::material_energy);
   }
 
   simulation::time_event_calculate_xs.start();
@@ -211,7 +234,7 @@ void process_calculate_xs_events_fuel()
 {
   // Sort fuel lookup queue by energy
   if (settings::sort_fissionable_xs_lookups) {
-    sort_queue(simulation::calculate_fuel_xs_queue);
+    sort_queue(simulation::calculate_fuel_xs_queue, SortBy::material_energy);
   }
 
   // The below line can be used to check if the queue has actually been sorted.
@@ -254,10 +277,12 @@ void process_advance_particle_events()
     int buffer_idx = simulation::advance_particle_queue[i].idx;
     Particle& p = simulation::device_particles[buffer_idx];
     p.event_advance();
+    int cell_id = p.coord_[p.n_coord_ - 1].cell;
+    int surface_id = p.boundary_.surface_index;
     if (p.collision_distance_ > p.boundary_.distance) {
-      simulation::surface_crossing_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::surface_crossing_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     } else {
-      simulation::collision_queue.thread_safe_append({p.E_, buffer_idx});
+      simulation::collision_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
     }
   }
   simulation::surface_crossing_queue.sync_size_device_to_host();
@@ -283,6 +308,11 @@ void process_advance_particle_events()
 
 void process_surface_crossing_events()
 {
+  // Sort fuel lookup queue by energy
+  if (settings::sort_surface_crossing) {
+    sort_queue(simulation::surface_crossing_queue, SortBy::cell_surface);
+  }
+
   simulation::time_event_surface_crossing.start();
 
   int n_particles = simulation::surface_crossing_queue.size();
@@ -294,7 +324,11 @@ void process_surface_crossing_events()
     if (p.alive())
       dispatch_xs_event(buffer_idx);
     else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
+    {
+      int cell_id = p.coord_[p.n_coord_ - 1].cell;
+      int surface_id = p.boundary_.surface_index;
+      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
+    }
   }
 
   simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
@@ -319,7 +353,11 @@ void process_collision_events()
     if (p.alive())
       dispatch_xs_event(buffer_idx);
     else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
+    {
+      int cell_id = p.coord_[p.n_coord_ - 1].cell;
+      int surface_id = p.boundary_.surface_index;
+      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx, cell_id, surface_id});
+    }
   }
 
   simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
