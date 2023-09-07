@@ -197,7 +197,12 @@ public:
 
           // Randomly sample between temperature i and i+1
           f = (kT - kTs_[i_temp]) / (kTs_[i_temp + 1] - kTs_[i_temp]);
-          if (f > prn(p.current_seed())) ++i_temp;
+
+          //TODO: to maintain the same random number stream as the Fortran code this
+          //replaces, the seed is set with index_ + 1 instead of index_
+          double sample = future_prn(static_cast<int64_t>(index_ + 1), p.seeds_[STREAM_SAB_T]);
+
+          if (f > sample) ++i_temp;
           break;
       }
 
@@ -335,7 +340,12 @@ public:
       int sab_i_temp;
       double sab_elastic;
       double sab_inelastic;
-      data::device_thermal_scatt[i_sab].calculate_xs(E, sqrtkT, &sab_i_temp, &sab_elastic, &sab_inelastic, p.current_seed());
+          
+      //TODO: to maintain the same random number stream as the Fortran code this
+      //replaces, the seed is set with index_ + 1 instead of index_
+      double sample = future_prn(static_cast<int64_t>(index_ + 1), p.seeds_[STREAM_SAB_T]);
+
+      data::device_thermal_scatt[i_sab].calculate_xs(E, sqrtkT, &sab_i_temp, &sab_elastic, &sab_inelastic, sample);
 
       // Store the S(a,b) cross sections.
       thermal = sab_frac * (sab_elastic + sab_inelastic);
@@ -387,11 +397,9 @@ public:
         // This guarantees the randomness and, at the same time, makes sure we
         // reuse random numbers for the same nuclide at different temperatures,
         // therefore preserving correlation of temperature in probability tables.
-        p.stream_ = STREAM_URR_PTABLE;
         //TODO: to maintain the same random number stream as the Fortran code this
         //replaces, the seed is set with index_ + 1 instead of index_
-        double r = future_prn(static_cast<int64_t>(index_ + 1), *p.current_seed());
-        p.stream_ = STREAM_TRACKING;
+        double r = future_prn(static_cast<int64_t>(index_ + 1), p.seeds_[STREAM_URR_PTABLE]);
 
         int i_low = 0;
         while (urr.prob(i_energy, URRTableParam::CUM_PROB, i_low) <= r) {++i_low;};
