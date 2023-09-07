@@ -82,35 +82,6 @@ ReactionProduct::ReactionProduct(hid_t group)
   }
 }
 
-void ReactionProduct::sample(double E_in, double& E_out, double& mu,
-  uint64_t* seed) const
-{
-  auto n = applicability_.size();
-  if (n > 1) {
-    double prob = 0.0;
-    double c = prn(seed);
-    for (int i = 0; i < n; ++i) {
-      // Determine probability that i-th energy distribution is sampled
-      prob += applicability_[i](E_in);
-
-      // If i-th distribution is sampled, sample energy from the distribution
-      if (c <= prob) {
-        #pragma omp target map(from: E_out, mu) map(tofrom: seed[:1])
-        {
-          distribution_[i]->sample(E_in, E_out, mu, seed);
-        }
-        break;
-      }
-    }
-  } else {
-    // If only one distribution is present, go ahead and sample it
-    #pragma omp target map(from: E_out, mu) map(tofrom: seed[:1])
-    {
-      distribution_[0]->sample(E_in, E_out, mu, seed);
-    }
-  }
-}
-
 void ReactionProduct::serialize(DataBuffer& buffer) const
 {
   buffer.add(static_cast<int>(particle_));             // 4
