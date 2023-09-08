@@ -198,9 +198,7 @@ public:
           // Randomly sample between temperature i and i+1
           f = (kT - kTs_[i_temp]) / (kTs_[i_temp + 1] - kTs_[i_temp]);
 
-          //TODO: to maintain the same random number stream as the Fortran code this
-          //replaces, the seed is set with index_ + 1 instead of index_
-          double sample = future_prn(static_cast<int64_t>(index_ + 1), p.seeds_[STREAM_SAB_T]);
+          double sample = future_prn(static_cast<int64_t>(index_), p.seeds_[STREAM_SAB_T]);
 
           if (f > sample) ++i_temp;
           break;
@@ -341,9 +339,9 @@ public:
       double sab_elastic;
       double sab_inelastic;
           
-      //TODO: to maintain the same random number stream as the Fortran code this
-      //replaces, the seed is set with index_ + 1 instead of index_
-      double sample = future_prn(static_cast<int64_t>(index_ + 1), p.seeds_[STREAM_SAB_T]);
+      // Generate a sample from the SAB stream, in case it is needed for temperature
+      // interpolation
+      double sample = future_prn(static_cast<int64_t>(index_), p.seeds_[STREAM_SAB_T]);
 
       data::device_thermal_scatt[i_sab].calculate_xs(E, sqrtkT, &sab_i_temp, &sab_elastic, &sab_inelastic, sample);
 
