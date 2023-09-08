@@ -326,10 +326,8 @@ Particle*  device_particles {nullptr};
 
 void allocate_banks()
 {
-  if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
-    // Allocate source bank
-    simulation::source_bank.resize(simulation::work_per_rank);
-  }
+  // Allocate source bank
+  simulation::source_bank.resize(simulation::work_per_rank);
 
   if (settings::run_mode == RunMode::EIGENVALUE) {
     // Allocate fission bank
@@ -506,11 +504,8 @@ void finalize_generation()
 
 double initialize_history(Particle& p, int index_source)
 {
-  // set defaults
-  if (settings::run_mode == RunMode::EIGENVALUE || settings::run_mode == RunMode::FIXED_SOURCE) {
-    // set defaults for eigenvalue simulations from primary bank
-    p.from_source(simulation::device_source_bank[index_source - 1]);
-  }
+  // Initialize eigenvalue or fixed source particles from primary source bank
+  p.from_source(simulation::device_source_bank[index_source - 1]);
   
     /*
   else if (settings::run_mode == RunMode::FIXED_SOURCE) {
@@ -858,7 +853,6 @@ void transport_event_based()
   // In practice, this optimization has a few percent improvement in performance. Improvements are largest
   // when # particles per iteration <= max # particles in flight.
   const int64_t max_revival_period = 100;
-    
   // Transfer source/fission bank to device
   #pragma omp target update to(simulation::device_source_bank[:simulation::source_bank.size()])
   simulation::fission_bank.copy_host_to_device();

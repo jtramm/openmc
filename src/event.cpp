@@ -46,7 +46,7 @@ void sort_queue(SharedArray<EventQueueItem>& queue, SortBy sort_by)
     simulation::sort_counter++;
 
     switch(sort_by) {
-      case material_energy:
+      case SortBy::material_energy:
         if( settings::sort_on_device ) {
           #ifdef CUDA_THRUST_SORT
           thrust_sort_MatE(queue.device_data(), queue.device_data() + queue.size());
@@ -64,7 +64,7 @@ void sort_queue(SharedArray<EventQueueItem>& queue, SortBy sort_by)
           #pragma omp target update to(queue.data_[:queue.size()])
         }
         break;
-      case cell_surface:
+      case SortBy::cell_surface:
         if( settings::sort_on_device ) {
           #ifdef CUDA_THRUST_SORT
           thrust_sort_CellSurf(queue.device_data(), queue.device_data() + queue.size());

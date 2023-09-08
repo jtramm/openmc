@@ -10,6 +10,7 @@
 
 namespace openmc{
 
+//TODO: Convert these functions to use templates w/explicit template instantiation
 void thrust_sort_MatE(EventQueueItem* begin, EventQueueItem* end)
 {
   thrust::sort(thrust::device, begin, end, MatECmp());

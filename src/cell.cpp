@@ -467,7 +467,6 @@ void Cell::copy_to_device()
   sqrtkT_.copy_to_device();
   region_.copy_to_device();
   offset_.copy_to_device();
-  neighbors_.copy_to_device();
 }
 
 //==============================================================================
@@ -667,8 +666,6 @@ Cell::Cell(pugi::xml_node cell_node)
       rotation_length_ = 9;
     }
   }
-  
-  neighbors_.resize(model::surfaces.size()+1);
 }
 
 //==============================================================================
@@ -801,7 +798,7 @@ Cell::to_hdf5(hid_t cell_group) const
 BoundingBox Cell::bounding_box_simple() const {
   BoundingBox bbox;
   for (int32_t token : region_) {
-    bbox &= model::surfaces[abs(token) - 1].bounding_box(token > 0);
+    bbox &= model::surfaces[std::abs(token) - 1].bounding_box(token > 0);
   }
   return bbox;
 }
@@ -963,7 +960,7 @@ Cell::contains_complex(Position r, Direction u, int32_t on_surface) const
         in_cell = false;
       } else {
         // Note the off-by-one indexing
-        bool sense = model::device_surfaces[abs(token) - 1].sense(r, u);
+        bool sense = model::device_surfaces[std::abs(token) - 1].sense(r, u);
         in_cell = (sense == (token > 0));
       }
     } else if ((token == OP_UNION && in_cell == true) ||

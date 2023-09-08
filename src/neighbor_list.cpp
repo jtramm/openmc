@@ -9,9 +9,7 @@ namespace openmc{
   NeighborList::NeighborList()
   {
     for(int i = 0; i < NEIGHBOR_SIZE; i++)
-    {
       list_[i] = -1;
-    }
   }
   
   void NeighborList::push_back(int32_t new_elem)
