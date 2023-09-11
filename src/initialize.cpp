@@ -156,6 +156,9 @@ parse_command_line(int argc, char* argv[])
       
       } else if (arg == "--no-sort-surface-crossing") {
         settings::sort_surface_crossing = false;
+      
+      } else if (arg == "--no-sort-device") {
+        settings::sort_on_device = false;
 
       } else if (arg == "-m" || arg == "--minimum") {
         i += 1;
@@ -164,6 +167,14 @@ parse_command_line(int argc, char* argv[])
       } else if (arg == "-i" || arg == "--inflight") {
         i += 1;
         settings::max_particles_in_flight = std::stoll(argv[i]);
+      
+      } else if (arg == "-b" || arg == "--n-log-bins") {
+        i += 1;
+        settings::n_log_bins = std::stoi(argv[i]);
+      
+      } else if (arg == "-x" || arg == "--xs-event-bias") {
+        i += 1;
+        settings::fuel_lookup_bias = std::stod(argv[i]);
 
       } else if (arg == "-r" || arg == "--restart") {
         i += 1;
