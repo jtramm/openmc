@@ -215,6 +215,13 @@ Particle::event_calculate_xs_dispatch()
 void
 Particle::event_calculate_xs_execute(bool need_depletion_rx)
 {
+  // Forward resonant and SAB temperature sampling seeds
+  stream_ = STREAM_RESONANT_T;
+  advance_prn_seed(data::nuclides_size, current_seed());
+  stream_ = STREAM_SAB_T;
+  advance_prn_seed(data::nuclides_size, current_seed());
+  stream_ = STREAM_TRACKING;
+
   model::materials[material_].calculate_xs(*this, need_depletion_rx);
 }
 
