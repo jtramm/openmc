@@ -148,7 +148,7 @@ int openmc_simulation_init()
   }
 
   #ifdef OPENMC_MPI
-  MPI_Barrier( mpi::intracomm );
+  //MPI_Barrier( mpi::intracomm );
   #endif
 
   // Set flag indicating initialization is done
@@ -246,6 +246,7 @@ int openmc_next_batch(int* status)
     // Accumulate time for transport
     simulation::time_transport.stop();
 
+	write_message("starting finalize_generation", 5);
     finalize_generation();
   }
   
@@ -266,6 +267,7 @@ int openmc_next_batch(int* status)
     simulation::time_finalize.start();
   }
 
+  write_message("starting finalize_batch",5);
   finalize_batch();
 
   return 0;
@@ -824,7 +826,7 @@ void transport_history_based()
 void transport_event_based()
 {
   #ifdef OPENMC_MPI
-  MPI_Barrier( mpi::intracomm );
+  //MPI_Barrier( mpi::intracomm );
   #endif
   // The fuel lookup bias is the increases the number of particles required before
   // selecting this event to execute.
@@ -920,15 +922,22 @@ void transport_event_based()
 
     event++;
 
-    /*
     // Check if the maximum number of lost particles has been reached
     #pragma omp target update from(simulation::n_lost_particles)
     if (simulation::n_lost_particles >= settings::max_lost_particles &&
         simulation::n_lost_particles >= settings::rel_max_lost_particles * simulation::work_per_rank * simulation::current_batch * settings::gen_per_batch) {
       fatal_error("Too many particles have been lost.");
     }
-    */
+	if (event > 20000) {
+		std::cout << "Event limit of 20k reached on rank " << mpi::rank << std::endl;
+		break;
+	}
+    //if (mpi::master) {
+	//	std::cout << "Master rank finished event " << event << std::endl;
+	//}
+	
   }
+  //std::cout << "RANK " << mpi::rank << " FINISHED EVENTS" << std::endl;
 
   // Execute death event for all particles
   process_death_events(n_particles);
@@ -945,7 +954,7 @@ void transport_event_based()
   }
 
   #ifdef OPENMC_MPI
-  MPI_Barrier( mpi::intracomm );
+  //MPI_Barrier( mpi::intracomm );
   #endif
 }
 

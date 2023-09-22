@@ -352,9 +352,10 @@ void move_read_only_data_to_device()
     }
     tally.copy_to_device();
   }
+  write_message("Finished mapping tallies. Synchronizing MPI ranks...", 5);
 
   #ifdef OPENMC_MPI
-  MPI_Barrier( mpi::intracomm );
+  //MPI_Barrier( mpi::intracomm );
   #endif
 }
 

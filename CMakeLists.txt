@@ -43,7 +43,7 @@ option(sycl_sort "Enable on-device sorting via SYCL OneAPI DPL (Intel devices on
 # MPI for distributed-memory parallelism
 #===============================================================================
 
-set(MPI_ENABLED FALSE)
+set(MPI_ENABLED TRUE)
 if(${CMAKE_CXX_COMPILER} MATCHES "(mpi[^/]*|CC)$")
   message(STATUS "Detected MPI wrapper: ${CMAKE_CXX_COMPILER}")
   set(MPI_ENABLED TRUE)

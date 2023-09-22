@@ -97,9 +97,9 @@ void initialize_mpi(MPI_Comm intracomm)
 
   // Empty target region + MPI barrier ensures that variable JIT compile
   // times do not cause timing differences between MPI ranks
-  #pragma omp target
-  {}
-  MPI_Barrier( mpi::intracomm );
+  //#pragma omp target
+  //{}
+  //MPI_Barrier( mpi::intracomm );
 
   // Determine number of processes and rank for each
   MPI_Comm_size(intracomm, &mpi::n_procs);
