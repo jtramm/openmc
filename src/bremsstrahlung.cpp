@@ -31,18 +31,30 @@ size_t ttb_e_grid_size {0};
 void BremsstrahlungData::copy_to_device()
 {
   device_pdf_ = pdf_.data();
+  if (pdf_.size() > 0) {
+    #pragma omp target enter data map(to: device_pdf_[:pdf_.size()])
+  }
   device_cdf_ = cdf_.data();
+  if (cdf_.size() > 0) {
+    #pragma omp target enter data map(to: device_cdf_[:cdf_.size()])
+  }
   device_yield_ = yield_.data();
-  #pragma omp target enter data map(to: device_pdf_[:pdf_.size()])
-  #pragma omp target enter data map(to: device_cdf_[:cdf_.size()])
-  #pragma omp target enter data map(to: device_yield_[:yield_.size()])
+  if (yield_.size() > 0) {
+    #pragma omp target enter data map(to: device_yield_[:yield_.size()])
+  }
 }
 
 void BremsstrahlungData::release_from_device()
 {
-  #pragma omp target exit data map(release: device_pdf_[:pdf_.size()])
-  #pragma omp target exit data map(release: device_cdf_[:cdf_.size()])
-  #pragma omp target exit data map(release: device_yield_[:yield_.size()])
+  if (pdf_.size() > 0) {
+    #pragma omp target exit data map(release: device_pdf_[:pdf_.size()])
+  }
+  if (cdf_.size() > 0) {
+    #pragma omp target exit data map(release: device_cdf_[:cdf_.size()])
+  }
+  if (yield_.size() > 0) {
+    #pragma omp target exit data map(release: device_yield_[:yield_.size()])
+  }
 }
 
 double BremsstrahlungData::pdf(gsl::index i, gsl::index j) const
