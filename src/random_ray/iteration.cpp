@@ -194,11 +194,13 @@ int openmc_run_random_ray()
     // Add source to scalar flux, compute number of FSR hits
     int64_t n_hits = add_source_to_scalar_flux();
 
-    // Compute random ray k-eff
-    k_eff = compute_k_eff(k_eff);
+    if (settings::run_mode == RunMode::EIGENVALUE) {
+      // Compute random ray k-eff
+      k_eff = compute_k_eff(k_eff);
 
-    // Store random ray k-eff into OpenMC's native k-eff variable
-    global_tally_tracklength = k_eff;
+      // Store random ray k-eff into OpenMC's native k-eff variable
+      global_tally_tracklength = k_eff;
+    }
 
     // Execute all tallying tasks, if this is an active batch
     if (simulation::current_batch > settings::n_inactive && mpi::master) {
@@ -301,7 +303,13 @@ void update_neutron_source(double k_eff)
       }
 
       fission_source *= inverse_k_eff;
-      float new_isotropic_source = (scatter_source + fission_source) / sigma_t;
+      float new_isotropic_source = 0.0;
+      if (settings::run_mode == RunMode::FIXED_SOURCE) {
+        float fixed_source = random_ray::fixed_source[sr * negroups + energy_group_out];
+        new_isotropic_source = (scatter_source + fixed_source) / sigma_t;
+      } else {
+        new_isotropic_source = (scatter_source + fission_source) / sigma_t;
+      }
       random_ray::source[sr * negroups + energy_group_out] =
         new_isotropic_source;
     }
@@ -531,13 +539,6 @@ void validate_random_ray_inputs()
       fatal_error("Non-isothermal MGXS detected. Only isothermal XS data sets "
                   "supported in random ray mode.");
     }
-  }
-
-  // Validate solver mode
-  ///////////////////////////////////////////////////////////////////
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    fatal_error(
-      "Invalid run mode. Fixed source not yet supported in random ray mode.");
   }
 
   // Validate sources

@@ -76,7 +76,11 @@ void initialize_source_regions()
 
   // Initialize element-wise arrays
   random_ray::scalar_flux_new.assign(random_ray::n_source_elements, 0.0);
-  random_ray::scalar_flux_old.assign(random_ray::n_source_elements, 1.0);
+  if (settings::run_mode == RunMode::EIGENVALUE) {
+    random_ray::scalar_flux_old.assign(random_ray::n_source_elements, 1.0);
+  } else {
+    random_ray::scalar_flux_old.assign(random_ray::n_source_elements, 0.0);
+  }
   random_ray::scalar_flux_final.assign(random_ray::n_source_elements, 0.0);
   random_ray::source.resize(random_ray::n_source_elements);
   random_ray::fixed_source.assign(random_ray::n_source_elements, 0.0);
