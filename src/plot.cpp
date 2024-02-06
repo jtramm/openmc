@@ -967,8 +967,8 @@ void Plot::create_voxel() const
   ProgressBar pb;
   for (int z = 0; z < pixels_[2]; z++) {
     // update progress bar
-    pb.set_value(
-      100. * static_cast<double>(z) / static_cast<double>((pixels_[2] - 1)));
+    //pb.set_value(
+     // 100. * static_cast<double>(z) / static_cast<double>((pixels_[2] - 1)));
 
     // update z coordinate
     pltbase.origin_.z = ll.z + z * vox[2];

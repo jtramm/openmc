@@ -26,6 +26,7 @@ extern std::vector<float> scalar_flux_new;
 extern std::vector<float> scalar_flux_old;
 extern std::vector<float> scalar_flux_final;
 extern std::vector<float> source;
+extern std::vector<float> fixed_source;
 extern std::vector<double> volume;
 extern std::vector<double> volume_t;
 extern std::vector<int> was_hit;
@@ -33,6 +34,7 @@ extern std::vector<int> was_hit;
 } // namespace random_ray
 
 void initialize_source_regions();
+void transfer_fixed_sources(int sampling_source);
 
 } // namespace openmc
 
