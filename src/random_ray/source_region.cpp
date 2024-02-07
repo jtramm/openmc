@@ -108,6 +108,7 @@ void transfer_fixed_sources(int sampling_source)
 {
   int negroups = data::mg.num_energy_groups_;
 
+  // Compute total combined strength of all sources
   double total_strength = 0;
   for (int es = 0; es < model::external_sources.size(); es++) {
 
@@ -117,26 +118,28 @@ void transfer_fixed_sources(int sampling_source)
     }
 
     Source* s = model::external_sources[es].get();
-
-    // Check for independent source
     IndependentSource* is = dynamic_cast<IndependentSource*>(s);
 
     total_strength += is->strength();
   }
-  printf("total source strength = %.3le\n", total_strength);
 
-  // Loop over source regions
-  // Loop over sources
-  // Loop over egroups
-
+  // Counter to track the source region ID as we traverse cells/instances
   int sr = 0;
+  
+  // Now we loop over all FSRs. For each FSR (a specific material-filled
+  // cell instance), we loop over all external sources and check if any of them
+  // apply to that cell instance. If a match is found, add discrete source
+  // distribution to the FSR's fixed source term.
+
   // Loop over material-filled cells
   for (int i = 0; i < model::cells.size(); i++) {
+
     Cell& cell = *model::cells[i];
     if (cell.type_ != Fill::MATERIAL) {
       continue;
     }
-    // Loop over material-filled cell instances
+
+    // Loop over cell instances
     for (int j = 0; j < cell.n_instances_; j++, sr++) {
       int material = cell.material(j);
       int material_id = model::materials[material]->id();
@@ -150,56 +153,33 @@ void transfer_fixed_sources(int sampling_source)
         }
 
         Source* s = model::external_sources[es].get();
-
-        // Check for independent source
         IndependentSource* is = dynamic_cast<IndependentSource*>(s);
 
-        // Skip source if it is not independent, as this implies it is not
-        // the random ray source
-        if (is == nullptr) {
-          fatal_error("Sources must be of independent type in random ray mode");
-        }
-
-        // TODO: validate that domain ids are not empty...
-        bool found = false;
+        // For this external source, check to see if any of its domains match
+        // this cell or any of its parents.
+        bool is_match;
         if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
-          if (contains(is->domain_ids(), material_id)) {
-            found = true;
-          }
+          is_match = contains(is->domain_ids(), material_id);
         } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
           vector<int32_t> cell_ids = cell.get_cell_and_parent_cell_ids(j);
-          for (int32_t& cell_id: cell_ids) {
-            if (contains(is->domain_ids(), cell_id)) {
-              found = true;
-            }
-          }
-        } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
+          is_match = has_matching_element(is->domain_ids(), cell_ids);
+        } else {
           vector<int32_t> universe_ids = cell.get_universe_and_parent_universe_ids(j);
-          for (int32_t& universe_id: universe_ids) {
-            if (contains(is->domain_ids(), universe_id)) {
-              found = true;
-            }
-          }
+          is_match = has_matching_element(is->domain_ids(), universe_ids);
         }
 
-        if (found) {
-          Distribution* d = is->energy();
-          Discrete* dd = dynamic_cast<Discrete*>(d);
-          if (dd == nullptr) {
-            fatal_error("discrete distributions only!");
-          }
-          const auto& discrete_energies = dd->x();
-          const auto& discrete_probs    = dd->prob();
+        if (is_match) {
+          Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
+          const auto& discrete_energies = discrete->x();
+          const auto& discrete_probs    = discrete->prob();
+
           // Loop over discrete distribution energies
           for (int e = 0; e < discrete_energies.size(); e++) {
-            int g = lower_bound_index(data::mg.rev_energy_bins_.begin(),
-                data::mg.rev_energy_bins_.end(), discrete_energies[e]);
-            g = data::mg.num_energy_groups_ - g - 1.;
-
+            int g = data::mg.get_group_index(discrete_energies[e]);
             random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
             printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
           } // End loop over discrete energies
-        } // End found conditional
+        } // End match conditional
       } // End loop over external sources
     } // End loop over material-filled cell instances
   } // End loop over material-filled cells

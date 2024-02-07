@@ -555,41 +555,54 @@ void validate_random_ray_inputs()
     // Skip source if it is not independent, as this implies it is not
     // the random ray source
     if (is == nullptr) {
-      continue;
+      fatal_error("Only IndependentSource types are allowed in random ray mode");
     }
-
-    // Skip source if this is not a random ray source
-    if (is->particle_type() != ParticleType::random_ray) {
-      continue;
-    }
-
-    // Increment random ray source counter
-    n_random_ray_sources++;
-
-    // Check for box source
-    SpatialDistribution* space_dist = is->space();
-    SpatialBox* sb = dynamic_cast<SpatialBox*>(space_dist);
-    if (sb == nullptr) {
-      fatal_error(
-        "Invalid source definition -- only box sources are allowed in random "
-        "ray "
-        "mode. If no source is specified, OpenMC default is an isotropic point "
-        "source at the origin, which is invalid in random ray mode.");
-    }
-
-    // Check that box source is not restricted to fissionable areas
-    if (sb->only_fissionable()) {
-      fatal_error(
-        "Invalid source definition -- fissionable spatial distribution "
-        "not allowed for random ray source.");
-    }
-
+      
     // Check for isotropic source
     UnitSphereDistribution* angle_dist = is->angle();
     Isotropic* id = dynamic_cast<Isotropic*>(angle_dist);
     if (id == nullptr) {
       fatal_error("Invalid source definition -- only isotropic sources are "
-                  "allowed for random ray source.");
+          "allowed for random ray source.");
+    }
+
+    // Random ray source specific validation
+    if (is->particle_type() == ParticleType::random_ray) {
+      
+      // Increment random ray source counter
+      n_random_ray_sources++;
+
+      // Check for box source
+      SpatialDistribution* space_dist = is->space();
+      SpatialBox* sb = dynamic_cast<SpatialBox*>(space_dist);
+      if (sb == nullptr) {
+        fatal_error(
+            "Invalid source definition -- only box sources are allowed in random "
+            "ray "
+            "mode. If no source is specified, OpenMC default is an isotropic point "
+            "source at the origin, which is invalid in random ray mode.");
+      }
+
+      // Check that box source is not restricted to fissionable areas
+      if (sb->only_fissionable()) {
+        fatal_error(
+            "Invalid source definition -- fissionable spatial distribution "
+            "not allowed for random ray source.");
+      }
+    } else {
+      // Fixed source validation
+      
+      // Validate that a domain ID was specified
+      if (is->domain_ids().size() == 0) {
+        fatal_error("Fixed neutron/photon sources must be specified by domain id (cell, material, or universe) in random ray mode.");
+      }
+
+      // Check that a discrete energy distribution was used
+      Distribution* d = is->energy();
+      Discrete* dd = dynamic_cast<Discrete*>(d);
+      if (dd == nullptr) {
+        fatal_error("Only discrete (multigroup) energy distributions are allowed for fixed neutron/photon sources in random ray mode.");
+      }
     }
   }
 
