@@ -94,7 +94,6 @@ void initialize_source_regions()
       int material = cell.material_[0];
       for (int j = 0; j < cell.n_instances_; j++) {
         random_ray::material[source_region_id++] = material;
-        ;
       }
     }
   }
@@ -130,54 +129,95 @@ void transfer_fixed_sources(int sampling_source)
   // Loop over sources
   // Loop over egroups
 
-  for (int sr = 0; sr < random_ray::n_source_regions; sr++) {
-    int material = random_ray::material[sr];
-    int material_id = model::materials[material]->id();
-  
-    for (int es = 0; es < model::external_sources.size(); es++) {
+  int sr = 0;
+  // Loop over material-filled cells
+  for (int i = 0; i < model::cells.size(); i++) {
+    Cell& cell = *model::cells[i];
+    if (cell.type_ != Fill::MATERIAL) {
+      continue;
+    }
+    // Loop over material-filled cell instances
+    for (int j = 0; j < cell.n_instances_; j++, sr++) {
+      int material = cell.material_[0];
+      int material_id = model::materials[material]->id();
 
-      // Don't use the random ray sampling source for sampling neutrons
-      if (es == sampling_source) {
-        continue;
-      }
+      // Loop over external sources
+      for (int es = 0; es < model::external_sources.size(); es++) {
 
-      Source* s = model::external_sources[es].get();
+        // Don't use the random ray sampling source for sampling neutrons
+        if (es == sampling_source) {
+          continue;
+        }
 
-      // Check for independent source
-      IndependentSource* is = dynamic_cast<IndependentSource*>(s);
+        Source* s = model::external_sources[es].get();
 
-      // Skip source if it is not independent, as this implies it is not
-      // the random ray source
-      if (is == nullptr) {
-        fatal_error("Sources must be of independent type in random ray mode");
-      }
+        // Check for independent source
+        IndependentSource* is = dynamic_cast<IndependentSource*>(s);
 
-      // TODO: validate that domain ids are not empty...
-      if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
-        if (contains(is->domain_ids(), material_id)) {
+        // Skip source if it is not independent, as this implies it is not
+        // the random ray source
+        if (is == nullptr) {
+          fatal_error("Sources must be of independent type in random ray mode");
+        }
+
+        // TODO: validate that domain ids are not empty...
+        bool found = false;
+        if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
+          if (contains(is->domain_ids(), material_id)) {
+            found = true;
+          }
+        } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
+          if (contains(is->domain_ids(), cell.id_)) {
+            found = true;
+          } else {
+            vector<ParentCell> cell_list = cell.exhaustive_find_parent_cells(j);
+            for (ParentCell& pc: cell_list) {
+              int pc_id = model::cells[pc.cell_index]->id_;
+              if (contains(is->domain_ids(), pc_id)) {
+                found = true;
+              }
+            }
+          }
+        } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
+          int universe = cell.universe_;
+          int u_id = model::universes[universe]->id_;
+          //if (contains(is->domain_ids(), cell.universe_)) {
+          if (contains(is->domain_ids(), u_id)) {
+            found = true;
+          } else {
+            vector<ParentCell> cell_list = cell.exhaustive_find_parent_cells(j);
+            for (ParentCell& pc: cell_list) {
+              int universe = model::cells[pc.cell_index]->universe_;
+              int u_id = model::universes[universe]->id_;
+              //if (contains(is->domain_ids(), universe)) {
+              if (contains(is->domain_ids(), u_id)) {
+                found = true;
+              }
+            }
+          }
+        }
+
+        if (found) {
           Distribution* d = is->energy();
           Discrete* dd = dynamic_cast<Discrete*>(d);
-          if (dd != nullptr) {
-            const auto& discrete_energies = dd->x();
-            const auto& discrete_probs    = dd->prob();
-            for (int e = 0; e < discrete_energies.size(); e++) {
-              int g = lower_bound_index(data::mg.rev_energy_bins_.begin(),
-                  data::mg.rev_energy_bins_.end(), discrete_energies[e]);
-              g = data::mg.num_energy_groups_ - g - 1.;
-
-              random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-              printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-
-            } // Loop over discrete energies
-          } else {
+          if (dd == nullptr) {
             fatal_error("discrete distributions only!");
           }
-        } // End of material ID being specified by that source
-      } else {
-        fatal_error("Only material type sources are allowed");
-      }
-    } // Loop over external sources
-  } // Loop over source regions
+          const auto& discrete_energies = dd->x();
+          const auto& discrete_probs    = dd->prob();
+          // Loop over discrete distribution energies
+          for (int e = 0; e < discrete_energies.size(); e++) {
+            int g = lower_bound_index(data::mg.rev_energy_bins_.begin(),
+                data::mg.rev_energy_bins_.end(), discrete_energies[e]);
+            g = data::mg.num_energy_groups_ - g - 1.;
+
+            random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
+            printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
+          } // End loop over discrete energies
+        } // End found conditional
+      } // End loop over external sources
+    } // End loop over material-filled cell instances
+  } // End loop over material-filled cells
 }
 
 } // namespace openmc

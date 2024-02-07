@@ -1204,25 +1204,6 @@ extern "C" int openmc_cell_set_name(int32_t index, const char* name)
 //! Define a containing (parent) cell
 //==============================================================================
 
-//! Used to locate a universe fill in the geometry
-struct ParentCell {
-  bool operator==(const ParentCell& other) const
-  {
-    return cell_index == other.cell_index &&
-           lattice_index == other.lattice_index;
-  }
-
-  bool operator<(const ParentCell& other) const
-  {
-    return cell_index < other.cell_index ||
-           (cell_index == other.cell_index &&
-             lattice_index < other.lattice_index);
-  }
-
-  gsl::index cell_index;
-  gsl::index lattice_index;
-};
-
 //! Structure used to insert ParentCell into hashed STL data structures
 struct ParentCellHash {
   std::size_t operator()(const ParentCell& p) const
