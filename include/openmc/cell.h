@@ -41,30 +41,10 @@ constexpr int32_t OP_UNION {std::numeric_limits<int32_t>::max() - 4};
 
 class Cell;
 class GeometryState;
-//class ParentCell;
+class ParentCell;
 class CellInstance;
 class Universe;
 class UniversePartitioner;
-
-//! Used to locate a universe fill in the geometry
-struct ParentCell {
-  bool operator==(const ParentCell& other) const
-  {
-    return cell_index == other.cell_index &&
-           lattice_index == other.lattice_index;
-  }
-
-  bool operator<(const ParentCell& other) const
-  {
-    return cell_index < other.cell_index ||
-           (cell_index == other.cell_index &&
-             lattice_index < other.lattice_index);
-  }
-
-  gsl::index cell_index;
-  gsl::index lattice_index;
-};
-
 
 namespace model {
 extern std::unordered_map<int32_t, int32_t> cell_map;
@@ -268,11 +248,16 @@ public:
   //! instances as values
   std::unordered_map<int32_t, vector<int32_t>> get_contained_cells(
     int32_t instance = 0, Position* hint = nullptr) const;
+
+  //! Determine the cell id path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cell ids for
+  //! \return parent cell ids
+  vector<int32_t> exhaustive_find_parent_cell_ids(int32_t instance) const;
   
-  //! Determine the path to this cell instance in the geometry hierarchy
-  //! \param[in] instance of the cell to find parent cells for
-  //! \return parent cells
-  vector<ParentCell> exhaustive_find_parent_cells(int32_t instance) const;
+  //! Determine the universe id path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cell ids for
+  //! \return parent universe ids
+  vector<int32_t> exhaustive_find_parent_universe_ids(int32_t instance) const;
 
 protected:
   //! Determine the path to this cell instance in the geometry hierarchy
@@ -288,6 +273,11 @@ protected:
   //! \return parent cells
   vector<ParentCell> find_parent_cells(
     int32_t instance, GeometryState& p) const;
+  
+  //! Determine the path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cells for
+  //! \return parent cells
+  vector<ParentCell> exhaustive_find_parent_cells(int32_t instance) const;
 
   //! Inner function for retrieving contained cells
   void get_contained_cells_inner(

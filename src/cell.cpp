@@ -1204,6 +1204,25 @@ extern "C" int openmc_cell_set_name(int32_t index, const char* name)
 //! Define a containing (parent) cell
 //==============================================================================
 
+//! Used to locate a universe fill in the geometry
+struct ParentCell {
+  bool operator==(const ParentCell& other) const
+  {
+    return cell_index == other.cell_index &&
+           lattice_index == other.lattice_index;
+  }
+
+  bool operator<(const ParentCell& other) const
+  {
+    return cell_index < other.cell_index ||
+           (cell_index == other.cell_index &&
+             lattice_index < other.lattice_index);
+  }
+
+  gsl::index cell_index;
+  gsl::index lattice_index;
+};
+
 //! Structure used to insert ParentCell into hashed STL data structures
 struct ParentCellHash {
   std::size_t operator()(const ParentCell& p) const
@@ -1416,6 +1435,43 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
   // reverse the stack so the highest cell comes first
   std::reverse(stack.parent_cells().begin(), stack.parent_cells().end());
   return stack.parent_cells();
+}
+  
+vector<int32_t> Cell::exhaustive_find_parent_cell_ids(int32_t instance) const 
+{
+  // Find all ParentCells (combination of raw indices into cells and lattices arrays)
+  vector<ParentCell> parents = this->exhaustive_find_parent_cells(instance);
+
+  // Allocate vector to hold just cell id info
+  vector<int32_t> parent_cell_ids;
+  parent_cell_ids.reserve(parents.size());
+
+  // Convert raw cell indices into abstract cell ids
+  for (ParentCell& parent: parents) {
+    int parent_cell_id = model::cells[parent.cell_index]->id_;
+    parent_cell_ids.push_back(parent_cell_id);
+  }
+
+  return parent_cell_ids;
+}
+
+vector<int32_t> Cell::exhaustive_find_parent_universe_ids(int32_t instance) const
+{
+  // Find all ParentCells (combination of raw indices into cells and lattices arrays)
+  vector<ParentCell> parents = this->exhaustive_find_parent_cells(instance);
+
+  // Allocate vector to hold just universe id info
+  vector<int32_t> parent_universe_ids;
+  parent_universe_ids.reserve(parents.size());
+
+  // Convert raw cell indices into abstract universe ids
+  for (ParentCell& parent: parents) {
+    int parent_universe_index = model::cells[parent.cell_index]->universe_;
+    int parent_universe_id = model::universes[parent_universe_index]->id_;
+    parent_universe_ids.push_back(parent_universe_id);
+  }
+
+  return parent_universe_ids;
 }
 
 std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(

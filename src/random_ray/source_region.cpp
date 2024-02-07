@@ -170,10 +170,9 @@ void transfer_fixed_sources(int sampling_source)
           if (contains(is->domain_ids(), cell.id_)) {
             found = true;
           } else {
-            vector<ParentCell> cell_list = cell.exhaustive_find_parent_cells(j);
-            for (ParentCell& pc: cell_list) {
-              int pc_id = model::cells[pc.cell_index]->id_;
-              if (contains(is->domain_ids(), pc_id)) {
+            vector<int32_t> parent_cell_ids = cell.exhaustive_find_parent_cell_ids(j);
+            for (int32_t& cell_id: parent_cell_ids) {
+              if (contains(is->domain_ids(), cell_id)) {
                 found = true;
               }
             }
@@ -181,16 +180,12 @@ void transfer_fixed_sources(int sampling_source)
         } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
           int universe = cell.universe_;
           int u_id = model::universes[universe]->id_;
-          //if (contains(is->domain_ids(), cell.universe_)) {
           if (contains(is->domain_ids(), u_id)) {
             found = true;
           } else {
-            vector<ParentCell> cell_list = cell.exhaustive_find_parent_cells(j);
-            for (ParentCell& pc: cell_list) {
-              int universe = model::cells[pc.cell_index]->universe_;
-              int u_id = model::universes[universe]->id_;
-              //if (contains(is->domain_ids(), universe)) {
-              if (contains(is->domain_ids(), u_id)) {
+            vector<int32_t> parent_universe_ids = cell.exhaustive_find_parent_universe_ids(j);
+            for (int32_t& universe_id: parent_universe_ids) {
+              if (contains(is->domain_ids(), universe_id)) {
                 found = true;
               }
             }
