@@ -1444,7 +1444,7 @@ vector<int32_t> Cell::exhaustive_find_parent_cell_ids(int32_t instance) const
 
   // Allocate vector to hold just cell id info
   vector<int32_t> parent_cell_ids;
-  parent_cell_ids.reserve(parents.size());
+  parent_cell_ids.reserve(parents.size()+1);
 
   // Convert raw cell indices into abstract cell ids
   for (ParentCell& parent: parents) {
@@ -1454,6 +1454,13 @@ vector<int32_t> Cell::exhaustive_find_parent_cell_ids(int32_t instance) const
 
   return parent_cell_ids;
 }
+  
+vector<int32_t> Cell::get_cell_and_parent_cell_ids(int32_t instance) const
+{
+  vector<int32_t> cell_ids = this->exhaustive_find_parent_cell_ids(instance);
+  cell_ids.insert(cell_ids.begin(), this->id_);
+  return cell_ids;
+}
 
 vector<int32_t> Cell::exhaustive_find_parent_universe_ids(int32_t instance) const
 {
@@ -1462,7 +1469,7 @@ vector<int32_t> Cell::exhaustive_find_parent_universe_ids(int32_t instance) cons
 
   // Allocate vector to hold just universe id info
   vector<int32_t> parent_universe_ids;
-  parent_universe_ids.reserve(parents.size());
+  parent_universe_ids.reserve(parents.size()+1);
 
   // Convert raw cell indices into abstract universe ids
   for (ParentCell& parent: parents) {
@@ -1472,6 +1479,13 @@ vector<int32_t> Cell::exhaustive_find_parent_universe_ids(int32_t instance) cons
   }
 
   return parent_universe_ids;
+}
+
+vector<int32_t> Cell::get_universe_and_parent_universe_ids(int32_t instance) const
+{
+  vector<int32_t> universe_ids = this->exhaustive_find_parent_universe_ids(instance);
+  universe_ids.insert(universe_ids.begin(), model::universes[this->universe_]->id_);
+  return universe_ids;
 }
 
 std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(

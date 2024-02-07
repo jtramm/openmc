@@ -91,8 +91,8 @@ void initialize_source_regions()
   for (int i = 0; i < model::cells.size(); i++) {
     Cell& cell = *model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
-      int material = cell.material_[0];
       for (int j = 0; j < cell.n_instances_; j++) {
+        int material = cell.material(j);
         random_ray::material[source_region_id++] = material;
       }
     }
@@ -138,7 +138,7 @@ void transfer_fixed_sources(int sampling_source)
     }
     // Loop over material-filled cell instances
     for (int j = 0; j < cell.n_instances_; j++, sr++) {
-      int material = cell.material_[0];
+      int material = cell.material(j);
       int material_id = model::materials[material]->id();
 
       // Loop over external sources
@@ -167,27 +167,17 @@ void transfer_fixed_sources(int sampling_source)
             found = true;
           }
         } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
-          if (contains(is->domain_ids(), cell.id_)) {
-            found = true;
-          } else {
-            vector<int32_t> parent_cell_ids = cell.exhaustive_find_parent_cell_ids(j);
-            for (int32_t& cell_id: parent_cell_ids) {
-              if (contains(is->domain_ids(), cell_id)) {
-                found = true;
-              }
+          vector<int32_t> cell_ids = cell.get_cell_and_parent_cell_ids(j);
+          for (int32_t& cell_id: cell_ids) {
+            if (contains(is->domain_ids(), cell_id)) {
+              found = true;
             }
           }
         } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
-          int universe = cell.universe_;
-          int u_id = model::universes[universe]->id_;
-          if (contains(is->domain_ids(), u_id)) {
-            found = true;
-          } else {
-            vector<int32_t> parent_universe_ids = cell.exhaustive_find_parent_universe_ids(j);
-            for (int32_t& universe_id: parent_universe_ids) {
-              if (contains(is->domain_ids(), universe_id)) {
-                found = true;
-              }
+          vector<int32_t> universe_ids = cell.get_universe_and_parent_universe_ids(j);
+          for (int32_t& universe_id: universe_ids) {
+            if (contains(is->domain_ids(), universe_id)) {
+              found = true;
             }
           }
         }
