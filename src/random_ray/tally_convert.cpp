@@ -4,6 +4,7 @@
 #include "openmc/output.h"
 #include "openmc/particle.h"
 #include "openmc/random_ray/source_region.h"
+#include "openmc/source.h"
 #include "openmc/tallies/filter.h"
 #include "openmc/tallies/tally.h"
 #include "openmc/tallies/tally_scoring.h"
@@ -142,6 +143,23 @@ bool convert_source_regions_to_tallies()
   return all_source_regions_mapped;
 }
 
+double calculate_total_source_strength()
+{
+  int negroups = data::mg.num_energy_groups_;
+
+  double total_strength = 0;
+
+  #pragma omp parallel for reduction(+:total_strength)
+  for (int sr = 0; sr < random_ray::n_source_regions; sr++) {
+    double volume = random_ray::volume[sr];
+    for (int e = 0; e < negroups; e++) {
+      total_strength += random_ray::fixed_source[sr * negroups + e] * volume;
+    }
+  }
+
+  return total_strength;
+}
+
 // Tallying in random ray is not done directly during transport, rather,
 // it is done only once after each power iteration. This is made possible
 // by way of a mapping data structure that relates spatial source regions
@@ -157,6 +175,11 @@ void random_ray_tally()
 
   int negroups = data::mg.num_energy_groups_;
 
+  double inverse_source_strength = 1.0;
+  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+    inverse_source_strength = 1.0 / calculate_total_source_strength();
+  }
+
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
   // TODO: Currently assumes we are only using single temp/single
@@ -169,7 +192,7 @@ void random_ray_tally()
 // them.
 #pragma omp parallel for
   for (int sr = 0; sr < random_ray::n_source_regions; sr++) {
-    double volume = random_ray::volume[sr];
+    double volume = random_ray::volume[sr] * inverse_source_strength;
     double material = random_ray::material[sr];
     for (int e = 0; e < negroups; e++) {
       int idx = sr * negroups + e;

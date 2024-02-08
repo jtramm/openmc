@@ -28,6 +28,7 @@ extern std::vector<std::vector<TallyTask>> tally_task;
 } // namespace random_ray
 
 bool convert_source_regions_to_tallies();
+double calculate_total_source_strength();
 void random_ray_tally();
 
 } // namespace openmc
