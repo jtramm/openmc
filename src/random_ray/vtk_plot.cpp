@@ -147,36 +147,6 @@ void plot_3D_vtk()
       fwrite(&total_fission, sizeof(float), 1, plot);
     }
     
-    // Plot multigroup scattering source data
-    for (int g = 0; g < negroups; g++) {
-      fprintf(plot, "SCALARS scatter_source_group_%d float\n", g);
-      fprintf(plot, "LOOKUP_TABLE default\n");
-      for (int fsr : voxel_indices) {
-
-        int mat = random_ray::material[fsr];
-        float sigma_t = data::mg.macro_xs_[mat].get_xs(
-            MgxsType::TOTAL, g, nullptr, nullptr, nullptr, 0, 0);
-        float scatter_source = 0.0f;
-
-        for (int energy_group_in = 0; energy_group_in < negroups;
-            energy_group_in++) {
-
-          float flux_in = random_ray::scalar_flux_final[fsr*negroups + energy_group_in];
-          flux_in /= (settings::n_batches - settings::n_inactive);
-
-          float sigma_s =
-            data::mg.macro_xs_[mat].get_xs(MgxsType::NU_SCATTER,
-                energy_group_in, &g, nullptr, nullptr, 0, 0);
-          scatter_source += sigma_s * flux_in;
-        }
-
-        scatter_source /= sigma_t;
-
-        scatter_source = flip_endianness<float>(scatter_source);
-        fwrite(&scatter_source, sizeof(float), 1, plot);
-      }
-    }
-
     fclose(plot);
   }
 }
