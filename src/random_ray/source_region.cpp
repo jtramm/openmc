@@ -104,7 +104,7 @@ void initialize_source_regions()
   }
 }
 
-void transfer_fixed_sources(int sampling_source)
+void transfer_fixed_sources_bottom_up(int sampling_source)
 {
   int negroups = data::mg.num_energy_groups_;
 
@@ -192,6 +192,100 @@ void transfer_fixed_sources(int sampling_source)
       } // End loop over external sources
     } // End loop over material-filled cell instances
   } // End loop over material-filled cells
+}
+
+void transfer_fixed_sources(int sampling_source)
+{
+  int negroups = data::mg.num_energy_groups_;
+
+  // Compute total combined strength of all sources
+  double total_strength = 0;
+  for (int es = 0; es < model::external_sources.size(); es++) {
+
+    // Don't use the random ray sampling source for sampling neutrons
+    if (es == sampling_source) {
+      continue;
+    }
+
+    Source* s = model::external_sources[es].get();
+    IndependentSource* is = dynamic_cast<IndependentSource*>(s);
+
+    total_strength += is->strength();
+  }
+
+  // Loop over external sources
+  for (int es = 0; es < model::external_sources.size(); es++) {
+
+    // Don't use the random ray sampling source for sampling neutrons
+    if (es == sampling_source) {
+      continue;
+    }
+
+    Source* s = model::external_sources[es].get();
+    IndependentSource* is = dynamic_cast<IndependentSource*>(s);
+    const std::unordered_set<int32_t>& domain_ids = is->domain_ids();
+
+    if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
+      for (int32_t material_id : domain_ids) {
+        // I know the material ID. Now I want to find all material filled cells that match this
+        int sr = 0;
+        for (int i = 0; i < model::cells.size(); i++) {
+          Cell& cell = *model::cells[i];
+          if (cell.type_ != Fill::MATERIAL) {
+            continue;
+          }
+          // Loop over cell instances
+          for (int j = 0; j < cell.n_instances_; j++, sr++) {
+            int material = cell.material(j);
+            int cell_material_id = model::materials[material]->id();
+            if (material_id == cell_material_id) {
+              Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
+              const auto& discrete_energies = discrete->x();
+              const auto& discrete_probs    = discrete->prob();
+
+              // Loop over discrete distribution energies
+              for (int e = 0; e < discrete_energies.size(); e++) {
+                int g = data::mg.get_group_index(discrete_energies[e]);
+                random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
+                printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
+              } // End loop over discrete energies
+            }
+          }
+        }
+      }
+    } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
+      for (int32_t cell_id : domain_ids) {
+        int32_t i_cell = model::cell_map[cell_id];
+        Cell& cell = *model::cells[i_cell];
+          
+        // We can (and should) short circuit the logic if this is already a material filled cell.
+        if (cell.type_ == Fill::MATERIAL) {
+          // Loop over cell instances
+          for (int j = 0; j < cell.n_instances_; j++) {
+            Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
+            const auto& discrete_energies = discrete->x();
+            const auto& discrete_probs    = discrete->prob();
+
+            int64_t sr = random_ray::source_region_offsets[i_cell] + j;
+
+            // Loop over discrete distribution energies
+            for (int e = 0; e < discrete_energies.size(); e++) {
+              int g = data::mg.get_group_index(discrete_energies[e]);
+              random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
+              printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
+            } // End loop over discrete energies
+          }
+        } else {
+
+          // If we are not in a material filled cell, then we need to check cell IDs of all child cells downwards
+
+        }
+
+      }
+    } else {
+    }
+
+  } // End loop over external sources
 }
 
 } // namespace openmc

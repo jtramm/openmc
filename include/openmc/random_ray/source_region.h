@@ -35,6 +35,7 @@ extern std::vector<int> was_hit;
 
 void initialize_source_regions();
 void transfer_fixed_sources(int sampling_source);
+void transfer_fixed_sources_bottom_up(int sampling_source);
 
 } // namespace openmc
 
