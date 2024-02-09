@@ -123,6 +123,15 @@ void transfer_fixed_sources(int sampling_source)
     total_strength += is->strength();
   }
 
+
+  // TODO: Convert to downwards search rather than upwards
+  // Current upwards search has F = 360k, with 1 source, with hierarchy size = O(5)
+  // This essentially results in a complexity of a few million. Problem is all
+  // the vector allocs/deallocs I think.
+  // IF we convert to a downward, then we have 1 source, with a hierarchy size of O(5),
+  // resulting in 5 stack traversals. 
+  // Need to use std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(
+
   // Counter to track the source region ID as we traverse cells/instances
   int sr = 0;
   

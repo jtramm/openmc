@@ -135,6 +135,8 @@ int openmc_simulation_init()
         header("FIXED SOURCE TRANSPORT SIMULATION", 3);
       } else if (settings::solver_type == SolverType::RANDOM_RAY) {
         header("FIXED SOURCE TRANSPORT SIMULATION (RANDOM RAY SOLVER)", 3);
+        if (settings::verbosity >= 7)
+          print_columns();
       }
     } else if (settings::run_mode == RunMode::EIGENVALUE) {
       if (settings::solver_type == SolverType::MONTE_CARLO) {
@@ -340,7 +342,7 @@ void initialize_batch()
   // Increment current batch
   ++simulation::current_batch;
 
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+  if (settings::run_mode == RunMode::FIXED_SOURCE && settings::solver_type == SolverType::MONTE_CARLO) {
     write_message(6, "Simulating batch {}", simulation::current_batch);
   }
 
@@ -519,13 +521,18 @@ void finalize_generation()
   if (settings::run_mode == RunMode::EIGENVALUE) {
 
     // Calculate shannon entropy
-    if (settings::entropy_on)
+    if (settings::entropy_on && settings::solver_type == SolverType::MONTE_CARLO)
       shannon_entropy();
 
     // Collect results and statistics
     calculate_generation_keff();
     calculate_average_keff();
 
+    // Write generation output
+    if (mpi::master && settings::verbosity >= 7) {
+      print_generation();
+    }
+  } else if (settings::solver_type == SolverType::RANDOM_RAY) {
     // Write generation output
     if (mpi::master && settings::verbosity >= 7) {
       print_generation();

@@ -371,7 +371,10 @@ void print_build_info()
 
 void print_columns()
 {
-  if (settings::entropy_on) {
+  if (settings::solver_type == SolverType::RANDOM_RAY && settings::run_mode == RunMode::FIXED_SOURCE) {
+    fmt::print("  Bat./Gen.   Entropy \n"
+        "  =========   ========\n");
+  } else if (settings::entropy_on) {
     fmt::print("  Bat./Gen.      k       Entropy         Average k \n"
                "  =========   ========   ========   ====================\n");
   } else {
@@ -394,15 +397,20 @@ void print_generation()
   // write out batch/generation and generation k-effective
   auto batch_and_gen = std::to_string(simulation::current_batch) + "/" +
                        std::to_string(simulation::current_gen);
-  fmt::print("  {:>9}   {:8.5f}", batch_and_gen, simulation::k_generation[idx]);
 
-  // write out entropy info
-  if (settings::entropy_on) {
-    fmt::print("   {:8.5f}", simulation::entropy[idx]);
-  }
+  if (settings::solver_type == SolverType::RANDOM_RAY && settings::run_mode == RunMode::FIXED_SOURCE) {
+    fmt::print("  {:>9}   {:8.5f}", batch_and_gen, simulation::entropy[idx]);
+  } else {
+    fmt::print("  {:>9}   {:8.5f}", batch_and_gen, simulation::k_generation[idx]);
 
-  if (n > 1) {
-    fmt::print("   {:8.5f} +/-{:8.5f}", simulation::keff, simulation::keff_std);
+    // write out entropy info
+    if (settings::entropy_on) {
+      fmt::print("   {:8.5f}", simulation::entropy[idx]);
+    }
+
+    if (n > 1) {
+      fmt::print("   {:8.5f} +/-{:8.5f}", simulation::keff, simulation::keff_std);
+    }
   }
   fmt::print("\n");
   std::fflush(stdout);
@@ -629,10 +637,10 @@ void print_results_random_ray(
     show_time("Time per integration", TPI);
   }
 
-  if (settings::verbosity >= 4) {
+  if (settings::verbosity >= 4 && settings::run_mode == RunMode::EIGENVALUE) {
     header("Results", 4);
     fmt::print(" k-effective                       = {:.5f} +/- {:.5f}\n",
-      simulation::keff, simulation::keff_std);
+        simulation::keff, simulation::keff_std);
   }
 }
 

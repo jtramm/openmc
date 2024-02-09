@@ -111,6 +111,9 @@ void all_reduce_random_ray_batch_results(bool mapped_all_tallies)
 
 int openmc_run_random_ray()
 {
+  // Enable Shannon Entropy
+  settings::entropy_on = true;
+
   // Initialize OpenMC general data structures
   openmc_simulation_init();
 
@@ -162,8 +165,11 @@ int openmc_run_random_ray()
     // Reset total starting particle weight used for normalizing tallies
     simulation::total_weight = 1.0;
 
-    // Update source term (scattering + fission)
-    update_neutron_source(k_eff);
+    // Update source term and compute shannon entropy
+    double shannon_entropy = update_neutron_source(k_eff);
+    
+    // Add shannon entropy value to vector
+    simulation::entropy.push_back(shannon_entropy);
 
     // Reset scalar fluxes, iteration volume tallies, and region hit flags to
     // zero
@@ -261,7 +267,7 @@ int openmc_run_random_ray()
 
 // Compute new estimate of scattering + fission sources in each source region
 // based on the flux estimate from the previous iteration.
-void update_neutron_source(double k_eff)
+double update_neutron_source(double k_eff)
 {
   simulation::time_update_src.start();
 
@@ -275,9 +281,15 @@ void update_neutron_source(double k_eff)
   const int t = 0;
   const int a = 0;
 
-#pragma omp parallel for
+  double total_source = 0.0;
+  double shannon = 0.0;
+
+#pragma omp parallel for reduction(+:total_source, shannon)
   for (int sr = 0; sr < random_ray::n_source_regions; sr++) {
     int material = random_ray::material[sr];
+    double vol = random_ray::volume[sr];
+      
+    float cell_source = 0.0f;
 
     for (int energy_group_out = 0; energy_group_out < negroups;
          energy_group_out++) {
@@ -287,35 +299,60 @@ void update_neutron_source(double k_eff)
       float fission_source = 0.0f;
 
       for (int energy_group_in = 0; energy_group_in < negroups;
-           energy_group_in++) {
+          energy_group_in++) {
         float scalar_flux =
           random_ray::scalar_flux_old[sr * negroups + energy_group_in];
         float sigma_s =
           data::mg.macro_xs_[material].get_xs(MgxsType::NU_SCATTER,
-            energy_group_in, &energy_group_out, nullptr, nullptr, t, a);
-        float nu_sigma_f =
-          data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION,
-            energy_group_in, nullptr, nullptr, nullptr, t, a);
-        float chi = data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT,
-          energy_group_in, &energy_group_out, nullptr, nullptr, t, a);
+              energy_group_in, &energy_group_out, nullptr, nullptr, t, a);
         scatter_source += sigma_s * scalar_flux;
-        fission_source += nu_sigma_f * scalar_flux * chi;
-      }
+
+        if (settings::run_mode == RunMode::EIGENVALUE) {
+          float nu_sigma_f =
+            data::mg.macro_xs_[material].get_xs(MgxsType::NU_FISSION,
+                energy_group_in, nullptr, nullptr, nullptr, t, a);
+          float chi = data::mg.macro_xs_[material].get_xs(MgxsType::CHI_PROMPT,
+              energy_group_in, &energy_group_out, nullptr, nullptr, t, a);
+          fission_source += nu_sigma_f * scalar_flux * chi;
+        }
+      } // End inner energy group loop
 
       fission_source *= inverse_k_eff;
       float new_isotropic_source = 0.0;
+
       if (settings::run_mode == RunMode::FIXED_SOURCE) {
         float fixed_source = random_ray::fixed_source[sr * negroups + energy_group_out];
         new_isotropic_source = (scatter_source + fixed_source) / sigma_t;
+        cell_source += scatter_source;
       } else {
         new_isotropic_source = (scatter_source + fission_source) / sigma_t;
+        cell_source += fission_source;
       }
+
       random_ray::source[sr * negroups + energy_group_out] =
         new_isotropic_source;
+    } // End outer energy loop
+
+    // Compute the total source in region "i"
+    double Si = cell_source * vol;
+
+    // If the source is positive, accumulate
+    if (Si > 0) {
+      total_source +=  Si;
+      shannon += Si * std::log2(Si);
     }
+  } // End loop over source regions
+  
+  // Normalize Shannon Entropy by total source and make negative
+  shannon /= total_source;
+  shannon *= -1.0;
+  if (!std::isfinite(shannon)) {
+    shannon = 0.0;
   }
 
   simulation::time_update_src.stop();
+
+  return shannon;
 }
 
 // Normalizes flux and updates simulation-averaged volume estimate
