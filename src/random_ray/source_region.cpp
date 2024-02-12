@@ -224,6 +224,9 @@ void transfer_fixed_sources(int sampling_source)
     Source* s = model::external_sources[es].get();
     IndependentSource* is = dynamic_cast<IndependentSource*>(s);
     const std::unordered_set<int32_t>& domain_ids = is->domain_ids();
+    Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
+    const auto& discrete_energies = discrete->x();
+    const auto& discrete_probs    = discrete->prob();
 
     if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
       for (int32_t material_id : domain_ids) {
@@ -262,9 +265,6 @@ void transfer_fixed_sources(int sampling_source)
         if (cell.type_ == Fill::MATERIAL) {
           // Loop over cell instances
           for (int j = 0; j < cell.n_instances_; j++) {
-            Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
-            const auto& discrete_energies = discrete->x();
-            const auto& discrete_probs    = discrete->prob();
 
             int64_t sr = random_ray::source_region_offsets[i_cell] + j;
 
@@ -276,13 +276,28 @@ void transfer_fixed_sources(int sampling_source)
             } // End loop over discrete energies
           }
         } else {
-
           // If we are not in a material filled cell, then we need to check cell IDs of all child cells downwards
+          std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
+          for (const auto& pair : cell_instance_list) {
+            int32_t i_child_cell = pair.first;
+            Cell& child_cell = *model::cells[i_child_cell];
+            if (child_cell.type_ == Fill::MATERIAL) {
+              for (int32_t j : pair.second) {
+                int64_t sr = random_ray::source_region_offsets[i_cell] + j;
 
+                // Loop over discrete distribution energies
+                for (int e = 0; e < discrete_energies.size(); e++) {
+                  int g = data::mg.get_group_index(discrete_energies[e]);
+                  random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
+                  printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
+                } // End loop over discrete energies
+              }
+            }
+          }
         }
 
       }
-    } else {
+    } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
     }
 
   } // End loop over external sources
