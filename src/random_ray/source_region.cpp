@@ -194,6 +194,48 @@ void transfer_fixed_sources_bottom_up(int sampling_source)
   } // End loop over material-filled cells
 }
 
+void apply_source_to_source_region(Discrete* discrete, double strength_factor, int64_t source_region)
+{
+  int negroups = data::mg.num_energy_groups_;
+    
+  const auto& discrete_energies = discrete->x();
+  const auto& discrete_probs    = discrete->prob();
+
+  // Loop over discrete distribution energies
+  for (int e = 0; e < discrete_energies.size(); e++) {
+    int g = data::mg.get_group_index(discrete_energies[e]);
+    random_ray::fixed_source[source_region * negroups + g] += discrete_probs[e] * strength_factor;
+  }
+}
+
+void apply_source_to_cell(int32_t i_cell, Discrete* discrete, double strength_factor)
+{
+  Cell& cell = *model::cells[i_cell];
+    
+  for (int j = 0; j < cell.n_instances_; j++) {
+    int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+    apply_source_to_source_region(discrete, strength_factor, source_region);
+  }
+}
+
+void apply_source_to_cell_children(int32_t i_cell, Discrete* discrete, double strength_factor)
+{
+  Cell& cell = *model::cells[i_cell];
+  
+  std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
+    
+  for (const auto& pair : cell_instance_list) {
+    int32_t i_child_cell = pair.first;
+    Cell& child_cell = *model::cells[i_child_cell];
+    if (child_cell.type_ == Fill::MATERIAL) {
+      for (int32_t j : pair.second) {
+        int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+        apply_source_to_source_region(discrete, strength_factor, source_region);
+      }
+    }
+  }
+}
+
 void transfer_fixed_sources(int sampling_source)
 {
   int negroups = data::mg.num_energy_groups_;
@@ -225,33 +267,24 @@ void transfer_fixed_sources(int sampling_source)
     IndependentSource* is = dynamic_cast<IndependentSource*>(s);
     const std::unordered_set<int32_t>& domain_ids = is->domain_ids();
     Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
-    const auto& discrete_energies = discrete->x();
-    const auto& discrete_probs    = discrete->prob();
+    double strength_factor = is->strength() / total_strength;
 
     if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
       for (int32_t material_id : domain_ids) {
         // I know the material ID. Now I want to find all material filled cells that match this
-        int sr = 0;
-        for (int i = 0; i < model::cells.size(); i++) {
-          Cell& cell = *model::cells[i];
+        for (int i_cell = 0; i_cell < model::cells.size(); i_cell++) {
+          Cell& cell = *model::cells[i_cell];
           if (cell.type_ != Fill::MATERIAL) {
             continue;
           }
+          //apply_source_to_cell(i, discrete, is->strength() / total_strength);
           // Loop over cell instances
-          for (int j = 0; j < cell.n_instances_; j++, sr++) {
+          for (int j = 0; j < cell.n_instances_; j++) {
             int material = cell.material(j);
             int cell_material_id = model::materials[material]->id();
             if (material_id == cell_material_id) {
-              Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
-              const auto& discrete_energies = discrete->x();
-              const auto& discrete_probs    = discrete->prob();
-
-              // Loop over discrete distribution energies
-              for (int e = 0; e < discrete_energies.size(); e++) {
-                int g = data::mg.get_group_index(discrete_energies[e]);
-                random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-                printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-              } // End loop over discrete energies
+              int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+              apply_source_to_source_region(discrete, strength_factor, source_region);
             }
           }
         }
@@ -263,37 +296,10 @@ void transfer_fixed_sources(int sampling_source)
           
         // We can (and should) short circuit the logic if this is already a material filled cell.
         if (cell.type_ == Fill::MATERIAL) {
-          // Loop over cell instances
-          for (int j = 0; j < cell.n_instances_; j++) {
-
-            int64_t sr = random_ray::source_region_offsets[i_cell] + j;
-
-            // Loop over discrete distribution energies
-            for (int e = 0; e < discrete_energies.size(); e++) {
-              int g = data::mg.get_group_index(discrete_energies[e]);
-              random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-              printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-            } // End loop over discrete energies
-          }
+          apply_source_to_cell(i_cell, discrete, strength_factor);
         } else {
           // If we are not in a material filled cell, then we need to check cell IDs of all child cells downwards
-          std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
-          for (const auto& pair : cell_instance_list) {
-            int32_t i_child_cell = pair.first;
-            Cell& child_cell = *model::cells[i_child_cell];
-            if (child_cell.type_ == Fill::MATERIAL) {
-              for (int32_t j : pair.second) {
-                int64_t sr = random_ray::source_region_offsets[i_cell] + j;
-
-                // Loop over discrete distribution energies
-                for (int e = 0; e < discrete_energies.size(); e++) {
-                  int g = data::mg.get_group_index(discrete_energies[e]);
-                  random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-                  printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-                } // End loop over discrete energies
-              }
-            }
-          }
+          apply_source_to_cell_children(i_cell, discrete, strength_factor);
         }
       }
     } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
@@ -307,37 +313,9 @@ void transfer_fixed_sources(int sampling_source)
 
           // We can (and should) short circuit the logic if this is already a material filled cell.
           if (cell.type_ == Fill::MATERIAL) {
-            // Loop over cell instances
-            for (int j = 0; j < cell.n_instances_; j++) {
-
-              int64_t sr = random_ray::source_region_offsets[i_cell] + j;
-
-              // Loop over discrete distribution energies
-              for (int e = 0; e < discrete_energies.size(); e++) {
-                int g = data::mg.get_group_index(discrete_energies[e]);
-                random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-                printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-              } // End loop over discrete energies
-            }
+            apply_source_to_cell(i_cell, discrete, strength_factor);
           } else {
-            // If we are not in a material filled cell, then we need to check cell IDs of all child cells downwards
-            std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
-            for (const auto& pair : cell_instance_list) {
-              int32_t i_child_cell = pair.first;
-              Cell& child_cell = *model::cells[i_child_cell];
-              if (child_cell.type_ == Fill::MATERIAL) {
-                for (int32_t j : pair.second) {
-                  int64_t sr = random_ray::source_region_offsets[i_cell] + j;
-
-                  // Loop over discrete distribution energies
-                  for (int e = 0; e < discrete_energies.size(); e++) {
-                    int g = data::mg.get_group_index(discrete_energies[e]);
-                    random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-                    printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-                  } // End loop over discrete energies
-                }
-              }
-            }
+            apply_source_to_cell_children(i_cell, discrete, strength_factor);
           }
         } // End loop over cells within the target universe
       } // End loop over target universes
