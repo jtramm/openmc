@@ -21,6 +21,9 @@ int64_t n_source_elements {0}; // Total number of source regions in the model
                                // times the number of energy groups
 int64_t n_source_regions {0};  // Total number of source regions in the model
 
+int64_t n_fixed_source_regions {0}; // Total number of source regions
+                                    // containing fixed sources in the model
+
 // 1D arrays representing values for each OpenMC "Cell"
 std::vector<int64_t> source_region_offsets;
 
@@ -104,96 +107,6 @@ void initialize_source_regions()
   }
 }
 
-void transfer_fixed_sources_bottom_up(int sampling_source)
-{
-  int negroups = data::mg.num_energy_groups_;
-
-  // Compute total combined strength of all sources
-  double total_strength = 0;
-  for (int es = 0; es < model::external_sources.size(); es++) {
-
-    // Don't use the random ray sampling source for sampling neutrons
-    if (es == sampling_source) {
-      continue;
-    }
-
-    Source* s = model::external_sources[es].get();
-    IndependentSource* is = dynamic_cast<IndependentSource*>(s);
-
-    total_strength += is->strength();
-  }
-
-
-  // TODO: Convert to downwards search rather than upwards
-  // Current upwards search has F = 360k, with 1 source, with hierarchy size = O(5)
-  // This essentially results in a complexity of a few million. Problem is all
-  // the vector allocs/deallocs I think.
-  // IF we convert to a downward, then we have 1 source, with a hierarchy size of O(5),
-  // resulting in 5 stack traversals. 
-  // Need to use std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(
-
-  // Counter to track the source region ID as we traverse cells/instances
-  int sr = 0;
-  
-  // Now we loop over all FSRs. For each FSR (a specific material-filled
-  // cell instance), we loop over all external sources and check if any of them
-  // apply to that cell instance. If a match is found, add discrete source
-  // distribution to the FSR's fixed source term.
-
-  // Loop over material-filled cells
-  for (int i = 0; i < model::cells.size(); i++) {
-
-    Cell& cell = *model::cells[i];
-    if (cell.type_ != Fill::MATERIAL) {
-      continue;
-    }
-
-    // Loop over cell instances
-    for (int j = 0; j < cell.n_instances_; j++, sr++) {
-      int material = cell.material(j);
-      int material_id = model::materials[material]->id();
-
-      // Loop over external sources
-      for (int es = 0; es < model::external_sources.size(); es++) {
-
-        // Don't use the random ray sampling source for sampling neutrons
-        if (es == sampling_source) {
-          continue;
-        }
-
-        Source* s = model::external_sources[es].get();
-        IndependentSource* is = dynamic_cast<IndependentSource*>(s);
-
-        // For this external source, check to see if any of its domains match
-        // this cell or any of its parents.
-        bool is_match;
-        if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
-          is_match = contains(is->domain_ids(), material_id);
-        } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
-          vector<int32_t> cell_ids = cell.get_cell_and_parent_cell_ids(j);
-          is_match = has_matching_element(is->domain_ids(), cell_ids);
-        } else {
-          vector<int32_t> universe_ids = cell.get_universe_and_parent_universe_ids(j);
-          is_match = has_matching_element(is->domain_ids(), universe_ids);
-        }
-
-        if (is_match) {
-          Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
-          const auto& discrete_energies = discrete->x();
-          const auto& discrete_probs    = discrete->prob();
-
-          // Loop over discrete distribution energies
-          for (int e = 0; e < discrete_energies.size(); e++) {
-            int g = data::mg.get_group_index(discrete_energies[e]);
-            random_ray::fixed_source[sr * negroups + g] += discrete_probs[e] * is->strength() / total_strength;
-            printf("Setting source region %d group %d, with prob %.3lf, strength %.3lf, and total strength %.3lf to:    %.3lf\n", sr, g, discrete_probs[e], is->strength(), total_strength, random_ray::fixed_source[sr * negroups + g]);
-          } // End loop over discrete energies
-        } // End match conditional
-      } // End loop over external sources
-    } // End loop over material-filled cell instances
-  } // End loop over material-filled cells
-}
-
 void apply_source_to_source_region(Discrete* discrete, double strength_factor, int64_t source_region)
 {
   int negroups = data::mg.num_energy_groups_;
@@ -229,11 +142,30 @@ void apply_source_to_cell_children(int32_t i_cell, Discrete* discrete, double st
     Cell& child_cell = *model::cells[i_child_cell];
     if (child_cell.type_ == Fill::MATERIAL) {
       for (int32_t j : pair.second) {
-        int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+        //int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+        int64_t source_region = random_ray::source_region_offsets[i_child_cell] + j;
         apply_source_to_source_region(discrete, strength_factor, source_region);
       }
     }
   }
+}
+
+void count_fixed_source_regions()
+{
+  int negroups = data::mg.num_energy_groups_;
+  int n_source_cells = 0;
+  #pragma omp parallel for reduction(+:n_source_cells)
+  for (int sr = 0; sr < random_ray::n_source_regions; sr++) {
+    float total = 0.f; 
+    for (int e = 0; e < negroups; e++) {
+      int64_t se = sr*negroups + e;
+      total += random_ray::fixed_source[se];
+    }
+    if (total != 0.f) {
+      n_source_cells++;
+    }
+  }
+  random_ray::n_fixed_source_regions =  n_source_cells;
 }
 
 void transfer_fixed_sources(int sampling_source)
@@ -277,7 +209,6 @@ void transfer_fixed_sources(int sampling_source)
           if (cell.type_ != Fill::MATERIAL) {
             continue;
           }
-          //apply_source_to_cell(i, discrete, is->strength() / total_strength);
           // Loop over cell instances
           for (int j = 0; j < cell.n_instances_; j++) {
             int material = cell.material(j);

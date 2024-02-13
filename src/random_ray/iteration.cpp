@@ -127,8 +127,11 @@ int openmc_run_random_ray()
   // Determine which source term should be used for ray sampling
   int sampling_source = get_random_ray_sampling_source_index();
 
-  // Transfer fixed sources in
-  transfer_fixed_sources(sampling_source);
+  // Populate fixed source term
+  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+    transfer_fixed_sources(sampling_source);
+    count_fixed_source_regions();
+  }
 
   // Random ray mode does not have an inner loop over generations within a
   // batch, so set the current gen to 1

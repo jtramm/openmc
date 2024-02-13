@@ -1288,17 +1288,6 @@ struct ParentCellStack {
     }
     return instance;
   }
-  void print_stack() const 
-  {
-    printf("Printing parent cell stack...\n");
-    for(auto& p : parent_cells_)
-    {
-      if( p.lattice_index >= 0 ) 
-        printf("\tcell index %d, cell id %d, lattice index %d, lattice id %d\n", p.cell_index, model::cells[p.cell_index]->id_,  p.lattice_index, model::lattices[p.lattice_index]->id_);
-      else
-        printf("\tcell index %d, cell id %d, lattice index %d, lattice id %d\n", p.cell_index, model::cells[p.cell_index]->id_,  p.lattice_index);
-    }
-  }
 
   // Accessors
   vector<ParentCell>& parent_cells() { return parent_cells_; }
@@ -1371,100 +1360,69 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
   // start with this cell's universe
   int32_t prev_univ_idx;
   int32_t univ_idx = this->universe_;
-  printf("Executing top level exhaustive find parent cell for cell id %d, instance %d, which is in universe index %d\n", this->id_, instance, univ_idx);
 
   while (true) {
     const auto& univ = model::universes[univ_idx];
-    printf("\tInside while loop. Universe idx %d corresponds to universe ID %d\n", univ_idx, univ->id_);
     prev_univ_idx = univ_idx;
 
     // search for a cell that is filled w/ this universe
     for (const auto& cell : model::cells) {
-      printf("\t\tInside cell loop. Examining cell id %d\n", cell->id_);
       // if this is a material-filled cell, move on
-      if (cell->type_ == Fill::MATERIAL) {
-        printf("\t\tCell is a material type, so we skip it...\n");
+      if (cell->type_ == Fill::MATERIAL)
         continue;
-      }
 
       if (cell->type_ == Fill::UNIVERSE) {
-        printf("\t\tCell is a universe fill type. cell fill = %d universe_index = %d\n", cell->fill_, univ_idx);
         // if this is in the set of cells previously visited for this universe,
         // move on
         if (stack.visited(univ_idx, {model::cell_map[cell->id_], C_NONE}))
-        {
-          printf("\t\t\tCell is in set of cells previously visisted, so we move on\n");
           continue;
-        }
 
         // if this cell contains the universe we're searching for, add it to the
         // stack
         if (cell->fill_ == univ_idx) {
-          printf("\t\t\tThis cell containes the universe we want, so we add to stack. Univ_idx = %d, cell ID = %d\n", univ_idx, cell->id_);
           stack.push(univ_idx, {model::cell_map[cell->id_], C_NONE});
-          stack.print_stack();
           univ_idx = cell->universe_;
         }
       } else if (cell->type_ == Fill::LATTICE) {
         // retrieve the lattice and lattice universes
         const auto& lattice = model::lattices[cell->fill_];
         const auto& lattice_univs = lattice->universes_;
-        printf("\t\tCell is lattice fill type. The lattice ID is %d\n", lattice->id_);
 
         // start search for universe
         auto lat_it = lattice_univs.begin();
         while (true) {
-          printf("\t\t\tBeginning while loop for lattices\n");
           // find the next lattice cell with this universe
           lat_it = std::find(lat_it, lattice_univs.end(), univ_idx);
           if (lat_it == lattice_univs.end())
-          {
-            printf("\t\t\tReached end of lattices\n");
             break;
-          }
 
           int lattice_idx = lat_it - lattice_univs.begin();
-          printf("\t\t\tConsidering lattice index: %d\n", lattice_idx);
 
           // move iterator forward one to avoid finding the same entry
           lat_it++;
           if (stack.visited(
                 univ_idx, {model::cell_map[cell->id_], lattice_idx}))
-          {
-            printf("\t\t\tMoving iterator forward to avoid finding same entry in stack visisted. Universe idx = %d, cell ID = %d, lattice_idx = %d\n", univ_idx, cell->id_, lattice_idx);
-            stack.print_stack();
             continue;
-          }
 
           // add this cell and lattice index to the stack and exit loop
-          printf("\t\t\tPushing cell and lattice index to stack and exiting loop. univ_idx = %d, cell ID = %d, lattice_idx = %d\n", univ_idx, cell->id_, lattice_idx);
           stack.push(univ_idx, {model::cell_map[cell->id_], lattice_idx});
-          stack.print_stack();
           univ_idx = cell->universe_;
-          printf("\t\t\tUpdating univ_idx to %d\n", univ_idx);
           break;
         }
       }
       // if we've updated the universe, break
       if (prev_univ_idx != univ_idx)
-      {
-        printf("\t\tUpdated universe because prev_uni_idx (%d) != univ_idx (%d)\n", prev_univ_idx, univ_idx);
         break;
-      }
+
     } // end cell loop search for universe
-    printf("\tConcluded loop over cells. universe index = %d, root universe index = %d, cell instance = %d, distribcell index = %d, computed stack instance = %d\n", univ_idx, model::root_universe, instance, this->distribcell_index_, stack.compute_instance(this->distribcell_index_));
 
     // if we're at the top of the geometry and the instance matches, we're done
-    if (univ_idx == model::root_universe)
-      printf("WE ARE AT THE TOP OF THE GEOMETRY\n");
-    printf("instance provided = %d, distribcell index = %d, compute_instance = %d. Compute instance needs to be == instance to terminate!\n", instance, this->distribcell_index_, stack.compute_instance(this->distribcell_index_));
     if (univ_idx == model::root_universe &&
         stack.compute_instance(this->distribcell_index_) == instance)
       break;
 
     // if there is no match on the original cell's universe, report an error
     if (univ_idx == this->universe_) {
-      printf("OH NO! univ_idx (%d) == this->universe_ (%d)\n", univ_idx, this->universe_);
       fatal_error(
         fmt::format("Could not find the parent cells for cell {}, instance {}.",
           this->id_, instance));
@@ -1472,15 +1430,12 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
 
     // if we don't find a suitable update, adjust the stack and continue
     if (univ_idx == model::root_universe || univ_idx == prev_univ_idx) {
-      printf("\tDidn't find a suitable update... Popping stack. univ_idx (%d) == model::root_universe (%d) || univ_idx == prev_univ_idx (%d)\n", univ_idx, model::root_universe, prev_univ_idx);
       stack.pop();
-          stack.print_stack();
       univ_idx = stack.empty() ? this->universe_ : stack.current_univ();
     }
 
   } // end while
 
-  printf("Reversing stack and returing\n");
   // reverse the stack so the highest cell comes first
   std::reverse(stack.parent_cells().begin(), stack.parent_cells().end());
   return stack.parent_cells();

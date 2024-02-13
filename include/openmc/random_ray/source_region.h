@@ -13,6 +13,7 @@ namespace random_ray {
 // Scalars
 extern int64_t n_source_elements;
 extern int64_t n_source_regions; // number of source regions (a.k.a. cells)
+extern int64_t n_fixed_source_regions;
 
 // 1D arrays representing values for each OpenMC "Cell"
 extern std::vector<int64_t> source_region_offsets;
@@ -35,7 +36,7 @@ extern std::vector<int> was_hit;
 
 void initialize_source_regions();
 void transfer_fixed_sources(int sampling_source);
-void transfer_fixed_sources_bottom_up(int sampling_source);
+void count_fixed_source_regions();
 
 } // namespace openmc
 
