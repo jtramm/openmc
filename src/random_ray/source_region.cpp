@@ -121,31 +121,33 @@ void apply_source_to_source_region(Discrete* discrete, double strength_factor, i
   }
 }
 
-void apply_source_to_cell(int32_t i_cell, Discrete* discrete, double strength_factor)
+void apply_source_to_cell_instances(int32_t i_cell, Discrete* discrete, double strength_factor, int target_material_id, const vector<int32_t>& instances)
 {
   Cell& cell = *model::cells[i_cell];
-    
-  for (int j = 0; j < cell.n_instances_; j++) {
-    int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
-    apply_source_to_source_region(discrete, strength_factor, source_region);
+
+  for (int j : instances) {
+    int cell_material_idx = cell.material(j);
+    int cell_material_id = model::materials[cell_material_idx]->id();
+    if (target_material_id == C_NONE || cell_material_id == target_material_id) {
+      int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
+      apply_source_to_source_region(discrete, strength_factor, source_region);
+    }
   }
 }
 
-void apply_source_to_cell_children(int32_t i_cell, Discrete* discrete, double strength_factor)
+void apply_source_to_cell_and_children(int32_t i_cell, Discrete* discrete, double strength_factor, int32_t target_material_id)
 {
   Cell& cell = *model::cells[i_cell];
-  
-  std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
-    
-  for (const auto& pair : cell_instance_list) {
-    int32_t i_child_cell = pair.first;
-    Cell& child_cell = *model::cells[i_child_cell];
-    if (child_cell.type_ == Fill::MATERIAL) {
-      for (int32_t j : pair.second) {
-        //int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
-        int64_t source_region = random_ray::source_region_offsets[i_child_cell] + j;
-        apply_source_to_source_region(discrete, strength_factor, source_region);
-      }
+
+  if (cell.type_ == Fill::MATERIAL) {
+    vector<int> instances(cell.n_instances_);
+    std::iota(instances.begin(), instances.end(), 0);
+    apply_source_to_cell_instances(i_cell, discrete, strength_factor, target_material_id, instances);
+  } else if (target_material_id == C_NONE) {
+    std::unordered_map<int32_t, vector<int32_t>> cell_instance_list = cell.get_contained_cells(0, nullptr);
+    for (const auto& pair : cell_instance_list) {
+      int32_t i_child_cell = pair.first;
+      apply_source_to_cell_instances(i_child_cell, discrete, strength_factor, target_material_id, pair.second);
     }
   }
 }
@@ -170,21 +172,11 @@ void count_fixed_source_regions()
 
 void transfer_fixed_sources(int sampling_source)
 {
-  int negroups = data::mg.num_energy_groups_;
-
-  // Compute total combined strength of all sources
+  // Compute total combined strength of all neutron/photon sources
   double total_strength = 0;
   for (int es = 0; es < model::external_sources.size(); es++) {
-
-    // Don't use the random ray sampling source for sampling neutrons
-    if (es == sampling_source) {
-      continue;
-    }
-
-    Source* s = model::external_sources[es].get();
-    IndependentSource* is = dynamic_cast<IndependentSource*>(s);
-
-    total_strength += is->strength();
+    if (es != sampling_source)
+      total_strength += model::external_sources[es]->strength();
   }
 
   // Loop over external sources
@@ -197,61 +189,32 @@ void transfer_fixed_sources(int sampling_source)
 
     Source* s = model::external_sources[es].get();
     IndependentSource* is = dynamic_cast<IndependentSource*>(s);
+    Discrete* energy = dynamic_cast<Discrete*>(is->energy());
     const std::unordered_set<int32_t>& domain_ids = is->domain_ids();
-    Discrete* discrete = dynamic_cast<Discrete*>(is->energy());
+
     double strength_factor = is->strength() / total_strength;
 
     if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
       for (int32_t material_id : domain_ids) {
-        // I know the material ID. Now I want to find all material filled cells that match this
         for (int i_cell = 0; i_cell < model::cells.size(); i_cell++) {
-          Cell& cell = *model::cells[i_cell];
-          if (cell.type_ != Fill::MATERIAL) {
-            continue;
-          }
-          // Loop over cell instances
-          for (int j = 0; j < cell.n_instances_; j++) {
-            int material = cell.material(j);
-            int cell_material_id = model::materials[material]->id();
-            if (material_id == cell_material_id) {
-              int64_t source_region = random_ray::source_region_offsets[i_cell] + j;
-              apply_source_to_source_region(discrete, strength_factor, source_region);
-            }
-          }
+           apply_source_to_cell_and_children(i_cell, energy, strength_factor, material_id);
         }
       }
     } else if (is->domain_type() == IndependentSource::DomainType::CELL) {
       for (int32_t cell_id : domain_ids) {
         int32_t i_cell = model::cell_map[cell_id];
-        Cell& cell = *model::cells[i_cell];
-          
-        // We can (and should) short circuit the logic if this is already a material filled cell.
-        if (cell.type_ == Fill::MATERIAL) {
-          apply_source_to_cell(i_cell, discrete, strength_factor);
-        } else {
-          // If we are not in a material filled cell, then we need to check cell IDs of all child cells downwards
-          apply_source_to_cell_children(i_cell, discrete, strength_factor);
-        }
+        apply_source_to_cell_and_children(i_cell, energy, strength_factor, C_NONE);
       }
     } else if (is->domain_type() == IndependentSource::DomainType::UNIVERSE) {
       for (int32_t universe_id : domain_ids) {
         int32_t i_universe = model::universe_map[universe_id];
         Universe& universe = *model::universes[i_universe];
-
         for (int32_t cell_id : universe.cells_) {
           int32_t i_cell = model::cell_map[cell_id];
-          Cell& cell = *model::cells[i_cell];
-
-          // We can (and should) short circuit the logic if this is already a material filled cell.
-          if (cell.type_ == Fill::MATERIAL) {
-            apply_source_to_cell(i_cell, discrete, strength_factor);
-          } else {
-            apply_source_to_cell_children(i_cell, discrete, strength_factor);
-          }
-        } // End loop over cells within the target universe
-      } // End loop over target universes
+          apply_source_to_cell_and_children(i_cell, energy, strength_factor, C_NONE);
+        }
+      }
     }
-
   } // End loop over external sources
 }
 
