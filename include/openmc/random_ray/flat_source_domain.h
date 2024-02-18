@@ -32,28 +32,25 @@ class FlatSourceRegion {
 public:
   FlatSourceRegion(int negroups) : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f), scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f), source_(negroups), fixed_source_(negroups, 0.0f) {}
 
-  //omp_lock_t lock_; // 4
   OpenMPMutex lock_;
-  int material_; // 4
-  int position_recorded_ {0}; // 4
-  Position position_; // 24
-  double volume_ {0.0}; // 8
-  double volume_t_ {0.0}; // 8
-  int was_hit_ {0}; // 4
+  int material_;
+  int position_recorded_ {0};
+  Position position_;
+  double volume_ {0.0};
+  double volume_t_ {0.0};
+  int was_hit_ {0};
 
   // 2D arrays with entry for each energy group
- vector<float> scalar_flux_new_; //24
+ vector<float> scalar_flux_new_;
  vector<float> scalar_flux_old_;
  vector<float> scalar_flux_final_;
  vector<float> source_;
  vector<float> fixed_source_;
 
- // 24 * 5 = 120
-
   // Outer dimension is each energy group in the FSR, inner dimension is each tally operation that bin will perform
-vector<vector<TallyTask>> tally_task_; // 24
+vector<vector<TallyTask>> tally_task_; 
 
-}; // class FlatSourceRegion size = 200
+}; // class FlatSourceRegion 
 
 /*
  * The FlatSourceDomain class encompasses data and methods for storing
