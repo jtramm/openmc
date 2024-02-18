@@ -9,6 +9,52 @@
 
 namespace openmc {
 
+//----------------------------------------------------------------------------
+// Helper Structs
+
+// A mapping object that is used to map between a specific random ray
+// source region and an OpenMC native tally bin that it should score to
+// every iteration.
+struct TallyTask {
+  int tally_idx;
+  int filter_idx;
+  int score_idx;
+  int score_type;
+  TallyTask(int tally_idx, int filter_idx, int score_idx, int score_type)
+    : tally_idx(tally_idx), filter_idx(filter_idx), score_idx(score_idx),
+      score_type(score_type)
+  {}
+};
+
+
+
+class FlatSourceRegion {
+public:
+  FlatSourceRegion(int negroups) : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f), scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f), source_(negroups), fixed_source_(negroups, 0.0f) {}
+
+  //omp_lock_t lock_; // 4
+  OpenMPMutex lock_;
+  int material_; // 4
+  int position_recorded_ {0}; // 4
+  Position position_; // 24
+  double volume_ {0.0}; // 8
+  double volume_t_ {0.0}; // 8
+  int was_hit_ {0}; // 4
+
+  // 2D arrays with entry for each energy group
+ vector<float> scalar_flux_new_; //24
+ vector<float> scalar_flux_old_;
+ vector<float> scalar_flux_final_;
+ vector<float> source_;
+ vector<float> fixed_source_;
+
+ // 24 * 5 = 120
+
+  // Outer dimension is each energy group in the FSR, inner dimension is each tally operation that bin will perform
+vector<vector<TallyTask>> tally_task_; // 24
+
+}; // class FlatSourceRegion size = 200
+
 /*
  * The FlatSourceDomain class encompasses data and methods for storing
  * scalar flux and source region for all flat source regions in a
@@ -17,22 +63,7 @@ namespace openmc {
 
 class FlatSourceDomain {
 public:
-  //----------------------------------------------------------------------------
-  // Helper Structs
 
-  // A mapping object that is used to map between a specific random ray
-  // source region and an OpenMC native tally bin that it should score to
-  // every iteration.
-  struct TallyTask {
-    int tally_idx;
-    int filter_idx;
-    int score_idx;
-    int score_type;
-    TallyTask(int tally_idx, int filter_idx, int score_idx, int score_type)
-      : tally_idx(tally_idx), filter_idx(filter_idx), score_idx(score_idx),
-        score_type(score_type)
-    {}
-  };
 
   //----------------------------------------------------------------------------
   // Constructors
@@ -75,30 +106,11 @@ public:
 
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
 
-  // 2D array representing values for all source regions x energy groups x tally
-  // tasks
-  std::vector<std::vector<TallyTask>> tally_task_;
+  std::vector<FlatSourceRegion> fsr_;
 
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells
   std::vector<int64_t> source_region_offsets_;
-
-  // 1D arrays reprenting values for all source regions
-  std::vector<OpenMPMutex> lock_;
-  std::vector<int> material_;
-  std::vector<int> position_recorded_;
-  std::vector<Position> position_;
-  std::vector<double> volume_;
-  std::vector<double> volume_t_;
-  std::vector<int> was_hit_;
-
-  // 2D arrays stored in 1D representing values for all source regions x energy
-  // groups
-  std::vector<float> scalar_flux_new_;
-  std::vector<float> scalar_flux_old_;
-  std::vector<float> scalar_flux_final_;
-  std::vector<float> source_;
-  std::vector<float> fixed_source_;
 
 }; // class FlatSourceDomain
 

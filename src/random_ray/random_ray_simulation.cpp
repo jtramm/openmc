@@ -315,8 +315,11 @@ void RandomRaySimulation::simulate()
     }
 
     // Set phi_old = phi_new
-    domain_.scalar_flux_old_.swap(domain_.scalar_flux_new_);
-
+    for (int sr = 0; sr < domain_.n_source_regions_; sr++) {
+      auto& fsr = domain_.fsr_[sr];
+      fsr.scalar_flux_old_.swap(fsr.scalar_flux_new_);
+    }
+    
     // Check for any obvious insabilities/nans/infs
     instability_check(n_hits, k_eff_, avg_miss_rate_);
 

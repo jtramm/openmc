@@ -172,9 +172,9 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   // The source region is the spatial region index
   int64_t source_region =
     domain_->source_region_offsets_[i_cell] + cell_instance();
+  auto& fsr = domain_->fsr_[source_region];
 
   // The source element is the energy-specific region index
-  int64_t source_element = source_region * negroups_;
   int material = this->material();
 
   // Temperature and angle indices, if using multiple temperature
@@ -191,7 +191,7 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     float tau = sigma_t * distance;
     float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
     float new_delta_psi =
-      (angular_flux_[e] - domain_->source_[source_element + e]) * exponential;
+      (angular_flux_[e] - fsr.source_[e]) * exponential;
     delta_psi_[e] = new_delta_psi;
     angular_flux_[e] -= new_delta_psi;
   }
@@ -201,34 +201,36 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   if (is_active) {
 
     // Aquire lock for source region
-    domain_->lock_[source_region].lock();
+    //omp_set_lock(&fsr.lock_);
+    fsr.lock_.lock();
 
     // Accumulate delta psi into new estimate of source region flux for
     // this iteration
     for (int e = 0; e < negroups_; e++) {
-      domain_->scalar_flux_new_[source_element + e] += delta_psi_[e];
+      fsr.scalar_flux_new_[e] += delta_psi_[e];
     }
 
     // If the source region hasn't been hit yet this iteration,
     // indicate that it now has
-    if (domain_->was_hit_[source_region] == 0) {
-      domain_->was_hit_[source_region] = 1;
+    if (fsr.was_hit_ == 0) {
+      fsr.was_hit_ = 1;
     }
 
     // Accomulate volume (ray distance) into this iteration's estimate
     // of the source region's volume
-    domain_->volume_[source_region] += distance;
+    fsr.volume_ += distance;
 
     // Tally valid position inside the source region (e.g., midpoint of
     // the ray) if not done already
-    if (!domain_->position_recorded_[source_region]) {
+    if (!fsr.position_recorded_) {
       Position midpoint = r() + u() * (distance / 2.0);
-      domain_->position_[source_region] = midpoint;
-      domain_->position_recorded_[source_region] = 1;
+      fsr.position_ = midpoint;
+      fsr.position_recorded_ = 1;
     }
 
     // Release lock
-    domain_->lock_[source_region].unlock();
+   // omp_unset_lock(&fsr.lock_);
+   fsr.lock_.unlock();
   }
 }
 
@@ -279,9 +281,9 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   int i_cell = lowest_coord().cell;
   int64_t source_region_idx =
     domain_->source_region_offsets_[i_cell] + cell_instance();
-
+  auto& fsr = domain->fsr_[source_region_idx];
   for (int e = 0; e < negroups_; e++) {
-    angular_flux_[e] = domain_->source_[source_region_idx * negroups_ + e];
+    angular_flux_[e] = fsr.source_[e];
   }
 }
 

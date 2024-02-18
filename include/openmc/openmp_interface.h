@@ -62,12 +62,16 @@ public:
   // rather, it produces two different mutexes.
 
   // Copy constructor
-  OpenMPMutex(const OpenMPMutex& other) { OpenMPMutex(); }
+  OpenMPMutex(const OpenMPMutex& other)
+  { 
+#ifdef _OPENMP
+    omp_init_lock(&mutex_);
+#endif
+   }
 
   // Copy assignment operator
   OpenMPMutex& operator=(const OpenMPMutex& other)
   {
-    OpenMPMutex();
     return *this;
   }
 
