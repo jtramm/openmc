@@ -498,6 +498,9 @@ class RegularMesh(StructuredMesh):
         Unique identifier for the mesh
     name : str
         Name of the mesh
+    domains : iterable of openmc.Cell, openmc.Material, or openmc.Universe
+        Domains that will be subdivided into smaller source regions using this
+        mesh when in random ray mode.
 
     Attributes
     ----------
@@ -523,16 +526,36 @@ class RegularMesh(StructuredMesh):
     indices : Iterable of tuple
         An iterable of mesh indices for each mesh element, e.g. [(1, 1, 1),
         (2, 1, 1), ...]
+    ids : Iterable of int
+        IDs of domains to be subdivided with this mesh when in random ray mode
+    domain_type : {'cell', 'material', 'universe'}
+        Type of domain to use for subdivision
+
 
     """
 
-    def __init__(self, mesh_id: Optional[int] = None, name: str = ''):
+    def __init__(
+            self,
+            mesh_id: Optional[int] = None, name: str = '',
+            domains: Optional[Sequence[typing.Union[openmc.Cell, openmc.Material, openmc.Universe]]] = None
+            ):
         super().__init__(mesh_id, name)
 
         self._dimension = None
         self._lower_left = None
         self._upper_right = None
         self._width = None
+
+        self._domain_ids = []
+        self._domain_type = None
+        if domains is not None:
+            if isinstance(domains[0], openmc.Cell):
+                self.domain_type = 'cell'
+            elif isinstance(domains[0], openmc.Material):
+                self.domain_type = 'material'
+            elif isinstance(domains[0], openmc.Universe):
+                self.domain_type = 'universe'
+            self.domain_ids = [d.id for d in domains]
 
     @property
     def dimension(self):
@@ -667,6 +690,24 @@ class RegularMesh(StructuredMesh):
             x0, = self.lower_left
             x1, = self.upper_right
             return (np.linspace(x0, x1, nx + 1),)
+
+    @property
+    def domain_ids(self):
+        return self._domain_ids
+
+    @domain_ids.setter
+    def domain_ids(self, ids):
+        cv.check_type('domain IDs', ids, Iterable, Real)
+        self._domain_ids = ids
+
+    @property
+    def domain_type(self):
+        return self._domain_type
+
+    @domain_type.setter
+    def domain_type(self, domain_type):
+        cv.check_value('domain type', domain_type, ('cell', 'material', 'universe'))
+        self._domain_type = domain_type
 
     def __repr__(self):
         string = super().__repr__()
@@ -803,6 +844,12 @@ class RegularMesh(StructuredMesh):
         if self._width is not None:
             subelement = ET.SubElement(element, "width")
             subelement.text = ' '.join(map(str, self._width))
+        
+        if self.domain_ids:
+            dt_elem = ET.SubElement(element, "domain_type")
+            dt_elem.text = self.domain_type
+            id_elem = ET.SubElement(element, "domain_ids")
+            id_elem.text = ' '.join(str(uid) for uid in self.domain_ids)
 
         return element
 
@@ -821,8 +868,25 @@ class RegularMesh(StructuredMesh):
             Mesh generated from XML element
 
         """
+        domain_type = get_text(elem, "domain_type")
+        if domain_type is not None:
+            domain_ids = [int(x) for x in get_text(elem, "domain_ids").split()]
+
+            # Instantiate some throw-away domains that are used by the
+            # constructor to assign IDs
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', openmc.IDWarning)
+                if domain_type == 'cell':
+                    domains = [openmc.Cell(uid) for uid in domain_ids]
+                elif domain_type == 'material':
+                    domains = [openmc.Material(uid) for uid in domain_ids]
+                elif domain_type == 'universe':
+                    domains = [openmc.Universe(uid) for uid in domain_ids]
+        else:
+            domains = None
+
         mesh_id = int(get_text(elem, 'id'))
-        mesh = cls(mesh_id=mesh_id)
+        mesh = cls(mesh_id=mesh_id, domains=domains)
 
         mesh_type = get_text(elem, 'type')
         if mesh_type is not None:
