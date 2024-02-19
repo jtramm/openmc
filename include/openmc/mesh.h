@@ -361,6 +361,8 @@ public:
 
 class RegularMesh : public StructuredMesh {
 public:
+  // Domain types
+  enum class DomainType { UNIVERSE, MATERIAL, CELL };
   // Constructors
   RegularMesh() = default;
   RegularMesh(pugi::xml_node node);
@@ -407,6 +409,12 @@ public:
   double volume_frac_;           //!< Volume fraction of each mesh element
   double element_volume_;        //!< Volume of each mesh element
   xt::xtensor<double, 1> width_; //!< Width of each mesh element
+
+    // Make domain type and ids available
+  DomainType domain_type() const { return domain_type_; }
+  const std::unordered_set<int32_t>& domain_ids() const { return domain_ids_; }
+  DomainType domain_type_;                        //!< Domain type for rejection
+  std::unordered_set<int32_t> domain_ids_;        //!< Domains to reject from
 };
 
 class RectilinearMesh : public StructuredMesh {

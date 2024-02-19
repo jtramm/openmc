@@ -834,6 +834,24 @@ RegularMesh::RegularMesh(pugi::xml_node node) : StructuredMesh {node}
   for (int i = 0; i < n_dimension_; i++) {
     element_volume_ *= width_[i];
   }
+
+  // Check for domains to reject from
+  if (check_for_node(node, "domain_type")) {
+    std::string domain_type = get_node_value(node, "domain_type");
+    if (domain_type == "cell") {
+      domain_type_ = DomainType::CELL;
+    } else if (domain_type == "material") {
+      domain_type_ = DomainType::MATERIAL;
+    } else if (domain_type == "universe") {
+      domain_type_ = DomainType::UNIVERSE;
+    } else {
+      fatal_error(std::string(
+        "Unrecognized domain type for source rejection: " + domain_type));
+    }
+
+    auto ids = get_node_array<int32_t>(node, "domain_ids");
+    domain_ids_.insert(ids.begin(), ids.end());
+  }
 }
 
 int RegularMesh::get_index_in_direction(double r, int i) const
