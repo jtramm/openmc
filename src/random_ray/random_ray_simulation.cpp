@@ -2,6 +2,7 @@
 
 #include "openmc/eigenvalue.h"
 #include "openmc/geometry.h"
+#include "openmc/material.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
 #include "openmc/output.h"
@@ -249,6 +250,21 @@ void RandomRaySimulation::simulate()
     domain_.convert_fixed_sources();
     domain_.count_fixed_source_regions();
   }
+
+  domain_.apply_meshes();
+
+  printf("Number of meshes in FSR: %d\n", FlatSourceDomain::meshes_.size());
+  int non_zero = 0;
+  for (int sr = 0; sr < domain_.n_source_regions_; sr++){
+    int mesh = domain_.fsr_[sr].mesh_;
+    int material_idx = domain_.fsr_[sr].material_;
+    //int material_idx = model::material_map[material_id];
+    std::string name = model::materials[material_idx]->name_;
+    printf("FSR ID %d, mesh ID %d, material ID %d, material_name %s\n", sr, mesh, material_idx, name.c_str());
+    if (mesh != C_NONE)
+      non_zero++;
+  }
+  printf("nonzero = %d", non_zero);
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {

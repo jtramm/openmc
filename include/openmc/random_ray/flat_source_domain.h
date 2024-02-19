@@ -32,6 +32,7 @@ class FlatSourceRegion {
 public:
   FlatSourceRegion(int negroups) : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f), scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f), source_(negroups), fixed_source_(negroups, 0.0f) {}
 
+
   OpenMPMutex lock_;
   int material_;
   int position_recorded_ {0};
@@ -39,6 +40,7 @@ public:
   double volume_ {0.0};
   double volume_t_ {0.0};
   int was_hit_ {0};
+  int mesh_ {C_NONE};
 
   // 2D arrays with entry for each energy group
  vector<float> scalar_flux_new_;
@@ -90,6 +92,13 @@ public:
   void convert_fixed_sources();
   void count_fixed_source_regions();
   double calculate_total_volume_weighted_source_strength();
+
+  void apply_mesh_to_cell_instances(int32_t i_cell,
+  int32_t mesh, int target_material_id,
+  const vector<int32_t>& instances);
+  void apply_mesh_to_cell_and_children(int32_t i_cell,
+  int32_t mesh, int32_t target_material_id);
+  void apply_meshes();
 
   //----------------------------------------------------------------------------
   // Data members
