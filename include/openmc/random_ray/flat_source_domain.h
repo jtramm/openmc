@@ -93,7 +93,7 @@ public:
   double calculate_total_volume_weighted_source_strength();
 
   void apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id);
+  int32_t mesh, int target_material_id, const vector<int32_t>& instances);
   void apply_mesh_to_cell_and_children(int32_t i_cell,
   int32_t mesh, int32_t target_material_id);
   void apply_meshes();

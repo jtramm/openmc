@@ -308,7 +308,7 @@ protected:
   //! Inner function for retrieving contained cells
   void get_contained_cells_inner(
     std::unordered_map<int32_t, vector<int32_t>>& contained_cells,
-    vector<ParentCell>& parent_cells) const;
+    vector<ParentCell>& parent_cells, int instance) const;
 
 public:
   //----------------------------------------------------------------------------

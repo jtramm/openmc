@@ -1356,22 +1356,25 @@ vector<ParentCell> Cell::find_parent_cells(
 
 vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
 {
+  printf("Finding parents for cell %d, instance %d\n", this->id_, instance);
   ParentCellStack stack;
   // start with this cell's universe
   int32_t prev_univ_idx;
   int32_t univ_idx = this->universe_;
-
+  printf("this cell's universe is %d\n", univ_idx);
   while (true) {
     const auto& univ = model::universes[univ_idx];
     prev_univ_idx = univ_idx;
 
     // search for a cell that is filled w/ this universe
     for (const auto& cell : model::cells) {
+      printf("Checking cell %d\n", cell->id_);
       // if this is a material-filled cell, move on
       if (cell->type_ == Fill::MATERIAL)
         continue;
 
       if (cell->type_ == Fill::UNIVERSE) {
+        printf("cell %d which has type universe\n", cell->id_);
         // if this is in the set of cells previously visited for this universe,
         // move on
         if (stack.visited(univ_idx, {model::cell_map[cell->id_], C_NONE}))
@@ -1380,10 +1383,13 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
         // if this cell contains the universe we're searching for, add it to the
         // stack
         if (cell->fill_ == univ_idx) {
+          printf("cell %d contains universe %d\n", cell->id_, univ_idx);
           stack.push(univ_idx, {model::cell_map[cell->id_], C_NONE});
           univ_idx = cell->universe_;
         }
       } else if (cell->type_ == Fill::LATTICE) {
+                printf("cell %d which has type lattice\n", cell->id_);
+
         // retrieve the lattice and lattice universes
         const auto& lattice = model::lattices[cell->fill_];
         const auto& lattice_univs = lattice->universes_;
@@ -1407,6 +1413,7 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
           // add this cell and lattice index to the stack and exit loop
           stack.push(univ_idx, {model::cell_map[cell->id_], lattice_idx});
           univ_idx = cell->universe_;
+          printf("cell %d contains universe %d\n", cell->id_, univ_idx);
           break;
         }
       }
@@ -1416,10 +1423,18 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
     } // end cell loop search for universe
 
     // if we're at the top of the geometry and the instance matches, we're done
-    if (univ_idx == model::root_universe &&
-        stack.compute_instance(this->distribcell_index_) == instance)
-      break;
-
+    // The problem with this code is that it doesn't handle the case where the
+    // instance is not zero. If the instance is not zero, then we 
+    if (univ_idx == model::root_universe)
+    {
+      if (this->distribcell_index_ != C_NONE)
+      {
+        if (stack.compute_instance(this->distribcell_index_) == instance)
+          break;
+      } else {
+        break;
+      }
+    }
     // if there is no match on the original cell's universe, report an error
     if (univ_idx == this->universe_) {
       fatal_error(
@@ -1459,7 +1474,7 @@ std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(
 
   // if this cell is filled w/ a material, it contains no other cells
   if (type_ != Fill::MATERIAL) {
-    this->get_contained_cells_inner(contained_cells, parent_cells);
+    this->get_contained_cells_inner(contained_cells, parent_cells, instance);
   }
 
   return contained_cells;
@@ -1468,12 +1483,12 @@ std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(
 //! Get all cells within this cell
 void Cell::get_contained_cells_inner(
   std::unordered_map<int32_t, vector<int32_t>>& contained_cells,
-  vector<ParentCell>& parent_cells) const
+  vector<ParentCell>& parent_cells, int instance) const
 {
-
+  printf("Getting contained cells INNER for cell %d\n", this->id_);
   // filled by material, determine instance based on parent cells
   if (type_ == Fill::MATERIAL) {
-    int instance = 0;
+    //int instance = 0;
     if (this->distribcell_index_ >= 0) {
       for (auto& parent_cell : parent_cells) {
         auto& cell = model::cells[parent_cell.cell_index];
@@ -1495,7 +1510,7 @@ void Cell::get_contained_cells_inner(
     auto& univ = model::universes[fill_];
     for (auto cell_index : univ->cells_) {
       auto& cell = model::cells[cell_index];
-      cell->get_contained_cells_inner(contained_cells, parent_cells);
+      cell->get_contained_cells_inner(contained_cells, parent_cells, instance);
     }
     parent_cells.pop_back();
     // filled with a lattice, visit each universe in the lattice
@@ -1507,7 +1522,7 @@ void Cell::get_contained_cells_inner(
       parent_cells.push_back({model::cell_map[id_], i.indx_});
       for (auto cell_index : univ->cells_) {
         auto& cell = model::cells[cell_index];
-        cell->get_contained_cells_inner(contained_cells, parent_cells);
+        cell->get_contained_cells_inner(contained_cells, parent_cells, instance);
       }
       parent_cells.pop_back();
     }

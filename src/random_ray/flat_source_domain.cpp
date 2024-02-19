@@ -882,12 +882,13 @@ void FlatSourceDomain::convert_fixed_sources()
 }
 
 void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id)
+  int32_t mesh, int target_material_id, const vector<int32_t>& instances)
 {
   Cell& cell = *model::cells[i_cell];
   if (cell.type_ != Fill::MATERIAL) 
     return;
-  for (int j = 0; j < cell.n_instances_; j++) {
+  for (int32_t j : instances) {
+    printf("applying to cell id %d instance %d of %d in found instances, %d in actual cell instances\n", cell.id_, j, instances.size(), cell.n_instances_);
     int cell_material_idx = cell.material(j);
     int cell_material_id = model::materials[cell_material_idx]->id();
     if (target_material_id == C_NONE ||
@@ -904,14 +905,21 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(int32_t i_cell,
   Cell& cell = *model::cells[i_cell];
 
   if (cell.type_ == Fill::MATERIAL) {
+    vector<int> instances(cell.n_instances_);
+    std::iota(instances.begin(), instances.end(), 0);
     apply_mesh_to_cell_instances(
-      i_cell, mesh, target_material_id);
+      i_cell, mesh, target_material_id, instances);
   } else if (target_material_id == C_NONE) {
-    std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
-      cell.get_contained_cells(0, nullptr);
-    for (const auto& pair : cell_instance_list) {
-      int32_t i_child_cell = pair.first;
-      apply_mesh_to_cell_instances(i_child_cell, mesh, target_material_id);
+    printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
+    for (int j = 0; j < cell.n_instances_; j++)
+    {
+      printf("getting contained cells for cell id %d instance %d\n", cell.id_, j);
+      std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
+        cell.get_contained_cells(j, nullptr);
+      for (const auto& pair : cell_instance_list) {
+        int32_t i_child_cell = pair.first;
+        apply_mesh_to_cell_instances(i_child_cell, mesh, target_material_id, pair.second);
+      }
     }
   }
 }
@@ -933,7 +941,7 @@ void FlatSourceDomain::apply_meshes()
           apply_mesh_to_cell_and_children(
             i_cell, m, material_id);
         }
-      }
+      }           
     } else if (rm->domain_type() == RegularMesh::DomainType::CELL) {
       for (int32_t cell_id : domain_ids) {
         int32_t i_cell = model::cell_map[cell_id];
