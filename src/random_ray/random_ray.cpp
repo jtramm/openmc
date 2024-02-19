@@ -1,6 +1,7 @@
 #include "openmc/random_ray/random_ray.h"
 
 #include "openmc/geometry.h"
+#include "openmc/mesh.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
 #include "openmc/random_ray/flat_source_domain.h"
@@ -148,6 +149,70 @@ void RandomRay::event_advance_ray()
   }
 }
 
+uint64_t hashPair(uint32_t a, uint32_t b) {
+    uint64_t hash = 0xcbf29ce484222325; // FNV-1a 64-bit offset basis
+    uint64_t prime = 0x100000001b3; // FNV-1a 64-bit prime
+
+    // Hash the first integer
+    hash ^= a;
+    hash *= prime;
+
+    // Hash the second integer
+    hash ^= b;
+    hash *= prime;
+
+    // Mix the bits a bit more
+    hash ^= hash >> 33;
+    hash *= 0xff51afd7ed558ccd;
+    hash ^= hash >> 33;
+    hash *= 0xc4ceb9fe1a85ec53;
+    hash ^= hash >> 33;
+
+    return hash;
+}
+
+int hashbin(uint32_t a, uint32_t b)
+{
+  const int n_bins = 10;
+  uint64_t hash = hashPair(a, b);
+  return hash % N_FSR_HASH_BINS;
+}
+
+void RandomRay::attenuate_flux(double distance, bool is_active)
+{
+  // Determine source region index etc.
+  int i_cell = lowest_coord().cell;
+
+  // The source region is the spatial region index
+  int64_t source_region =
+    domain_->source_region_offsets_[i_cell] + cell_instance();
+  auto& fsr = domain_->fsr_[source_region];
+
+  int i_mesh = fsr.mesh_;
+
+  if (i_mesh >= 0)
+  {
+    Mesh* mesh = model::meshes[i_mesh].get();
+    RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+    if (rmesh == nullptr)
+      fatal_error("Only regular meshes are supported for random ray tracing.");
+    
+    vector<int> bins;
+    vector<double> lengths;
+    rmesh->bins_crossed(r(), r() + distance * u(), u(), bins, lengths);
+    for( int i = 0; i < bins.size(); i++ ) {
+      int bin = bins[i];
+      double length = lengths[i];
+      // ray trace on mesh
+      //printf("Inner Ray trace on FSR %d in mesh %d in bin %d with length %.3le\n", source_region, i_mesh, bin, length);
+      int hash = hashbin(source_region, bin);
+      //printf("Hash bin %d in array of length%ld\n", hash, domain_->controller_bin_hits.size());
+      domain_->controller_bin_hits[hash] += 1;
+    }
+  }
+  attenuate_flux_inner(distance, is_active);  
+}
+
 // This function forms the inner loop of the random ray transport process.
 // It is responsible for several tasks. Based on the incoming angular flux
 // of the ray and the source term in the region, the outgoing angular flux
@@ -161,7 +226,7 @@ void RandomRay::event_advance_ray()
 // than use of many atomic operations corresponding to each energy group
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
-void RandomRay::attenuate_flux(double distance, bool is_active)
+void RandomRay::attenuate_flux_inner(double distance, bool is_active)
 {
   // The number of geometric intersections is counted for reporting purposes
   n_event()++;

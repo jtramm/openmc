@@ -291,6 +291,9 @@ void RandomRaySimulation::simulate()
       total_geometric_intersections_ +=
         ray.transport_history_based_single_ray();
     }
+    for (int i = 0; i < domain_.controller_bin_hits.size(); i++) {
+      printf("Controller bin %d hits = %d\n", i, domain_.controller_bin_hits[i]);
+    }
 
     simulation::time_transport.stop();
 

@@ -8,6 +8,7 @@
 #include "openmc/source.h"
 
 namespace openmc {
+#define N_FSR_HASH_BINS 100
 
 //----------------------------------------------------------------------------
 // Helper Structs
@@ -118,6 +119,8 @@ public:
 
   static std::unordered_map<int32_t, int32_t> mesh_map_;
   static vector<unique_ptr<Mesh>> meshes_;
+
+  vector<int> controller_bin_hits;
 
 }; // class FlatSourceDomain
 
