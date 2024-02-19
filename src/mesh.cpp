@@ -3140,8 +3140,12 @@ double LibMesh::volume(int bin) const
 //==============================================================================
 // Non-member functions
 //==============================================================================
-
 void read_meshes(pugi::xml_node root)
+{
+  read_meshes_to_custom(root, model::mesh_map, model::meshes);
+}
+
+void read_meshes_to_custom(pugi::xml_node root, std::unordered_map<int32_t, int32_t>& mesh_map, vector<unique_ptr<Mesh>>& meshes)
 {
   std::unordered_set<int> mesh_ids;
 
@@ -3157,7 +3161,7 @@ void read_meshes(pugi::xml_node root)
 
     // If we've already read a mesh with the same ID in a *different* file,
     // assume it is the same here
-    if (model::mesh_map.find(id) != model::mesh_map.end()) {
+    if (mesh_map.find(id) != mesh_map.end()) {
       warning(fmt::format("Mesh with ID={} appears in multiple files.", id));
       continue;
     }
@@ -3177,22 +3181,22 @@ void read_meshes(pugi::xml_node root)
 
     // Read mesh and add to vector
     if (mesh_type == RegularMesh::mesh_type) {
-      model::meshes.push_back(make_unique<RegularMesh>(node));
+      meshes.push_back(make_unique<RegularMesh>(node));
     } else if (mesh_type == RectilinearMesh::mesh_type) {
-      model::meshes.push_back(make_unique<RectilinearMesh>(node));
+      meshes.push_back(make_unique<RectilinearMesh>(node));
     } else if (mesh_type == CylindricalMesh::mesh_type) {
-      model::meshes.push_back(make_unique<CylindricalMesh>(node));
+      meshes.push_back(make_unique<CylindricalMesh>(node));
     } else if (mesh_type == SphericalMesh::mesh_type) {
-      model::meshes.push_back(make_unique<SphericalMesh>(node));
+      meshes.push_back(make_unique<SphericalMesh>(node));
 #ifdef DAGMC
     } else if (mesh_type == UnstructuredMesh::mesh_type &&
                mesh_lib == MOABMesh::mesh_lib_type) {
-      model::meshes.push_back(make_unique<MOABMesh>(node));
+      meshes.push_back(make_unique<MOABMesh>(node));
 #endif
 #ifdef LIBMESH
     } else if (mesh_type == UnstructuredMesh::mesh_type &&
                mesh_lib == LibMesh::mesh_lib_type) {
-      model::meshes.push_back(make_unique<LibMesh>(node));
+      meshes.push_back(make_unique<LibMesh>(node));
 #endif
     } else if (mesh_type == UnstructuredMesh::mesh_type) {
       fatal_error("Unstructured mesh support is not enabled or the mesh "
@@ -3202,7 +3206,7 @@ void read_meshes(pugi::xml_node root)
     }
 
     // Map ID to position in vector
-    model::mesh_map[model::meshes.back()->id_] = model::meshes.size() - 1;
+    mesh_map[meshes.back()->id_] = meshes.size() - 1;
   }
 }
 

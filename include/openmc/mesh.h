@@ -952,6 +952,8 @@ private:
 //! \param[in] root XML node
 void read_meshes(pugi::xml_node root);
 
+void read_meshes_to_custom(pugi::xml_node root, std::unordered_map<int32_t, int32_t>& mesh_map, vector<unique_ptr<Mesh>>& meshes);
+
 //! Write mesh data to an HDF5 group
 //
 //! \param[in] group HDF5 group

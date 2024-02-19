@@ -20,6 +20,10 @@ namespace openmc {
 // FlatSourceDomain implementation
 //==============================================================================
 
+// Static variables
+std::unordered_map<int32_t, int32_t> FlatSourceDomain::mesh_map_;
+vector<unique_ptr<Mesh>> FlatSourceDomain::meshes_;
+
 FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 {
   // Count the number of source regions, compute the cell offset

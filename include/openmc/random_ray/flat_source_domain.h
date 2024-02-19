@@ -109,6 +109,9 @@ public:
   // in model::cells
   std::vector<int64_t> source_region_offsets_;
 
+  static std::unordered_map<int32_t, int32_t> mesh_map_;
+  static vector<unique_ptr<Mesh>> meshes_;
+
 }; // class FlatSourceDomain
 
 //============================================================================
