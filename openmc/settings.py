@@ -152,6 +152,8 @@ class Settings:
             Indicating the total active distance a ray should travel
         :ray_source: openmc.SourceBase
             Starting ray distribution (must be uniform in space and angle)
+        :meshes: Iterable of openmc.RegularMesh
+            Meshes to be used to subdivide geometry into smaller source regions
         
         .. versionadded::0.15.0
 
@@ -1050,8 +1052,13 @@ class Settings:
                 cv.check_greater_than('inactive ray length',
                                       random_ray[key], 0.0, True)
             elif key == 'ray_source':
-                print("Setting source field")
                 cv.check_type('random ray source', random_ray[key], SourceBase)
+            elif key == 'meshes':
+                if not isinstance(random_ray[key], Iterable):
+                    raise ValueError('The "meshes" field must be an iterable.')
+                for mesh in random_ray[key]:
+                    if not isinstance(mesh, RegularMesh):
+                        raise ValueError('All items in "meshes" must be instances of openmc.RegularMesh.')
             else:
                 msg = f'Unable to set random ray to "{key}" which is unsupported ' \
                       'by OpenMC'
@@ -1473,6 +1480,11 @@ class Settings:
                 if key == 'ray_source' and isinstance(value, SourceBase):
                     source_element = value.to_xml_element()
                     element.append(source_element)
+                elif key == 'meshes' and isinstance(value, Iterable):
+                    for mesh in value:
+                        if isinstance(mesh, RegularMesh):
+                            mesh_element = mesh.to_xml_element()
+                            element.append(mesh_element)
                 else:
                     subelement = ET.SubElement(element, key)
                     subelement.text = str(value)
@@ -1827,12 +1839,19 @@ class Settings:
         elem = root.find('random_ray')
         if elem is not None:
             self.random_ray = {}
+            random_ray_dict = {}
+            meshes = []
             for child in elem:
                 if child.tag in ('distance_inactive', 'distance_active'):
                     random_ray_dict[child.tag] = float(child.text)
                 elif child.tag == 'ray_source':
                     source = SourceBase.from_xml_element(child)
                     random_ray_dict['ray_source'] = source
+                elif child.tag == 'mesh':
+                        mesh = RegularMesh.from_xml_element(child)
+                        meshes.append(mesh)
+            if meshes:
+                random_ray_dict['meshes'] = meshes
             self.random_ray = random_ray_dict
 
     def to_xml_element(self, mesh_memo=None):
