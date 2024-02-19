@@ -741,8 +741,7 @@ void FlatSourceDomain::apply_fixed_source_to_source_region(
 }
 
 void FlatSourceDomain::apply_fixed_source_to_cell_instances(int32_t i_cell,
-  Discrete* discrete, double strength_factor, int target_material_id,
-  const vector<int32_t>& instances)
+  Discrete* discrete, double strength_factor, int target_material_id)
 {
   Cell& cell = *model::cells[i_cell];
   if (cell.type_ != Fill::MATERIAL) 
@@ -777,19 +776,15 @@ void FlatSourceDomain::apply_fixed_source_to_cell_and_children(int32_t i_cell,
   Cell& cell = *model::cells[i_cell];
 
   if (cell.type_ == Fill::MATERIAL) {
-    // Create vector counting up from 0 ... n_instances-1
-    // This is done to allow for re-use of an interface
-    vector<int> instances(cell.n_instances_);
-    std::iota(instances.begin(), instances.end(), 0);
     apply_fixed_source_to_cell_instances(
-      i_cell, discrete, strength_factor, target_material_id, instances);
+      i_cell, discrete, strength_factor, target_material_id);
   } else if (target_material_id == C_NONE) {
     std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
       cell.get_contained_cells(0, nullptr);
     for (const auto& pair : cell_instance_list) {
       int32_t i_child_cell = pair.first;
       apply_fixed_source_to_cell_instances(i_child_cell, discrete,
-        strength_factor, target_material_id, pair.second);
+        strength_factor, target_material_id);
     }
   }
 }
@@ -857,8 +852,6 @@ void FlatSourceDomain::convert_fixed_sources()
       for (int32_t universe_id : domain_ids) {
         int32_t i_universe = model::universe_map[universe_id];
         Universe& universe = *model::universes[i_universe];
-        // BUG: the universe.cells_ is not storing ids, but rather cell indices. 
-        // This is because the universe object doesn't really exist...
         for (int32_t i_cell : universe.cells_) {
           apply_fixed_source_to_cell_and_children(
             i_cell, energy, strength_factor, C_NONE);
@@ -889,13 +882,11 @@ void FlatSourceDomain::convert_fixed_sources()
 }
 
 void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id,
-  const vector<int32_t>& instances)
+  int32_t mesh, int target_material_id)
 {
   Cell& cell = *model::cells[i_cell];
   if (cell.type_ != Fill::MATERIAL) 
     return;
-  printf("applying to %d lower instances\n", cell.n_instances_);
   for (int j = 0; j < cell.n_instances_; j++) {
     int cell_material_idx = cell.material(j);
     int cell_material_id = model::materials[cell_material_idx]->id();
@@ -903,7 +894,6 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
         cell_material_id == target_material_id) {
       int64_t source_region = source_region_offsets_[i_cell] + j;
       fsr_[source_region].mesh_ = mesh;
-      printf("setting SR %d to mesh %d\n", source_region, mesh);
     }
   }
 }
@@ -912,26 +902,17 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(int32_t i_cell,
   int32_t mesh, int32_t target_material_id)
 {
   Cell& cell = *model::cells[i_cell];
-  printf("Cell has %d instances\n", cell.n_instances_);
 
   if (cell.type_ == Fill::MATERIAL) {
-    // Create vector counting up from 0 ... n_instances-1
-    // This is done to allow for re-use of an interface
-    vector<int> instances(cell.n_instances_);
-    std::iota(instances.begin(), instances.end(), 0);
     apply_mesh_to_cell_instances(
-      i_cell, mesh, target_material_id, instances);
+      i_cell, mesh, target_material_id);
   } else if (target_material_id == C_NONE) {
-    //for(int i = 0; i < cell.n_instances_; i++){
-      // I think this is where I am going wrong. I want all instances, not some subset...
-      std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
-        cell.get_contained_cells(0, nullptr);
-      for (const auto& pair : cell_instance_list) {
-        printf("applying to instance %d\n", pair.first);
-        int32_t i_child_cell = pair.first;
-        apply_mesh_to_cell_instances(i_child_cell, mesh, target_material_id, pair.second);
-      }
-    //}
+    std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
+      cell.get_contained_cells(0, nullptr);
+    for (const auto& pair : cell_instance_list) {
+      int32_t i_child_cell = pair.first;
+      apply_mesh_to_cell_instances(i_child_cell, mesh, target_material_id);
+    }
   }
 }
 
@@ -963,11 +944,6 @@ void FlatSourceDomain::apply_meshes()
       for (int32_t universe_id : domain_ids) {
         int32_t i_universe = model::universe_map[universe_id];
         Universe& universe = *model::universes[i_universe];
-        // BUG: the universe.cells_ is not storing ids, but rather cell indices. 
-        // This is because the universe object doesn't really exist...
-        // OH - this is troubling. Because the universe can part of a lattice higher
-        // up, it may just be finding a single child cell instance, when in fact,
-        // it really needs to be applied to ALL instances... But, like, that is quite weird....
         for (int32_t i_cell : universe.cells_) {
           apply_mesh_to_cell_and_children(
             i_cell, m, C_NONE);
