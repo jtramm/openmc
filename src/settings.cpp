@@ -259,6 +259,9 @@ void get_run_parameters(pugi::xml_node node_base)
     } else {
       fatal_error("Specify random ray source in settings XML");
     }
+    if (check_for_node(random_ray_node, "mesh")) {
+      read_meshes_to_custom(random_ray_node, FlatSourceDomain::mesh_map_, FlatSourceDomain::meshes_);
+    } 
   }
 }
 
