@@ -87,7 +87,6 @@ RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
 // Transports ray until termination criteria are met
 uint64_t RandomRay::transport_history_based_single_ray()
 {
-  using namespace openmc;
   while (alive()) {
     // Advance ray. If the ray exited the dead zone, we need to process
     // the active length as well so the function is called again.
@@ -173,8 +172,12 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     for( int i = 0; i < bins.size(); i++ ) {
       int bin = bins[i];
       double length = lengths[i];
-      FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
-      attenuate_flux_inner(length, is_active, *region);  
+      if (length > (distance/bins.size()) * 1.0e-3)
+      //if (length/distance > 1e-5)
+      {
+        FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
+        attenuate_flux_inner(length, is_active, *region);
+      }
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
     FlatSourceRegion* region = domain_->get_fsr(source_region, 0);
@@ -239,9 +242,7 @@ void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSource
 
     // If the source region hasn't been hit yet this iteration,
     // indicate that it now has
-    if (fsr.was_hit_ == 0) {
-      fsr.was_hit_ = 1;
-    }
+    fsr.was_hit_++;
 
     // Accomulate volume (ray distance) into this iteration's estimate
     // of the source region's volume

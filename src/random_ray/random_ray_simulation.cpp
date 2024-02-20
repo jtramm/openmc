@@ -345,10 +345,7 @@ void RandomRaySimulation::simulate()
     }
 
     // Set phi_old = phi_new
-    for (int sr = 0; sr < domain_.n_source_regions_; sr++) {
-      auto& fsr = domain_.fsr_[sr];
-      fsr.scalar_flux_old_.swap(fsr.scalar_flux_new_);
-    }
+    domain_.swap_flux();
     
     // Check for any obvious insabilities/nans/infs
     instability_check(n_hits, k_eff_, avg_miss_rate_);
@@ -379,7 +376,7 @@ void RandomRaySimulation::output_simulation_results()
   if (mpi::master) {
     print_results_random_ray(total_geometric_intersections_,
       avg_miss_rate_ / settings::n_batches, negroups_,
-      domain_.n_source_regions_, domain_.n_fixed_source_regions_);
+      domain_.n_subdivided_source_regions_, domain_.n_fixed_source_regions_);
     if (model::plots.size() > 0) {
       domain_.output_to_vtk();
     }
@@ -391,8 +388,8 @@ void RandomRaySimulation::output_simulation_results()
 void RandomRaySimulation::instability_check(
   int64_t n_hits, double k_eff, double& avg_miss_rate)
 {
-  double percent_missed = ((domain_.n_source_regions_ - n_hits) /
-                            static_cast<double>(domain_.n_source_regions_)) *
+  double percent_missed = ((domain_.n_subdivided_source_regions_ - n_hits) /
+                            static_cast<double>(domain_.n_subdivided_source_regions_)) *
                           100.0;
   avg_miss_rate += percent_missed;
 

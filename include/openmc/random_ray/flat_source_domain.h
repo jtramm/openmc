@@ -8,7 +8,7 @@
 #include "openmc/source.h"
 
 namespace openmc {
-#define N_FSR_HASH_BINS 100
+#define N_FSR_HASH_BINS 1000
 
 //----------------------------------------------------------------------------
 // Helper Structs
@@ -37,6 +37,7 @@ public:
     material_(other.material_),
     position_recorded_(other.position_recorded_),
     position_(other.position_),
+    volume_i_(other.volume_i_),
     volume_(other.volume_),
     volume_t_(other.volume_t_),
     was_hit_(other.was_hit_),
@@ -53,6 +54,7 @@ public:
   int material_;
   int position_recorded_ {0};
   Position position_;
+  double volume_i_ {0.0};
   double volume_ {0.0};
   double volume_t_ {0.0};
   int was_hit_ {0};
@@ -130,6 +132,7 @@ public:
   void convert_fixed_sources();
   void count_fixed_source_regions();
   double calculate_total_volume_weighted_source_strength();
+  void swap_flux(void);
 
   void apply_mesh_to_cell_instances(int32_t i_cell,
   int32_t mesh, int target_material_id, const vector<int32_t>& instances);
@@ -160,7 +163,7 @@ public:
   static vector<unique_ptr<Mesh>> meshes_;
 
   HashSourceController controller_;
-  std::array<int,  51*51> pattern_{};
+  int64_t n_subdivided_source_regions_ {0};
 
 }; // class FlatSourceDomain
 
