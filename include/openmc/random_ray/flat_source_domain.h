@@ -55,6 +55,28 @@ vector<vector<TallyTask>> tally_task_;
 
 }; // class FlatSourceRegion 
 
+// The source node receives the FSR ID + Mesh Bin index. It locks, and then 
+// needs to decide if it should allocate another FSR or if there is one already
+// present that works. Bascially, it needs some sort of map? Key + value pair
+// should be the key is the hash and the value is the FSR itself.
+class SourceNode {
+public:
+  SourceNode() = default;
+
+  OpenMPMutex lock_;
+  std::unordered_map<uint64_t, FlatSourceRegion> fsr_map_; // key is 64-bit hash, value is FSR itself
+  
+}; // class HashSourceController
+
+class HashSourceController {
+public:
+  HashSourceController(int n_bins) : nodes_(n_bins) {};
+  HashSourceController() : nodes_(N_FSR_HASH_BINS) {};
+
+  vector<SourceNode> nodes_;
+
+}; // class HashSourceController
+
 /*
  * The FlatSourceDomain class encompasses data and methods for storing
  * scalar flux and source region for all flat source regions in a
@@ -120,7 +142,8 @@ public:
   static std::unordered_map<int32_t, int32_t> mesh_map_;
   static vector<unique_ptr<Mesh>> meshes_;
 
-  vector<int> controller_bin_hits;
+  HashSourceController controller_;
+  std::array<int,  51*51> pattern_{};
 
 }; // class FlatSourceDomain
 

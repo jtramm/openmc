@@ -628,15 +628,26 @@ void StructuredMesh::raytrace_mesh(
                      distances.begin();
 
       // Tally track length delta since last step
+      //printf("\tdistances[k].distance: %.9le\n", distances[k].distance);
+      //printf("total_distance: %.9le\n", total_distance);
+      //printf("traveled_distance: %.9le\n", traveled_distance);
+      //printf("tallying distance %.9le\n", (std::min(distances[k].distance, total_distance) - traveled_distance)/ total_distance);
       tally.track(ijk,
         (std::min(distances[k].distance, total_distance) - traveled_distance) /
           total_distance);
 
       // update position and leave, if we have reached end position
       traveled_distance = distances[k].distance;
-      if (traveled_distance >= total_distance)
+      //printf("traveled_distance: %.9lf\n", traveled_distance);
+      // TODO: this is a bit of a hack, but it seems to work. I actually don't have a problem with it, 
+      // but my concern is that perhaps we actually need to be tallying the outward current here and we're missing this. 
+      if (traveled_distance + TINY_BIT >= total_distance)
+      {
+        //printf("traveled distance is GREATER than total distance (%.9le >= %.9le)\n", traveled_distance, total_distance);
         return;
-
+      } else {
+        //printf("traveled distance is less than total distance (%.9le < %.9le)\n", traveled_distance, total_distance);
+      }
       // If we have not reached r1, we have hit a surface. Tally outward current
       tally.surface(ijk, k, distances[k].max_surface, false);
 

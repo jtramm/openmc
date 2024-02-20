@@ -67,7 +67,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   if (source_region_id != n_source_regions_) {
     fatal_error("Unexpected number of source regions");
   }
-  controller_bin_hits.assign(N_FSR_HASH_BINS, 0);
 }
 
 void FlatSourceDomain::batch_reset()

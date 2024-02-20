@@ -291,9 +291,20 @@ void RandomRaySimulation::simulate()
       total_geometric_intersections_ +=
         ray.transport_history_based_single_ray();
     }
-    for (int i = 0; i < domain_.controller_bin_hits.size(); i++) {
-      printf("Controller bin %d hits = %d\n", i, domain_.controller_bin_hits[i]);
+    int n_mesh_fsrs = 0;
+    for (int i = 0; i < domain_.controller_.nodes_.size(); i++) {
+      //printf("Controller bin %d hits = %d\n", i, domain_.controller_.nodes_[i].fsr_map_.size());
+      n_mesh_fsrs += domain_.controller_.nodes_[i].fsr_map_.size();
     }
+    printf("Total mesh FSRs = %d\n", n_mesh_fsrs);
+    /*
+    for( int i = 0 ; i < 51; i++) {
+      for (int j = 0; j < 51; j++) {
+        printf("%d, ", domain_.pattern_[i*51+j]);
+      }
+      printf("\n");
+    }
+    */
 
     simulation::time_transport.stop();
 
