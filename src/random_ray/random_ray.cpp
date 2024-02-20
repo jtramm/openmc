@@ -221,9 +221,11 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
         // If not found, copy base FSR into new FSR
         auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
         FlatSourceRegion& region = result.first->second;
+        attenuate_flux_inner(distance, is_active, region);  
       } else {
         // Access the existing FlatSourceRegion
         FlatSourceRegion& region = it->second;
+        attenuate_flux_inner(distance, is_active, region);  
       }
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
@@ -238,12 +240,14 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
       // If not found, copy base FSR into new FSR
       auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
       FlatSourceRegion& region = result.first->second;
+      attenuate_flux_inner(distance, is_active, region);  
     } else {
       // Access the existing FlatSourceRegion
       FlatSourceRegion& region = it->second;
+      attenuate_flux_inner(distance, is_active, region);  
     }
   }
-  attenuate_flux_inner(distance, is_active);  
+  attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);  
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -259,18 +263,10 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 // than use of many atomic operations corresponding to each energy group
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
-void RandomRay::attenuate_flux_inner(double distance, bool is_active)
+void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSourceRegion& fsr)
 {
   // The number of geometric intersections is counted for reporting purposes
   n_event()++;
-
-  // Determine source region index etc.
-  int i_cell = lowest_coord().cell;
-
-  // The source region is the spatial region index
-  int64_t source_region =
-    domain_->source_region_offsets_[i_cell] + cell_instance();
-  auto& fsr = domain_->fsr_[source_region];
 
   // The source element is the energy-specific region index
   int material = this->material();
