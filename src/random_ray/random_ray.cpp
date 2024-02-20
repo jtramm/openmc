@@ -197,7 +197,6 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 
   if (i_mesh >= 0)
   {
-    //Mesh* mesh = model::meshes_[i_mesh].get();
     Mesh* mesh = domain_->meshes_[i_mesh].get();
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     if (rmesh == nullptr)
@@ -205,21 +204,13 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     
     vector<int> bins;
     vector<double> lengths;
-    //printf("ray tracing with ray starting at: %.3le, %.3le, %.3le\n", r().x, r().y, r().z);
-    //printf("ray tracing with ray ending at: %.3le, %.3le, %.3le\n", r().x + distance * u().x, r().y + distance * u().y, r().z + distance * u().z);
+
     rmesh->bins_crossed(r(), r() + distance * u(), u(), bins, lengths);
-   // printf("Bins crossed: ");
-    for( int i = 0; i < bins.size(); i++ ) {
-      //printf("\tBin: %d Length: %.3le\n", bins[i], lengths[i]);
-    }
+
     for( int i = 0; i < bins.size(); i++ ) {
       int bin = bins[i];
       double length = lengths[i];
-      //if( length <= 1e-6)
-        //fatal_error("Negative length detected in ray tracing");
       StructuredMesh::MeshIndex indices = rmesh->get_indices_from_bin(bin);
-      // ray trace on mesh
-      //printf("Inner Ray trace on FSR %d in mesh %d in bin %d with length %.3le\n", source_region, i_mesh, bin, length);
       uint64_t hash = hashPair(source_region, bin);
       int hash_bin = hash % N_FSR_HASH_BINS;
       SourceNode& node = domain_->controller_.nodes_[hash_bin];
@@ -227,20 +218,29 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
       // Check if the FlatSourceRegion with this hash already exists
       auto it = map.find(hash);
       if (it == map.end()) {
-        // If not found, create a new FlatSourceRegion and insert it into the map
-        // The [] operator automatically inserts a new element if the key does not exist
-        auto result = map.emplace(std::make_pair(hash, FlatSourceRegion(negroups_))); // This will default-construct a FlatSourceRegion instance if it doesn't
-        // e.g., region.someMethod();
+        // If not found, copy base FSR into new FSR
+        auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
         FlatSourceRegion& region = result.first->second;
-        printf("Emplaced FSR %d in bin %d with hash %lu. Was %d emplacement\n", source_region, bin, hash, emplaces);
-        emplaces++;
-              //domain_->pattern_[(indices[1]-1)*51 + (indices[0]-1)]++;
-
       } else {
         // Access the existing FlatSourceRegion
         FlatSourceRegion& region = it->second;
       }
-      //printf("Hash bin %d in array of length%ld\n", hash, domain_->controller_bin_hits.size());
+    }
+  } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
+    int bin = 0;
+    uint64_t hash = hashPair(source_region, bin);
+    int hash_bin = hash % N_FSR_HASH_BINS;
+    SourceNode& node = domain_->controller_.nodes_[hash_bin];
+    auto& map = node.fsr_map_;
+    // Check if the FlatSourceRegion with this hash already exists
+    auto it = map.find(hash);
+    if (it == map.end()) {
+      // If not found, copy base FSR into new FSR
+      auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
+      FlatSourceRegion& region = result.first->second;
+    } else {
+      // Access the existing FlatSourceRegion
+      FlatSourceRegion& region = it->second;
     }
   }
   attenuate_flux_inner(distance, is_active);  

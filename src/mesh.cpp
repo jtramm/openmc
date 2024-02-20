@@ -640,7 +640,7 @@ void StructuredMesh::raytrace_mesh(
       traveled_distance = distances[k].distance;
       //printf("traveled_distance: %.9lf\n", traveled_distance);
       // TODO: this is a bit of a hack, but it seems to work. I actually don't have a problem with it, 
-      // but my concern is that perhaps we actually need to be tallying the outward current here and we're missing this. 
+      // but my concern is that perhaps we actually need to be tallying the outward current here and we're missing this. I.e., is this breaking surface tallies?
       if (traveled_distance + TINY_BIT >= total_distance)
       {
         //printf("traveled distance is GREATER than total distance (%.9le >= %.9le)\n", traveled_distance, total_distance);

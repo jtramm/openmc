@@ -32,7 +32,22 @@ struct TallyTask {
 class FlatSourceRegion {
 public:
   FlatSourceRegion(int negroups) : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f), scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f), source_(negroups), fixed_source_(negroups, 0.0f) {}
-
+  
+  FlatSourceRegion(const FlatSourceRegion& other) :
+    material_(other.material_),
+    position_recorded_(other.position_recorded_),
+    position_(other.position_),
+    volume_(other.volume_),
+    volume_t_(other.volume_t_),
+    was_hit_(other.was_hit_),
+    mesh_(other.mesh_),
+    scalar_flux_new_(other.scalar_flux_new_),
+    scalar_flux_old_(other.scalar_flux_old_),
+    scalar_flux_final_(other.scalar_flux_final_),
+    source_(other.source_),
+    fixed_source_(other.fixed_source_),
+    tally_task_(other.tally_task_)
+    {}
 
   OpenMPMutex lock_;
   int material_;
@@ -44,14 +59,14 @@ public:
   int mesh_ {C_NONE};
 
   // 2D arrays with entry for each energy group
- vector<float> scalar_flux_new_;
- vector<float> scalar_flux_old_;
- vector<float> scalar_flux_final_;
- vector<float> source_;
- vector<float> fixed_source_;
+  vector<float> scalar_flux_new_;
+  vector<float> scalar_flux_old_;
+  vector<float> scalar_flux_final_;
+  vector<float> source_;
+  vector<float> fixed_source_;
 
-  // Outer dimension is each energy group in the FSR, inner dimension is each tally operation that bin will perform
-vector<vector<TallyTask>> tally_task_; 
+    // Outer dimension is each energy group in the FSR, inner dimension is each tally operation that bin will perform
+  vector<vector<TallyTask>> tally_task_; 
 
 }; // class FlatSourceRegion 
 
