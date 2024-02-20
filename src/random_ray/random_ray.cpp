@@ -147,57 +147,6 @@ bool RandomRay::event_advance_ray()
   return dead_zone_exit;
 }
 
-uint64_t hashPair(uint32_t a, uint32_t b) {
-    uint64_t hash = 0xcbf29ce484222325; // FNV-1a 64-bit offset basis
-    uint64_t prime = 0x100000001b3; // FNV-1a 64-bit prime
-
-    // Hash the first integer
-    hash ^= a;
-    hash *= prime;
-
-    // Hash the second integer
-    hash ^= b;
-    hash *= prime;
-
-    // Mix the bits a bit more
-    hash ^= hash >> 33;
-    hash *= 0xff51afd7ed558ccd;
-    hash ^= hash >> 33;
-    hash *= 0xc4ceb9fe1a85ec53;
-    hash ^= hash >> 33;
-
-    return hash;
-}
-
-int hashbin(uint32_t a, uint32_t b)
-{
-  const int n_bins = 10;
-  uint64_t hash = hashPair(a, b);
-  return hash % N_FSR_HASH_BINS;
-}
-
-int emplaces = 0;
-
-FlatSourceRegion* get_fsr(int64_t source_region, int bin, FlatSourceDomain* domain)
-{
-  // Get hash and has controller bin
-  uint64_t hash = hashPair(source_region, bin);
-  int hash_bin = hash % N_FSR_HASH_BINS;
-  SourceNode& node = domain->controller_.nodes_[hash_bin];
-  auto& map = node.fsr_map_;
-
-  // Check if the FlatSourceRegion with this hash already exists
-  auto it = map.find(hash);
-  if (it == map.end()) {
-    // If not found, copy base FSR into new FSR
-    auto result = map.emplace(std::make_pair(hash, domain->fsr_[source_region]));
-    return &result.first->second;
-  } else {
-    // Otherwise, access the existing FlatSourceRegion
-    return &it->second;
-  }
-}
-
 void RandomRay::attenuate_flux(double distance, bool is_active)
 {
   // Determine source region index etc.
@@ -224,14 +173,14 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     for( int i = 0; i < bins.size(); i++ ) {
       int bin = bins[i];
       double length = lengths[i];
-      FlatSourceRegion* region = get_fsr(source_region, bin, domain_);
+      FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
       attenuate_flux_inner(length, is_active, *region);  
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
-    FlatSourceRegion* region = get_fsr(source_region, 0, domain_);
+    FlatSourceRegion* region = domain_->get_fsr(source_region, 0);
     attenuate_flux_inner(distance, is_active, *region);  
   }
-  attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);  
+  //attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);  
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -359,10 +308,26 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   int i_cell = lowest_coord().cell;
   int64_t source_region_idx =
     domain_->source_region_offsets_[i_cell] + cell_instance();
-  // TODO: Init ray based on real source if hash instance is available.
+
   auto& fsr = domain->fsr_[source_region_idx];
+  int i_mesh = fsr.mesh_;
+  
+  // If there is a mesh present, then we need to get the bin number corresponding
+  // to the ray spatial location
+  FlatSourceRegion* region;
+  if (i_mesh >= 0) {
+    Mesh* mesh = domain_->meshes_[i_mesh].get();
+    RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+    if (rmesh == nullptr)
+      fatal_error("Only regular meshes are supported for random ray tracing.");
+    int bin = rmesh->get_bin(r());
+    region = domain_->get_fsr(source_region_idx, bin);
+  } else {
+    region = domain_->get_fsr(source_region_idx, 0);
+  }
+
   for (int e = 0; e < negroups_; e++) {
-    angular_flux_[e] = fsr.source_[e];
+    angular_flux_[e] = region->source_[e];
   }
 }
 

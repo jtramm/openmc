@@ -263,6 +263,9 @@ void RandomRaySimulation::simulate()
   }
   printf("FSRs with mesh assignments = %d\n", non_zero);
 
+  // Update source term (scattering + fission)
+  domain_.prepare_base_neutron_source(1.0);
+
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
 

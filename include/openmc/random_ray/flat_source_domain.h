@@ -109,6 +109,7 @@ public:
   //----------------------------------------------------------------------------
   // Methods
   void update_neutron_source(double k_eff);
+  void prepare_base_neutron_source(double k_eff);
   double compute_k_eff(double k_eff_old);
   void normalize_scalar_flux_and_volumes(
     double total_active_distance_per_iteration);
@@ -135,6 +136,7 @@ public:
   void apply_mesh_to_cell_and_children(int32_t i_cell,
   int32_t mesh, int32_t target_material_id);
   void apply_meshes();
+  FlatSourceRegion* get_fsr(int64_t source_region, int bin);
 
   //----------------------------------------------------------------------------
   // Data members
