@@ -75,7 +75,8 @@ unique_ptr<Source> RandomRay::ray_source_;
 RandomRay::RandomRay()
   : negroups_(data::mg.num_energy_groups_),
     angular_flux_(data::mg.num_energy_groups_),
-    delta_psi_(data::mg.num_energy_groups_)
+    delta_psi_(data::mg.num_energy_groups_),
+    coord_last_(model::n_coord_levels)
 {}
 
 RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
@@ -88,7 +89,11 @@ uint64_t RandomRay::transport_history_based_single_ray()
 {
   using namespace openmc;
   while (alive()) {
-    event_advance_ray();
+    // Advance ray. If the ray exited the dead zone, we need to process
+    // the active length as well so the function is called again.
+    if (event_advance_ray()) {
+      event_advance_ray();
+    }
     if (!alive())
       break;
     event_cross_surface();
@@ -98,7 +103,7 @@ uint64_t RandomRay::transport_history_based_single_ray()
 }
 
 // Transports ray across a single source region
-void RandomRay::event_advance_ray()
+bool RandomRay::event_advance_ray()
 {
   // Find the distance to the nearest boundary
   boundary() = distance_to_boundary(*this);
@@ -107,48 +112,39 @@ void RandomRay::event_advance_ray()
   if (distance <= 0.0) {
     mark_as_lost("Negative transport distance detected for particle " +
                  std::to_string(id()));
-    return;
+    return false;
   }
 
-  // Check for final termination
+  // Flag for end of inactive region (dead zone)
+  bool dead_zone_exit = false;
+
   if (is_active_) {
+    // If ray is in active region, then enforce limit of active ray length
     if (distance_travelled_ + distance >= distance_active_) {
-      distance_active_ - distance_travelled_;
+      distance = distance_active_ - distance_travelled_;
       wgt() = 0.0;
     }
     distance_travelled_ += distance;
     attenuate_flux(distance, true);
-  }
-
-  // Check for end of inactive region (dead zone)
-  if (!is_active_) {
+  } else {
+    // If ray is in dead zone, then enforce limit of dead zone length
     if (distance_travelled_ + distance >= distance_inactive_) {
       is_active_ = true;
-      double distance_dead = distance_inactive_ - distance_travelled_;
-      attenuate_flux(distance_dead, false);
-
-      double distance_alive = distance - distance_dead;
-
-      // Ensure we haven't travelled past the active phase as well
-      if (distance_alive > distance_active_) {
-        distance_alive = distance_active_;
-        wgt() = 0.0;
-      }
-      attenuate_flux(distance_alive, true); // This is a bug, as the particle is not going to move from start -> distance alive. Rather, it needs to move forward first, then find the bins for only the active region.
-      // As it is now, it is going to incorrectly find bins for the first part of the ray again, and score
-      // active track length there.
-
-      distance_travelled_ = distance_alive;
+      distance = distance_inactive_ - distance_travelled_;
+      distance_travelled_ = 0.0;
+      dead_zone_exit = true;
     } else {
       distance_travelled_ += distance;
-      attenuate_flux(distance, false);
     }
+    attenuate_flux(distance, false);
   }
 
   // Advance particle
   for (int j = 0; j < n_coord(); ++j) {
     coord(j).r += distance * coord(j).u;
   }
+
+  return dead_zone_exit;
 }
 
 uint64_t hashPair(uint32_t a, uint32_t b) {
@@ -182,6 +178,25 @@ int hashbin(uint32_t a, uint32_t b)
 
 int emplaces = 0;
 
+FlatSourceRegion* get_fsr(int64_t source_region, int bin, FlatSourceDomain* domain)
+{
+  // Get hash and has controller bin
+  uint64_t hash = hashPair(source_region, bin);
+  int hash_bin = hash % N_FSR_HASH_BINS;
+  SourceNode& node = domain->controller_.nodes_[hash_bin];
+  auto& map = node.fsr_map_;
+
+  // Check if the FlatSourceRegion with this hash already exists
+  auto it = map.find(hash);
+  if (it == map.end()) {
+    // If not found, copy base FSR into new FSR
+    auto result = map.emplace(std::make_pair(hash, domain->fsr_[source_region]));
+    return &result.first->second;
+  } else {
+    // Otherwise, access the existing FlatSourceRegion
+    return &it->second;
+  }
+}
 
 void RandomRay::attenuate_flux(double distance, bool is_active)
 {
@@ -195,8 +210,7 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 
   int i_mesh = fsr.mesh_;
 
-  if (i_mesh >= 0)
-  {
+  if (i_mesh >= 0) {
     Mesh* mesh = domain_->meshes_[i_mesh].get();
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     if (rmesh == nullptr)
@@ -210,42 +224,12 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     for( int i = 0; i < bins.size(); i++ ) {
       int bin = bins[i];
       double length = lengths[i];
-      StructuredMesh::MeshIndex indices = rmesh->get_indices_from_bin(bin);
-      uint64_t hash = hashPair(source_region, bin);
-      int hash_bin = hash % N_FSR_HASH_BINS;
-      SourceNode& node = domain_->controller_.nodes_[hash_bin];
-      auto& map = node.fsr_map_;
-      // Check if the FlatSourceRegion with this hash already exists
-      auto it = map.find(hash);
-      if (it == map.end()) {
-        // If not found, copy base FSR into new FSR
-        auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
-        FlatSourceRegion& region = result.first->second;
-        attenuate_flux_inner(distance, is_active, region);  
-      } else {
-        // Access the existing FlatSourceRegion
-        FlatSourceRegion& region = it->second;
-        attenuate_flux_inner(distance, is_active, region);  
-      }
+      FlatSourceRegion* region = get_fsr(source_region, bin, domain_);
+      attenuate_flux_inner(length, is_active, *region);  
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
-    int bin = 0;
-    uint64_t hash = hashPair(source_region, bin);
-    int hash_bin = hash % N_FSR_HASH_BINS;
-    SourceNode& node = domain_->controller_.nodes_[hash_bin];
-    auto& map = node.fsr_map_;
-    // Check if the FlatSourceRegion with this hash already exists
-    auto it = map.find(hash);
-    if (it == map.end()) {
-      // If not found, copy base FSR into new FSR
-      auto result = map.emplace(std::make_pair(hash, domain_->fsr_[source_region]));
-      FlatSourceRegion& region = result.first->second;
-      attenuate_flux_inner(distance, is_active, region);  
-    } else {
-      // Access the existing FlatSourceRegion
-      FlatSourceRegion& region = it->second;
-      attenuate_flux_inner(distance, is_active, region);  
-    }
+    FlatSourceRegion* region = get_fsr(source_region, 0, domain_);
+    attenuate_flux_inner(distance, is_active, *region);  
   }
   attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);  
 }
@@ -375,6 +359,7 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   int i_cell = lowest_coord().cell;
   int64_t source_region_idx =
     domain_->source_region_offsets_[i_cell] + cell_instance();
+  // TODO: Init ray based on real source if hash instance is available.
   auto& fsr = domain->fsr_[source_region_idx];
   for (int e = 0; e < negroups_; e++) {
     angular_flux_[e] = fsr.source_[e];

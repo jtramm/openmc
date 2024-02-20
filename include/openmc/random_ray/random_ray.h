@@ -22,7 +22,7 @@ public:
 
   //----------------------------------------------------------------------------
   // Methods
-  void event_advance_ray();
+  bool event_advance_ray();
   void attenuate_flux(double distance, bool is_active);
   void attenuate_flux_inner(double distance, bool is_active, FlatSourceRegion& fsr);
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
@@ -44,6 +44,7 @@ public:
   int negroups_;
   bool is_active_ {false};
   bool is_alive_ {true};
+  vector<LocalCoord> coord_last_; //!< coordinates for all levels
 }; // class RandomRay
 
 } // namespace openmc
