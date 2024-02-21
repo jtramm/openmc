@@ -191,7 +191,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
 
     // rmesh->bins_crossed(r() + 1e-2 * distance * u(), r() + (distance -
     // 1e-2*distance) * u(), u(), bins, lengths);
-    rmesh->bins_crossed(r() + (offset+TINY_BIT) * u(), r() + (offset + distance - TINY_BIT) * u(), u(), bins, lengths);
+    rmesh->bins_crossed(r() + offset * u(), r() + (offset + distance) * u(), u(), bins, lengths);
 
     for (int i = 0; i < bins.size(); i++) {
       int bin = bins[i];
