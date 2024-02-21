@@ -344,6 +344,17 @@ void RandomRaySimulation::simulate()
       domain_.accumulate_iteration_flux();
     }
 
+/*
+    FILE* fp = fopen("hitmap.csv", "w");
+    for( int i = 0 ; i < 408; i++) {
+      for (int j = 0; j < 408; j++) {
+        fprintf(fp, "%d, ", domain_.hitmap[i][j]);
+      }
+      fprintf(fp, "\n");
+    }
+    fclose(fp);
+    */
+
     // Set phi_old = phi_new
     domain_.swap_flux();
     

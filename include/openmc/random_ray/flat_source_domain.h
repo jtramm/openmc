@@ -164,6 +164,7 @@ public:
 
   HashSourceController controller_;
   int64_t n_subdivided_source_regions_ {0};
+  vector<vector<int>> hitmap;
 
 }; // class FlatSourceDomain
 

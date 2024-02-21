@@ -171,9 +171,11 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 
     for( int i = 0; i < bins.size(); i++ ) {
       int bin = bins[i];
-      double length = lengths[i];
-      if (length > (distance/bins.size()) * 1.0e-3)
-      //if (length/distance > 1e-5)
+      double length = lengths[i] * distance;
+      //Position intersect_point = r() + u() * length;
+
+      //if (length > (distance/bins.size()) * 1.0e-3)
+      if (length > 1.0e-5)
       {
         FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
         attenuate_flux_inner(length, is_active, *region);

@@ -66,6 +66,9 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   if (source_region_id != n_source_regions_) {
     fatal_error("Unexpected number of source regions");
   }
+
+  int n = 408;
+  hitmap = vector<vector<int>>(n, vector<int>(n, 0));
 }
 
 void FlatSourceDomain::batch_reset()
@@ -1139,6 +1142,9 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
   node.lock_.lock();
   auto& map = node.fsr_map_;
 
+  Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+
   // Check if the FlatSourceRegion with this hash already exists
   auto it = map.find(hash);
   if (it == map.end()) {
@@ -1147,9 +1153,14 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
     node.lock_.unlock();
     #pragma omp atomic
     n_subdivided_source_regions_++;
-    //if( n_subdivided_source_regions_ > 15028) // 2x2 meshh
+    StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
+    hitmap[mesh_index[0]-1][mesh_index[1]-1] += 1;
+    if( n_subdivided_source_regions_ > 15028) // 2x2 meshh 
     //if( n_subdivided_source_regions_ > 375700) // 10x10 mesh
-    //  fatal_error("Too many subdivided source regions");
+     { 
+      printf("source region = %d, bin = %d, index x = %d, index y = %d\n", source_region, bin, mesh_index[0], mesh_index[1]);
+      fatal_error("Too many subdivided source regions");
+     }
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion
