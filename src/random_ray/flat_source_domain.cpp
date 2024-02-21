@@ -1040,8 +1040,8 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
   if (cell.type_ != Fill::MATERIAL)
     return;
   for (int32_t j : instances) {
-    printf("applying to cell id %d instance %d of %d in found instances, %d in "
-           "actual cell instances\n",
+   // printf("applying to cell id %d instance %d of %d in found instances, %d in "
+   //        "actual cell instances\n",
       cell.id_, j, instances.size(), cell.n_instances_);
     int cell_material_idx = cell.material(j);
     int cell_material_id = model::materials[cell_material_idx]->id();
@@ -1063,7 +1063,7 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(
     std::iota(instances.begin(), instances.end(), 0);
     apply_mesh_to_cell_instances(i_cell, mesh, target_material_id, instances);
   } else if (target_material_id == C_NONE) {
-    printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
+   // printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
     for (int j = 0; j < cell.n_instances_; j++) {
       printf(
         "getting contained cells for cell id %d instance %d\n", cell.id_, j);
