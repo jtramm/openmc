@@ -171,12 +171,14 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   printf(
     "\tRay 2D radius from center: %f\n", sqrt(r().x * r().x + r().y * r().y));
     */
+   /*
   Mesh* mesh = domain_->meshes_[i_mesh].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
   if (rmesh == nullptr)
     fatal_error("Only regular meshes are supported for random ray tracing.");
   bool in_mesh;
   StructuredMesh::MeshIndex ijk = rmesh->get_indices(r(), in_mesh);
+  */
   //printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
   //  ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
@@ -188,7 +190,8 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
 
     vector<int> bins;
     vector<double> lengths;
-
+    Mesh* mesh = domain_->meshes_[i_mesh].get();
+    RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     // rmesh->bins_crossed(r() + 1e-2 * distance * u(), r() + (distance -
     // 1e-2*distance) * u(), u(), bins, lengths);
     rmesh->bins_crossed(r() + offset * u(), r() + (offset + distance) * u(), u(), bins, lengths);
@@ -199,7 +202,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
       // Position intersect_point = r() + u() * length;
 
       // if (length > (distance/bins.size()) * 1.0e-3)
-      // if (length > 1.0e-5)
+       //if (length > 1.0e-5)
       {
         FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
         attenuate_flux_inner(length, is_active, *region);

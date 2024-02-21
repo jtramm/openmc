@@ -639,13 +639,13 @@ void StructuredMesh::raytrace_mesh(
       double normal_r0 = std::abs(r0[k] - pc[k]);
       double normal_r1 = std::abs(pc_prev[k] - r1[k]);
 
-      if (normal_r0 > 1.0e-8 && normal_r1 > 1.0e-8) {
+      if (normal_r0 > 1.0e-5 && normal_r1 > 1.0e-5) {
         tally.track(ijk,
           (std::min(distances[k].distance, total_distance) - traveled_distance) /
             total_distance);
       } else
       {
-        printf("Disqualifying tracklength %.9le because normal_r0 %.9le and normal_r1 %.9le\n", tracklength, normal_r0, normal_r1);
+        //printf("Disqualifying tracklength %.9le because normal_r0 %.9le and normal_r1 %.9le\n", tracklength, normal_r0, normal_r1);
       }
       //tally.track(ijk,
       //  (std::min(distances[k].distance, total_distance) - traveled_distance) /

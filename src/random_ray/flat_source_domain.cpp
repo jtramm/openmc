@@ -790,7 +790,8 @@ void FlatSourceDomain::output_to_vtk()
                 "Only regular meshes are supported for random ray tracing.");
             int bin = rmesh->get_bin(p.r());
             RegularMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
-            hit_count = hitmap[ijk[1]-1][ijk[0]-1];
+            //hit_count = hitmap[ijk[1]-1][ijk[0]-1];
+            hit_count = 0;
             region = get_fsr(source_region_idx, bin);
           } else {
             region = get_fsr(source_region_idx, 0);
@@ -1111,10 +1112,10 @@ void FlatSourceDomain::apply_meshes()
     }
   } // End loop over source region meshes
   
-  int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
-    int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
+  //int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
+  //int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
 
-  hitmap = vector<vector<int>>(y, vector<int>(x, 0));
+  //hitmap.push_back(vector<vector<int>>(y, vector<int>(x, 0)));
 }
 
 uint64_t hashPair(uint32_t a, uint32_t b)
@@ -1158,8 +1159,8 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
   node.lock_.lock();
   auto& map = node.fsr_map_;
 
-  Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
-  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+  //Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+  //RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
 
   // Check if the FlatSourceRegion with this hash already exists
   auto it = map.find(hash);
@@ -1169,6 +1170,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
     node.lock_.unlock();
     #pragma omp atomic
     n_subdivided_source_regions_++;
+    /*
     StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
     hitmap[mesh_index[1]-1][mesh_index[0]-1] += 1;
     if( mesh_index[1]-1 ==0 && mesh_index[0]-1 == 0)
@@ -1179,6 +1181,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
         fatal_error("Added fuel to region that should be moderator");
       }
     }
+    */
     //printf("Adding source region %d to bin %d (y=%d, x=%d) with material = %d\n", source_region, bin, mesh_index[1]-1, mesh_index[0]-1, fsr_[source_region].material_);
 
     //if( n_subdivided_source_regions_ > 15028) // 2x2 mesh analytical
