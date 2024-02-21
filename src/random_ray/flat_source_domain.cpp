@@ -67,8 +67,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     fatal_error("Unexpected number of source regions");
   }
 
-  int n = 408;
-  hitmap = vector<vector<int>>(n, vector<int>(n, 0));
 }
 
 void FlatSourceDomain::batch_reset()
@@ -761,6 +759,7 @@ void FlatSourceDomain::output_to_vtk()
 
     // Relate voxel spatial locations to random ray source regions
     std::vector<FlatSourceRegion*> voxel_indices(Nx * Ny * Nz);
+    std::vector<int> hits(Nx * Ny * Nz);
 
 #pragma omp parallel for collapse(3)
     for (int z = 0; z < Nz; z++) {
@@ -782,6 +781,7 @@ void FlatSourceDomain::output_to_vtk()
           // If there is a mesh present, then we need to get the bin number
           // corresponding to the ray spatial location
           FlatSourceRegion* region;
+          int hit_count = -1;
           if (i_mesh >= 0) {
             Mesh* mesh = meshes_[i_mesh].get();
             RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
@@ -789,12 +789,15 @@ void FlatSourceDomain::output_to_vtk()
               fatal_error(
                 "Only regular meshes are supported for random ray tracing.");
             int bin = rmesh->get_bin(p.r());
+            RegularMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+            hit_count = hitmap[ijk[1]-1][ijk[0]-1];
             region = get_fsr(source_region_idx, bin);
           } else {
             region = get_fsr(source_region_idx, 0);
           }
 
           voxel_indices[z * Ny * Nx + y * Nx + x] = region;
+          hits[z * Ny * Nx + y * Nx + x] = hit_count;
         }
       }
     }
@@ -808,7 +811,7 @@ void FlatSourceDomain::output_to_vtk()
     fprintf(plot, "BINARY\n");
     fprintf(plot, "DATASET STRUCTURED_POINTS\n");
     fprintf(plot, "DIMENSIONS %d %d %d\n", Nx, Ny, Nz);
-    fprintf(plot, "ORIGIN 0 0 0\n");
+    fprintf(plot, "ORIGIN %lf %lf %lf\n", origin.x - width.x/2.0, origin.y - width.y/2.0, origin.z - width.z/2.0);
     fprintf(plot, "SPACING %lf %lf %lf\n", x_delta, y_delta, z_delta);
     fprintf(plot, "POINT_DATA %d\n", Nx * Ny * Nz);
 
@@ -840,6 +843,14 @@ void FlatSourceDomain::output_to_vtk()
       int mat = fsr->material_;
       mat = flip_endianness<int>(mat);
       fwrite(&mat, sizeof(int), 1, plot);
+    }
+    
+    // Plot hitmap
+    fprintf(plot, "SCALARS FSRs_per_mesh int\n");
+    fprintf(plot, "LOOKUP_TABLE default\n");
+    for (int bin : hits) {
+      bin = flip_endianness<int>(bin);
+      fwrite(&bin, sizeof(int), 1, plot);
     }
 
     // Plot fission source
@@ -1099,6 +1110,11 @@ void FlatSourceDomain::apply_meshes()
       }
     }
   } // End loop over source region meshes
+  
+  int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
+    int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
+
+  hitmap = vector<vector<int>>(y, vector<int>(x, 0));
 }
 
 uint64_t hashPair(uint32_t a, uint32_t b)
@@ -1154,13 +1170,25 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
     #pragma omp atomic
     n_subdivided_source_regions_++;
     StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
-    hitmap[mesh_index[0]-1][mesh_index[1]-1] += 1;
-    if( n_subdivided_source_regions_ > 15028) // 2x2 meshh 
-    //if( n_subdivided_source_regions_ > 375700) // 10x10 mesh
+    hitmap[mesh_index[1]-1][mesh_index[0]-1] += 1;
+    if( mesh_index[1]-1 ==0 && mesh_index[0]-1 == 0)
+    {
+      printf("Adding source region %d to bin %d (y=%d, x=%d) with material = %d\n", source_region, bin, mesh_index[1]-1, mesh_index[0]-1, fsr_[source_region].material_);
+      if( fsr_[source_region].material_ == 0)
+      {
+        fatal_error("Added fuel to region that should be moderator");
+      }
+    }
+    //printf("Adding source region %d to bin %d (y=%d, x=%d) with material = %d\n", source_region, bin, mesh_index[1]-1, mesh_index[0]-1, fsr_[source_region].material_);
+
+    //if( n_subdivided_source_regions_ > 15028) // 2x2 mesh analytical
+    /*
+    if( n_subdivided_source_regions_ > 198832) // 8x8 mesh analytical
      { 
       printf("source region = %d, bin = %d, index x = %d, index y = %d\n", source_region, bin, mesh_index[0], mesh_index[1]);
       fatal_error("Too many subdivided source regions");
      }
+     */
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion

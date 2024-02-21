@@ -75,8 +75,7 @@ unique_ptr<Source> RandomRay::ray_source_;
 RandomRay::RandomRay()
   : negroups_(data::mg.num_energy_groups_),
     angular_flux_(data::mg.num_energy_groups_),
-    delta_psi_(data::mg.num_energy_groups_),
-    coord_last_(model::n_coord_levels)
+    delta_psi_(data::mg.num_energy_groups_), coord_last_(model::n_coord_levels)
 {}
 
 RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
@@ -90,9 +89,7 @@ uint64_t RandomRay::transport_history_based_single_ray()
   while (alive()) {
     // Advance ray. If the ray exited the dead zone, we need to process
     // the active length as well so the function is called again.
-    if (event_advance_ray()) {
-      event_advance_ray();
-    }
+    event_advance_ray();
     if (!alive())
       break;
     event_cross_surface();
@@ -105,7 +102,10 @@ uint64_t RandomRay::transport_history_based_single_ray()
 bool RandomRay::event_advance_ray()
 {
   // Find the distance to the nearest boundary
-  boundary() = distance_to_boundary(*this);
+  boundary() = distance_to_boundary(
+    *this); // problem I think is it is not allowing us to re-intersect same
+            // surface, so it's missing the next surface that we should actually
+            // be hitting. Can't do the same RT twice...
   double distance = boundary().distance;
 
   if (distance <= 0.0) {
@@ -124,18 +124,25 @@ bool RandomRay::event_advance_ray()
       wgt() = 0.0;
     }
     distance_travelled_ += distance;
-    attenuate_flux(distance, true);
-  } else {
-    // If ray is in dead zone, then enforce limit of dead zone length
-    if (distance_travelled_ + distance >= distance_inactive_) {
-      is_active_ = true;
-      distance = distance_inactive_ - distance_travelled_;
-      distance_travelled_ = 0.0;
-      dead_zone_exit = true;
-    } else {
-      distance_travelled_ += distance;
+    attenuate_flux(distance, 0.0, true);
+  } else if (distance_travelled_ + distance >= distance_inactive_) {
+    is_active_ = true;
+    double distance_dead = distance_inactive_ - distance_travelled_;
+    attenuate_flux(distance_dead, 0.0, false);
+
+    double distance_alive = distance - distance_dead;
+
+    // Ensure we haven't travelled past the active phase as well
+    if (distance_alive > distance_active_) {
+      distance_alive = distance_active_;
+      wgt() = 0.0;
     }
-    attenuate_flux(distance, false);
+    attenuate_flux(distance_alive, distance_dead, true);
+
+    distance_travelled_ = distance_alive;
+  } else {
+    distance_travelled_ += distance;
+    attenuate_flux(distance, 0.0, false);
   }
 
   // Advance particle
@@ -146,7 +153,7 @@ bool RandomRay::event_advance_ray()
   return dead_zone_exit;
 }
 
-void RandomRay::attenuate_flux(double distance, bool is_active)
+void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
 {
   // Determine source region index etc.
   int i_cell = lowest_coord().cell;
@@ -157,25 +164,42 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   auto& fsr = domain_->fsr_[source_region];
 
   int i_mesh = fsr.mesh_;
-
+  /*
+  printf("Ray id %d is active %d location: (x, y, z): %f %f %f, ray distance = "
+         "%f, source region = %d, mesh = %d\n",
+    id(), is_active, r().x, r().y, r().z, distance, source_region, i_mesh);
+  printf(
+    "\tRay 2D radius from center: %f\n", sqrt(r().x * r().x + r().y * r().y));
+    */
+  Mesh* mesh = domain_->meshes_[i_mesh].get();
+  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+  if (rmesh == nullptr)
+    fatal_error("Only regular meshes are supported for random ray tracing.");
+  bool in_mesh;
+  StructuredMesh::MeshIndex ijk = rmesh->get_indices(r(), in_mesh);
+  //printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
+  //  ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
-    Mesh* mesh = domain_->meshes_[i_mesh].get();
-    RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
-    if (rmesh == nullptr)
-      fatal_error("Only regular meshes are supported for random ray tracing.");
-    
+    // Mesh* mesh = domain_->meshes_[i_mesh].get();
+    // RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+    // if (rmesh == nullptr)
+    //   fatal_error("Only regular meshes are supported for random ray
+    //   tracing.");
+
     vector<int> bins;
     vector<double> lengths;
 
-    rmesh->bins_crossed(r(), r() + distance * u(), u(), bins, lengths);
+    // rmesh->bins_crossed(r() + 1e-2 * distance * u(), r() + (distance -
+    // 1e-2*distance) * u(), u(), bins, lengths);
+    rmesh->bins_crossed(r() + offset * u(), r() + (offset + distance) * u(), u(), bins, lengths);
 
-    for( int i = 0; i < bins.size(); i++ ) {
+    for (int i = 0; i < bins.size(); i++) {
       int bin = bins[i];
       double length = lengths[i] * distance;
-      //Position intersect_point = r() + u() * length;
+      // Position intersect_point = r() + u() * length;
 
-      //if (length > (distance/bins.size()) * 1.0e-3)
-      if (length > 1.0e-5)
+      // if (length > (distance/bins.size()) * 1.0e-3)
+      // if (length > 1.0e-5)
       {
         FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
         attenuate_flux_inner(length, is_active, *region);
@@ -183,9 +207,9 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
     FlatSourceRegion* region = domain_->get_fsr(source_region, 0);
-    attenuate_flux_inner(distance, is_active, *region);  
+    attenuate_flux_inner(distance, is_active, *region);
   }
-  //attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);  
+  // attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -201,7 +225,8 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 // than use of many atomic operations corresponding to each energy group
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
-void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSourceRegion& fsr)
+void RandomRay::attenuate_flux_inner(
+  double distance, bool is_active, FlatSourceRegion& fsr)
 {
   // The number of geometric intersections is counted for reporting purposes
   n_event()++;
@@ -222,8 +247,7 @@ void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSource
       MgxsType::TOTAL, e, NULL, NULL, NULL, t, a);
     float tau = sigma_t * distance;
     float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
-    float new_delta_psi =
-      (angular_flux_[e] - fsr.source_[e]) * exponential;
+    float new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
     delta_psi_[e] = new_delta_psi;
     angular_flux_[e] -= new_delta_psi;
   }
@@ -233,7 +257,7 @@ void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSource
   if (is_active) {
 
     // Aquire lock for source region
-    //omp_set_lock(&fsr.lock_);
+    // omp_set_lock(&fsr.lock_);
     fsr.lock_.lock();
 
     // Accumulate delta psi into new estimate of source region flux for
@@ -259,8 +283,8 @@ void RandomRay::attenuate_flux_inner(double distance, bool is_active, FlatSource
     }
 
     // Release lock
-   // omp_unset_lock(&fsr.lock_);
-   fsr.lock_.unlock();
+    // omp_unset_lock(&fsr.lock_);
+    fsr.lock_.unlock();
   }
 }
 
@@ -314,9 +338,9 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   auto& fsr = domain->fsr_[source_region_idx];
   int i_mesh = fsr.mesh_;
-  
-  // If there is a mesh present, then we need to get the bin number corresponding
-  // to the ray spatial location
+
+  // If there is a mesh present, then we need to get the bin number
+  // corresponding to the ray spatial location
   FlatSourceRegion* region;
   if (i_mesh >= 0) {
     Mesh* mesh = domain_->meshes_[i_mesh].get();

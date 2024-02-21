@@ -632,9 +632,24 @@ void StructuredMesh::raytrace_mesh(
       //printf("total_distance: %.9le\n", total_distance);
       //printf("traveled_distance: %.9le\n", traveled_distance);
       //printf("tallying distance %.9le\n", (std::min(distances[k].distance, total_distance) - traveled_distance)/ total_distance);
-      tally.track(ijk,
-        (std::min(distances[k].distance, total_distance) - traveled_distance) /
-          total_distance);
+      double tracklength = std::min(distances[k].distance, total_distance) - traveled_distance;
+      double pc_dist = std::min(distances[k].distance, total_distance);
+      Position pc_prev = r0 + u * (traveled_distance);
+      Position pc = r0 + u * (pc_dist);
+      double normal_r0 = std::abs(r0[k] - pc[k]);
+      double normal_r1 = std::abs(pc_prev[k] - r1[k]);
+
+      if (normal_r0 > 1.0e-8 && normal_r1 > 1.0e-8) {
+        tally.track(ijk,
+          (std::min(distances[k].distance, total_distance) - traveled_distance) /
+            total_distance);
+      } else
+      {
+        printf("Disqualifying tracklength %.9le because normal_r0 %.9le and normal_r1 %.9le\n", tracklength, normal_r0, normal_r1);
+      }
+      //tally.track(ijk,
+      //  (std::min(distances[k].distance, total_distance) - traveled_distance) /
+      //    total_distance);
 
       // update position and leave, if we have reached end position
       traveled_distance = distances[k].distance;
