@@ -74,7 +74,7 @@ void FlatSourceDomain::batch_reset()
 // zero
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     std::fill(fsr.scalar_flux_new_.begin(), fsr.scalar_flux_new_.end(), 0.0f);
     fsr.volume_ = 0.0;
     fsr.was_hit_ = 0;
@@ -85,7 +85,7 @@ void FlatSourceDomain::accumulate_iteration_flux()
 {
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     for (int e = 0; e < negroups_; e++) {
       fsr.scalar_flux_final_[e] += fsr.scalar_flux_new_[e];
     }
@@ -184,7 +184,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     for (int e_out = 0; e_out < negroups_; e_out++) {
       float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
@@ -205,7 +205,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 // Add fission source if in eigenvalue mode
 #pragma omp parallel for
     for (int i = 0; i < fsr_manifest_.size(); i++) {
-      FlatSourceRegion& fsr = *fsr_manifest_[i];
+      FlatSourceRegion& fsr = fsr_manifest_[i];
       for (int e_out = 0; e_out < negroups_; e_out++) {
         float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
           MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
@@ -226,7 +226,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
     // Add fixed source source if in fixed source mode
 #pragma omp parallel for
     for (int i = 0; i < fsr_manifest_.size(); i++) {
-      FlatSourceRegion& fsr = *fsr_manifest_[i];
+      FlatSourceRegion& fsr = fsr_manifest_[i];
       for (int e = 0; e < negroups_; e++) {
         fsr.source_[e] += fsr.fixed_source_[e];
       }
@@ -249,7 +249,7 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
   // iteration, then update the simulation-averaged cell-wise volume estimates
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     fsr.volume_t_ += fsr.volume_;
     fsr.volume_i_ = fsr.volume_ * normalization_factor;
     fsr.volume_ = fsr.volume_t_ * volume_normalization_factor;
@@ -275,7 +275,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 
 #pragma omp parallel for reduction(+ : n_hits)
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
 
     // Check if this cell was hit this iteration
     if (fsr.was_hit_ > 0) {
@@ -335,7 +335,7 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old)
 
 #pragma omp parallel for reduction(+ : fission_rate_old, fission_rate_new)
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
 
     // If simulation averaged volume is zero, don't include this cell
     double volume = fsr.volume_;
@@ -407,7 +407,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
 // Attempt to generate mapping for all source regions
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     // If this source region has not been hit by a ray yet, then
     // we aren't going to be able to map it, so skip it.
     if (!fsr.position_recorded_) {
@@ -516,7 +516,7 @@ void FlatSourceDomain::random_ray_tally()
 // them.
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     double volume = fsr.volume_;
     double factor = volume * inverse_source_strength;
     double material = fsr.material_;
@@ -915,7 +915,7 @@ double FlatSourceDomain::calculate_total_volume_weighted_source_strength()
   double source_strength = 0.0;
 #pragma omp parallel for reduction(+ : source_strength)
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     double volume = fsr.volume_;
     for (int e = 0; e < negroups_; e++) {
       source_strength += fsr.fixed_source_[e] * volume;
@@ -1108,22 +1108,34 @@ int emplaces = 0;
 
 FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
 {
-  if (fsr_[source_region].mesh_ == C_NONE) {
-    return &fsr_[source_region];
+  FlatSourceRegion& base_fsr = fsr_[source_region];
+  if (base_fsr.mesh_ == C_NONE) {
+    // Problem: this is no longer a valid FSR. How to handle?
+    if (base_fsr.is_in_manifest_) {
+      return &fsr_manifest_[base_fsr.manifest_index_];
+    } else {
+      return &fsr_[source_region];
+    }
   }
   // Get hash and has controller bin
   uint64_t hash = hashPair(source_region, bin);
   int hash_bin = hash % N_FSR_HASH_BINS;
   SourceNode& node = controller_.nodes_[hash_bin];
-  node.lock_.lock();
   auto& map = node.fsr_map_;
 
   // Check if the FlatSourceRegion with this hash already exists
   auto it = map.find(hash);
   if (it == map.end()) {
+    node.lock_.lock();
+
+    auto& new_map = node.new_fsr_map_;
+    auto it_new = new_map.find(hash);
+    if (it_new != new_map.end()) {
+      node.lock_.unlock();
+      return &it_new->second;
+    }
     // If not found, copy base FSR into new FSR
-    auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
-    node.has_updates_ = true;
+    auto result = new_map.emplace(std::make_pair(hash, fsr_[source_region]));
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1165,8 +1177,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion
-    node.lock_.unlock();
-    return &it->second;
+    return &fsr_manifest_[it->second];
   }
 }
 
@@ -1177,19 +1188,32 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
 {
   // This conditional will not be triggered right now due to the
   // presence of two function prototypes, but leaving it in for later
-  if (fsr_[source_region].mesh_ == C_NONE) {
-    return &fsr_[source_region];
+  FlatSourceRegion& base_fsr = fsr_[source_region];
+  if (base_fsr.mesh_ == C_NONE) {
+    // Problem: this is no longer a valid FSR. How to handle?
+    if (base_fsr.is_in_manifest_) {
+      return &fsr_manifest_[base_fsr.manifest_index_];
+    } else {
+      return &fsr_[source_region];
+    }
   }
   // Get hash and has controller bin
   uint64_t hash = hashPair(source_region, bin);
   int hash_bin = hash % N_FSR_HASH_BINS;
   SourceNode& node = controller_.nodes_[hash_bin];
-  node.lock_.lock();
   auto& map = node.fsr_map_;
 
   // Check if the FlatSourceRegion with this hash already exists
+  // Check if the FlatSourceRegion with this hash already exists
   auto it = map.find(hash);
   if (it == map.end()) {
+    node.lock_.lock();
+    auto& new_map = node.new_fsr_map_;
+    auto it_new = new_map.find(hash);
+    if (it_new != new_map.end()) {
+      node.lock_.unlock();
+      return &it_new->second;
+    }
     // Before we do anything, check if sr's match...
     GeometryState p;
     p.r() = r0;
@@ -1234,8 +1258,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // If not found, copy base FSR into new FSR
-    auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
-    node.has_updates_ = true;
+    auto result = new_map.emplace(std::make_pair(hash, fsr_[source_region]));
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1303,8 +1326,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion
-    node.lock_.unlock();
-    return &it->second;
+    return &fsr_manifest_[it->second];
   }
 }
 
@@ -1312,7 +1334,7 @@ void FlatSourceDomain::swap_flux(void)
 {
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = *fsr_manifest_[i];
+    FlatSourceRegion& fsr = fsr_manifest_[i];
     fsr.scalar_flux_old_.swap(fsr.scalar_flux_new_);
   }
 }
@@ -1321,25 +1343,22 @@ void FlatSourceDomain::update_fsr_manifest(void)
 {
   for (int bin = 0; bin < N_FSR_HASH_BINS; bin++) {
     SourceNode& node = controller_.nodes_[bin];
-    if (node.has_updates_) {
-      auto& map = node.fsr_map_;
-      for (auto& pair : map) {
-        FlatSourceRegion& fsr = pair.second;
-        if (!fsr.is_in_manifest_) {
-          fsr.is_in_manifest_ = true;
-          fsr_manifest_.push_back(&fsr);
-        }
-      }
-      node.has_updates_ = false;
+    auto& map = node.new_fsr_map_;
+    for (auto& pair : map) {
+      fsr_manifest_.push_back(pair.second);
+      node.fsr_map_[pair.first] = fsr_manifest_.size() - 1;
     }
+    map.clear();
   }
 
   for (int sr = 0; sr < n_source_regions_; sr++) {
     FlatSourceRegion& fsr = fsr_[sr];
     if (fsr.position_recorded_) {
       if (!fsr.is_in_manifest_) {
+        fsr_manifest_.push_back(fsr);
         fsr.is_in_manifest_ = true;
-        fsr_manifest_.push_back(&fsr);
+        fsr.manifest_index_ = fsr_manifest_.size() - 1;
+        n_subdivided_source_regions_++;
       }
     }
   }

@@ -305,7 +305,7 @@ void RandomRaySimulation::simulate()
       // domain_.controller_.nodes_[i].fsr_map_.size());
       n_mesh_fsrs += domain_.controller_.nodes_[i].fsr_map_.size();
     }
-    printf("Total mesh FSRs = %d\n", n_mesh_fsrs);
+    printf("Total mesh FSRs = %d, total FSRs = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size());
     /*
     for( int i = 0 ; i < 51; i++) {
       for (int j = 0; j < 51; j++) {
@@ -326,6 +326,7 @@ void RandomRaySimulation::simulate()
 
     // Add source to scalar flux, compute number of FSR hits
     int64_t n_hits = domain_.add_source_to_scalar_flux();
+    printf("n_hits = %ld\n", n_hits);
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
       // Compute random ray k-eff
@@ -410,7 +411,7 @@ void RandomRaySimulation::instability_check(
       static_cast<double>(domain_.n_subdivided_source_regions_)) *
     100.0;
   avg_miss_rate += percent_missed;
-
+  printf("n_hits = %ld, percent_missed = %f subdivided regions = %d\n", n_hits, percent_missed, domain_.n_subdivided_source_regions_);
   if (percent_missed > 10.0) {
     warning(fmt::format(
       "Very high FSR miss rate detected ({:.3f}%). Instability may occur. "

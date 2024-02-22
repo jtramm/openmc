@@ -47,7 +47,9 @@ public:
     scalar_flux_final_(other.scalar_flux_final_),
     source_(other.source_),
     fixed_source_(other.fixed_source_),
-    tally_task_(other.tally_task_)
+    tally_task_(other.tally_task_),
+    is_in_manifest_(other.is_in_manifest_),
+    manifest_index_(other.manifest_index_)
     {}
 
   OpenMPMutex lock_;
@@ -60,6 +62,7 @@ public:
   int was_hit_ {0};
   int mesh_ {C_NONE};
   bool is_in_manifest_ {false};
+  int64_t manifest_index_;
 
   // 2D arrays with entry for each energy group
   vector<float> scalar_flux_new_;
@@ -82,8 +85,8 @@ public:
   SourceNode() = default;
 
   OpenMPMutex lock_;
-  bool has_updates_ {false};
-  std::unordered_map<uint64_t, FlatSourceRegion> fsr_map_; // key is 64-bit hash, value is FSR itself
+  std::unordered_map<uint64_t, int64_t> fsr_map_; // key is 64-bit hash, value is FSR itself
+  std::unordered_map<uint64_t, FlatSourceRegion> new_fsr_map_; // key is 64-bit hash, value is FSR itself
   
 }; // class HashSourceController
 
@@ -172,7 +175,7 @@ public:
   int64_t n_subdivided_source_regions_ {0};
   vector<vector<int>> hitmap;
 
-  vector<FlatSourceRegion*> fsr_manifest_;
+  vector<FlatSourceRegion> fsr_manifest_;
 
 }; // class FlatSourceDomain
 

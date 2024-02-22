@@ -200,6 +200,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   // printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
   //   ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
+    
     // Mesh* mesh = domain_->meshes_[i_mesh].get();
     // RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     // if (rmesh == nullptr)

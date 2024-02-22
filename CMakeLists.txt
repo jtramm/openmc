@@ -26,6 +26,9 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
   cmake_policy(SET CMP0128 NEW)
 endif()
 
+# Turn on IPO
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+
 #===============================================================================
 # Command line options
 #===============================================================================
