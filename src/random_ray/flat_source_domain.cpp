@@ -1040,9 +1040,10 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
   if (cell.type_ != Fill::MATERIAL)
     return;
   for (int32_t j : instances) {
-   // printf("applying to cell id %d instance %d of %d in found instances, %d in "
-   //        "actual cell instances\n",
-   //   cell.id_, j, instances.size(), cell.n_instances_);
+    // printf("applying to cell id %d instance %d of %d in found instances, %d
+    // in "
+    //        "actual cell instances\n",
+    //   cell.id_, j, instances.size(), cell.n_instances_);
     int cell_material_idx = cell.material(j);
     int cell_material_id = model::materials[cell_material_idx]->id();
     if (target_material_id == C_NONE ||
@@ -1063,10 +1064,11 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(
     std::iota(instances.begin(), instances.end(), 0);
     apply_mesh_to_cell_instances(i_cell, mesh, target_material_id, instances);
   } else if (target_material_id == C_NONE) {
-   // printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
+    // printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
     for (int j = 0; j < cell.n_instances_; j++) {
-   //   printf(
-   //     "getting contained cells for cell id %d instance %d\n", cell.id_, j);
+      //   printf(
+      //     "getting contained cells for cell id %d instance %d\n", cell.id_,
+      //     j);
       std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
         cell.get_contained_cells(j, nullptr);
       for (const auto& pair : cell_instance_list) {
@@ -1193,14 +1195,122 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
     // fsr_[source_region].material_);
 
     // if( n_subdivided_source_regions_ > 15028) // 2x2 mesh analytical
+    if (n_subdivided_source_regions_ > 198832) // 8x8 mesh analytical
+    {
+      Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+      RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+      StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
+      printf("source region = %ld, bin = %d, index x = %d, index y = %d\n",
+        source_region, bin, mesh_index[0], mesh_index[1]);
+      fatal_error("Too many subdivided source regions");
+    }
+    return &result.first->second;
+  } else {
+    // Otherwise, access the existing FlatSourceRegion
+    node.lock_.unlock();
+    return &it->second;
+  }
+}
+
+FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
+  Position r0, Position r1, int ray_id, GeometryState& ip)
+{
+  // Get hash and has controller bin
+  uint64_t hash = hashPair(source_region, bin);
+  int hash_bin = hash % N_FSR_HASH_BINS;
+  SourceNode& node = controller_.nodes_[hash_bin];
+  node.lock_.lock();
+  auto& map = node.fsr_map_;
+
+  // Check if the FlatSourceRegion with this hash already exists
+  auto it = map.find(hash);
+  if (it == map.end()) {
+    // Before we do anything, check if sr's match...
+    GeometryState p;
+    p.r() = r0;
+    bool found = exhaustive_find_cell(p);
+    int i_cell = p.lowest_coord().cell;
+    int64_t sr0 = source_region_offsets_[i_cell] + p.cell_instance();
+    p.r() = r1;
+    found = exhaustive_find_cell(p);
+    i_cell = p.lowest_coord().cell;
+    int64_t sr1 = source_region_offsets_[i_cell] + p.cell_instance();
+    if( sr0 != sr1 )
+    {
+      fatal_error("Source region mismatch");
+    } 
+    if (sr0 != source_region) {
+      source_region = sr0;
+      node.lock_.unlock();
+      return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this actually works!
+      // We also don't care at all about this operation being slow. Appending
+      // new FSRs is going to be pretty rare, so it's fine if this triggers occasionally.
+    }
+
+    // If not found, copy base FSR into new FSR
+    auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
+    node.lock_.unlock();
+
+#pragma omp atomic
+    n_subdivided_source_regions_++;
+
+    if (fsr_[source_region].mesh_ != C_NONE) {
+      Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+      RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+      StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
+      hitmap[mesh_index[1] - 1][mesh_index[0] - 1] += 1;
+    }
+
     /*
-    if( n_subdivided_source_regions_ > 198832) // 8x8 mesh analytical
-     {
-      printf("source region = %d, bin = %d, index x = %d, index y = %d\n",
-    source_region, bin, mesh_index[0], mesh_index[1]); fatal_error("Too many
-    subdivided source regions");
-     }
-     */
+    if( mesh_index[1]-1 ==0 && mesh_index[0]-1 == 0)
+    {
+      printf("Adding source region %d to bin %d (y=%d, x=%d) with material =
+    %d\n", source_region, bin, mesh_index[1]-1, mesh_index[0]-1,
+    fsr_[source_region].material_); if( fsr_[source_region].material_ == 0)
+      {
+        fatal_error("Added fuel to region that should be moderator");
+      }
+    }
+    */
+
+    // printf("Adding source region %d to bin %d (y=%d, x=%d) with material =
+    // %d\n", source_region, bin, mesh_index[1]-1, mesh_index[0]-1,
+    // fsr_[source_region].material_);
+
+    // if( n_subdivided_source_regions_ > 15028) // 2x2 mesh analytical
+    if (n_subdivided_source_regions_ > 198832) // 8x8 mesh analytical
+    {
+      Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+      RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+      StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
+      printf("source region = %ld, bin = %d, index x = %d, index y = %d\n",
+        source_region, bin, mesh_index[0], mesh_index[1]);
+      printf("Ray id = %d, position r0 = (%f, %f, %f), position r1 = (%f, %f, "
+             "%f) pi position = (%f, %f, %f) length = %.6le\n",
+        ray_id, r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, ip.r().x, ip.r().y,
+        ip.r().z, (r1 - r0).norm());
+      int bin_r0 = rmesh->get_bin(r0);
+      int bin_r1 = rmesh->get_bin(r1);
+      int bin_ip = rmesh->get_bin(ip.r());
+      printf("bin r0 = %d, bin r1 = %d, bin ip = %d\n", bin_r0, bin_r1, bin_ip);
+      Particle p;
+
+      p.r() = r0;
+      bool found = exhaustive_find_cell(p);
+      int i_cell = p.lowest_coord().cell;
+      int64_t sr0 = source_region_offsets_[i_cell] + p.cell_instance();
+      printf("source region r0 = %ld, input sr = %d\n", sr0, source_region);
+      p.r() = r1;
+      found = exhaustive_find_cell(p);
+      i_cell = p.lowest_coord().cell;
+      int64_t sr1 = source_region_offsets_[i_cell] + p.cell_instance();
+
+      printf("source region r1 = %ld, input sr = %d\n", sr1, source_region);
+      i_cell = ip.lowest_coord().cell;
+      int64_t srip = source_region_offsets_[i_cell] + ip.cell_instance();
+      printf("source region ip = %ld, input sr = %d\n", srip, source_region);
+      fatal_error("Too many subdivided source regions");
+    }
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion

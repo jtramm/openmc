@@ -163,6 +163,22 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
     domain_->source_region_offsets_[i_cell] + cell_instance();
   auto& fsr = domain_->fsr_[source_region];
 
+  GeometryState p = *this;
+  //GeometryState p;
+  bool found = exhaustive_find_cell(p);
+  if(!found)
+  {
+    printf("Ray %d: exhaustive_find_cell failed\n", id());
+    fatal_error("find cell failure...");
+  }
+  int true_i_cell = p.lowest_coord().cell;
+  int64_t true_sr = domain_->source_region_offsets_[true_i_cell] + p.cell_instance();
+  if( true_sr != source_region )
+  {
+    printf("Ray %d: source region mismatch. i_cell input = %d, true_i_cell = %d, source_region = %ld, true_sr = %ld\n", id(), i_cell, true_i_cell, source_region, true_sr);
+  }
+  //source_region = true_sr;
+
   int i_mesh = fsr.mesh_;
   /*
   printf("Ray id %d is active %d location: (x, y, z): %f %f %f, ray distance = "
@@ -171,16 +187,16 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   printf(
     "\tRay 2D radius from center: %f\n", sqrt(r().x * r().x + r().y * r().y));
     */
-   /*
-  Mesh* mesh = domain_->meshes_[i_mesh].get();
-  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
-  if (rmesh == nullptr)
-    fatal_error("Only regular meshes are supported for random ray tracing.");
-  bool in_mesh;
-  StructuredMesh::MeshIndex ijk = rmesh->get_indices(r(), in_mesh);
-  */
-  //printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
-  //  ijk[1] - 1, ijk[2] - 1);
+  /*
+ Mesh* mesh = domain_->meshes_[i_mesh].get();
+ RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+ if (rmesh == nullptr)
+   fatal_error("Only regular meshes are supported for random ray tracing.");
+ bool in_mesh;
+ StructuredMesh::MeshIndex ijk = rmesh->get_indices(r(), in_mesh);
+ */
+  // printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
+  //   ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
     // Mesh* mesh = domain_->meshes_[i_mesh].get();
     // RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
@@ -194,19 +210,24 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     // rmesh->bins_crossed(r() + 1e-2 * distance * u(), r() + (distance -
     // 1e-2*distance) * u(), u(), bins, lengths);
-    rmesh->bins_crossed(r() + offset * u(), r() + (offset + distance) * u(), u(), bins, lengths);
+    rmesh->bins_crossed(r() + (offset + TINY_BIT) * u(),
+      r() + (offset + distance - TINY_BIT) * u(), u(), bins, lengths);
 
+    double cum_length = 0.0;
     for (int i = 0; i < bins.size(); i++) {
       int bin = bins[i];
       double length = lengths[i] * distance;
       // Position intersect_point = r() + u() * length;
 
       // if (length > (distance/bins.size()) * 1.0e-3)
-       //if (length > 1.0e-5)
+      // if (length > 1.0e-5)
       {
-        FlatSourceRegion* region = domain_->get_fsr(source_region, bin);
+        FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
+          r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length+ length) * u(), id(), p);
         attenuate_flux_inner(length, is_active, *region);
       }
+            cum_length += length;
+
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
     FlatSourceRegion* region = domain_->get_fsr(source_region, 0);

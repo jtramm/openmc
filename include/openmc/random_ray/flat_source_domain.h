@@ -140,6 +140,8 @@ public:
   int32_t mesh, int32_t target_material_id);
   void apply_meshes();
   FlatSourceRegion* get_fsr(int64_t source_region, int bin);
+  FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id, GeometryState& p);
+
 
   //----------------------------------------------------------------------------
   // Data members

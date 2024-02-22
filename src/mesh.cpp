@@ -639,11 +639,16 @@ void StructuredMesh::raytrace_mesh(
       double normal_r0 = std::abs(r0[k] - pc[k]);
       double normal_r1 = std::abs(pc_prev[k] - r1[k]);
 
-      if (normal_r0 > 1.0e-5 && normal_r1 > 1.0e-5) {
+      // A setting of 1.0e-3 works and doesn't seem to have much error.
+      // A setting of 1.0e-4 starts to let in ghost FSRs.
+      // Theoretically, I could have a separate code path that triggers
+      // when this condition is not met, in which case maybe I go and 
+      // 
+      //if (normal_r0 > 1.0e-3 && normal_r1 > 1.0e-3) {
         tally.track(ijk,
           (std::min(distances[k].distance, total_distance) - traveled_distance) /
             total_distance);
-      } else
+      //} else
       {
         //printf("Disqualifying tracklength %.9le because normal_r0 %.9le and normal_r1 %.9le\n", tracklength, normal_r0, normal_r1);
       }
@@ -656,7 +661,7 @@ void StructuredMesh::raytrace_mesh(
       //printf("traveled_distance: %.9lf\n", traveled_distance);
       // TODO: this is a bit of a hack, but it seems to work. I actually don't have a problem with it, 
       // but my concern is that perhaps we actually need to be tallying the outward current here and we're missing this. I.e., is this breaking surface tallies?
-      if (traveled_distance + TINY_BIT >= total_distance)
+      if (traveled_distance >= total_distance)
       {
         //printf("traveled distance is GREATER than total distance (%.9le >= %.9le)\n", traveled_distance, total_distance);
         return;
