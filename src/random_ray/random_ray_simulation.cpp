@@ -254,7 +254,7 @@ void RandomRaySimulation::simulate()
   domain_.apply_meshes();
 
   int non_zero = 0;
-  for (int sr = 0; sr < domain_.n_source_regions_; sr++){
+  for (int sr = 0; sr < domain_.n_source_regions_; sr++) {
     int mesh = domain_.fsr_[sr].mesh_;
     int material_idx = domain_.fsr_[sr].material_;
     std::string name = model::materials[material_idx]->name_;
@@ -294,9 +294,15 @@ void RandomRaySimulation::simulate()
       total_geometric_intersections_ +=
         ray.transport_history_based_single_ray();
     }
+
+    // Update the FSR manifest. This pulls newly discovered FSRs out of maps and
+    // into a vector for easy access.
+    domain_.update_fsr_manifest();
+    
     int n_mesh_fsrs = 0;
     for (int i = 0; i < domain_.controller_.nodes_.size(); i++) {
-      //printf("Controller bin %d hits = %d\n", i, domain_.controller_.nodes_[i].fsr_map_.size());
+      // printf("Controller bin %d hits = %d\n", i,
+      // domain_.controller_.nodes_[i].fsr_map_.size());
       n_mesh_fsrs += domain_.controller_.nodes_[i].fsr_map_.size();
     }
     printf("Total mesh FSRs = %d\n", n_mesh_fsrs);
@@ -344,20 +350,20 @@ void RandomRaySimulation::simulate()
       domain_.accumulate_iteration_flux();
     }
 
-/*
-    FILE* fp = fopen("hitmap.csv", "w");
-    for( int i = 0 ; i < 408; i++) {
-      for (int j = 0; j < 408; j++) {
-        fprintf(fp, "%d, ", domain_.hitmap[i][j]);
-      }
-      fprintf(fp, "\n");
-    }
-    fclose(fp);
-    */
+    /*
+        FILE* fp = fopen("hitmap.csv", "w");
+        for( int i = 0 ; i < 408; i++) {
+          for (int j = 0; j < 408; j++) {
+            fprintf(fp, "%d, ", domain_.hitmap[i][j]);
+          }
+          fprintf(fp, "\n");
+        }
+        fclose(fp);
+        */
 
     // Set phi_old = phi_new
     domain_.swap_flux();
-    
+
     // Check for any obvious insabilities/nans/infs
     instability_check(n_hits, k_eff_, avg_miss_rate_);
 
@@ -399,9 +405,10 @@ void RandomRaySimulation::output_simulation_results()
 void RandomRaySimulation::instability_check(
   int64_t n_hits, double k_eff, double& avg_miss_rate)
 {
-  double percent_missed = ((domain_.n_subdivided_source_regions_ - n_hits) /
-                            static_cast<double>(domain_.n_subdivided_source_regions_)) *
-                          100.0;
+  double percent_missed =
+    ((domain_.n_subdivided_source_regions_ - n_hits) /
+      static_cast<double>(domain_.n_subdivided_source_regions_)) *
+    100.0;
   avg_miss_rate += percent_missed;
 
   if (percent_missed > 10.0) {
