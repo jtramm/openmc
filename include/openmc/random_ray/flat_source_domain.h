@@ -59,6 +59,7 @@ public:
   double volume_t_ {0.0};
   int was_hit_ {0};
   int mesh_ {C_NONE};
+  bool is_in_manifest_ {false};
 
   // 2D arrays with entry for each energy group
   vector<float> scalar_flux_new_;
@@ -81,6 +82,7 @@ public:
   SourceNode() = default;
 
   OpenMPMutex lock_;
+  bool has_updates_ {false};
   std::unordered_map<uint64_t, FlatSourceRegion> fsr_map_; // key is 64-bit hash, value is FSR itself
   
 }; // class HashSourceController
@@ -140,7 +142,9 @@ public:
   int32_t mesh, int32_t target_material_id);
   void apply_meshes();
   FlatSourceRegion* get_fsr(int64_t source_region, int bin);
-  FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id, GeometryState& p);
+  //FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id, GeometryState& p);
+    FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id);
+  void update_fsr_manifest(void);
 
 
   //----------------------------------------------------------------------------
@@ -167,6 +171,8 @@ public:
   HashSourceController controller_;
   int64_t n_subdivided_source_regions_ {0};
   vector<vector<int>> hitmap;
+
+  vector<FlatSourceRegion*> fsr_manifest_;
 
 }; // class FlatSourceDomain
 

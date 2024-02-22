@@ -1154,6 +1154,9 @@ int emplaces = 0;
 
 FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
 {
+ // if (fsr_[source_region].mesh_ == C_NONE) {
+ //   return &fsr_[source_region];
+//  }
   // Get hash and has controller bin
   uint64_t hash = hashPair(source_region, bin);
   int hash_bin = hash % N_FSR_HASH_BINS;
@@ -1166,6 +1169,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
   if (it == map.end()) {
     // If not found, copy base FSR into new FSR
     auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
+    node.has_updates_ = true;
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1212,8 +1216,10 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin)
   }
 }
 
-FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
-  Position r0, Position r1, int ray_id, GeometryState& ip)
+// FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
+//  Position r0, Position r1, int ray_id, GeometryState& ip)
+FlatSourceRegion* FlatSourceDomain::get_fsr(
+  int64_t source_region, int bin, Position r0, Position r1, int ray_id)
 {
   // Get hash and has controller bin
   uint64_t hash = hashPair(source_region, bin);
@@ -1235,17 +1241,21 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
     found = exhaustive_find_cell(p);
     i_cell = p.lowest_coord().cell;
     int64_t sr1 = source_region_offsets_[i_cell] + p.cell_instance();
-    if( sr0 != sr1 )
-    {
+    if (sr0 != sr1) {
       fatal_error("Source region mismatch");
-    } 
+    }
     if (sr0 != source_region) {
       source_region = sr0;
       node.lock_.unlock();
       printf("Saved SR mismatch!\n");
-      return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this actually works!
+      // return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this
+      // actually works!
+
+      return get_fsr(
+        source_region, bin, r0, r1, ray_id); // Wow -- this actually works!
       // We also don't care at all about this operation being slow. Appending
-      // new FSRs is going to be pretty rare, so it's fine if this triggers occasionally.
+      // new FSRs is going to be pretty rare, so it's fine if this triggers
+      // occasionally.
       // TODO: if this happens, I might just want to punt...
     }
 
@@ -1254,17 +1264,19 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     int bin_r0 = rmesh->get_bin(r0);
     int bin_r1 = rmesh->get_bin(r1);
-    if( bin_r0 != bin ) 
-    {
+    if (bin_r0 != bin) {
       bin = bin_r0;
       node.lock_.unlock();
       printf("Saved bin mismatch!\n");
-      return get_fsr(source_region, bin, r0, r1, ray_id, ip);
+      // return get_fsr(source_region, bin, r0, r1, ray_id, ip);
+      return get_fsr(source_region, bin, r0, r1, ray_id);
+
       // TODO: If this happens, I might just want to punt...
     }
 
     // If not found, copy base FSR into new FSR
     auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
+    node.has_updates_ = true;
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1294,6 +1306,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
     // fsr_[source_region].material_);
 
     // if( n_subdivided_source_regions_ > 15028) // 2x2 mesh analytical
+    /*
     if (n_subdivided_source_regions_ > 198832) // 8x8 mesh analytical
     {
       Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
@@ -1327,6 +1340,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
       printf("source region ip = %ld, input sr = %d\n", srip, source_region);
       fatal_error("Too many subdivided source regions");
     }
+    */
     return &result.first->second;
   } else {
     // Otherwise, access the existing FlatSourceRegion
@@ -1343,6 +1357,34 @@ void FlatSourceDomain::swap_flux(void)
     for (auto& pair : map) {
       FlatSourceRegion& fsr = pair.second;
       fsr.scalar_flux_old_.swap(fsr.scalar_flux_new_);
+    }
+  }
+}
+
+void FlatSourceDomain::update_fsr_manifest(void)
+{
+  for (int bin = 0; bin < N_FSR_HASH_BINS; bin++) {
+    SourceNode& node = controller_.nodes_[bin];
+    if (node.has_updates_) {
+      auto& map = node.fsr_map_;
+      for (auto& pair : map) {
+        FlatSourceRegion& fsr = pair.second;
+        if (!fsr.is_in_manifest_) {
+          fsr.is_in_manifest_ = true;
+          fsr_manifest_.push_back(&fsr);
+        }
+      }
+      node.has_updates_ = false;
+    }
+  }
+
+  for (int sr = 0; sr < n_source_regions_; sr++) {
+    FlatSourceRegion& fsr = fsr_[sr];
+    if (fsr.position_recorded_) {
+      if (!fsr.is_in_manifest_) {
+        fsr.is_in_manifest_ = true;
+        fsr_manifest_.push_back(&fsr);
+      }
     }
   }
 }

@@ -163,8 +163,9 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
     domain_->source_region_offsets_[i_cell] + cell_instance();
   auto& fsr = domain_->fsr_[source_region];
 
-  GeometryState p = *this;
+  //GeometryState p = *this;
   //GeometryState p;
+  /*
   bool found = exhaustive_find_cell(p);
   if(!found)
   {
@@ -177,6 +178,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   {
     printf("Ray %d: source region mismatch. i_cell input = %d, true_i_cell = %d, source_region = %ld, true_sr = %ld\n", id(), i_cell, true_i_cell, source_region, true_sr);
   }
+  */
   //source_region = true_sr;
 
   int i_mesh = fsr.mesh_;
@@ -223,7 +225,9 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
       // if (length > 1.0e-5)
       {
         FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
-          r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length+ length) * u(), id(), p);
+          r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length+ length) * u(), id());
+        //FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
+        //  r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length//+ length) * u(), id(), p);
         attenuate_flux_inner(length, is_active, *region);
       }
             cum_length += length;
