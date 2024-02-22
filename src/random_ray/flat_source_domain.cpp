@@ -1247,6 +1247,16 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
       // new FSRs is going to be pretty rare, so it's fine if this triggers occasionally.
     }
 
+    // Now we should check if the bins match....
+    Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+    RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+    int bin_r0 = rmesh->get_bin(r0);
+    int bin_r1 = rmesh->get_bin(r1);
+    if( bin_r0 != bin_r1 )
+    {
+      fatal_error("Bin mismatch");
+    }
+
     // If not found, copy base FSR into new FSR
     auto result = map.emplace(std::make_pair(hash, fsr_[source_region]));
     node.lock_.unlock();
