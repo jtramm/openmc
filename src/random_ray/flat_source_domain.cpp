@@ -1242,9 +1242,11 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
     if (sr0 != source_region) {
       source_region = sr0;
       node.lock_.unlock();
+      printf("Saved SR mismatch!\n");
       return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this actually works!
       // We also don't care at all about this operation being slow. Appending
       // new FSRs is going to be pretty rare, so it's fine if this triggers occasionally.
+      // TODO: if this happens, I might just want to punt...
     }
 
     // Now we should check if the bins match....
@@ -1252,9 +1254,13 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     int bin_r0 = rmesh->get_bin(r0);
     int bin_r1 = rmesh->get_bin(r1);
-    if( bin_r0 != bin_r1 )
+    if( bin_r0 != bin ) 
     {
-      fatal_error("Bin mismatch");
+      bin = bin_r0;
+      node.lock_.unlock();
+      printf("Saved bin mismatch!\n");
+      return get_fsr(source_region, bin, r0, r1, ray_id, ip);
+      // TODO: If this happens, I might just want to punt...
     }
 
     // If not found, copy base FSR into new FSR
