@@ -1,8 +1,8 @@
 #ifndef OPENMC_RANDOM_RAY_FLAT_SOURCE_DOMAIN_H
 #define OPENMC_RANDOM_RAY_FLAT_SOURCE_DOMAIN_H
 
-#include <vector>
 #include <functional>
+#include <vector>
 
 #include "openmc/mesh.h"
 #include "openmc/openmp_interface.h"
@@ -46,11 +46,9 @@ public:
       scalar_flux_old_(other.scalar_flux_old_),
       scalar_flux_final_(other.scalar_flux_final_), source_(other.source_),
       fixed_source_(other.fixed_source_), tally_task_(other.tally_task_),
-      is_in_manifest_(other.is_in_manifest_),
-      is_merged_(other.is_merged_),
-      manifest_index_(other.manifest_index_),
-      source_region_(other.source_region_),
-      bin_(other.bin_)
+      is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_), is_consumer_(other.is_consumer_),
+      manifest_index_(other.manifest_index_), no_hit_streak_(no_hit_streak_),
+      source_region_(other.source_region_), bin_(other.bin_)
   {}
 
   void merge(FlatSourceRegion& other);
@@ -66,6 +64,7 @@ public:
   int mesh_ {C_NONE};
   bool is_in_manifest_ {false};
   bool is_merged_ {false};
+  bool is_consumer_ {false};
   int no_hit_streak_ {0};
   int64_t manifest_index_;
   int64_t source_region_;
@@ -95,7 +94,7 @@ public:
   OpenMPMutex lock_;
   std::unordered_map<uint64_t, int64_t>
     fsr_map_; // key is 64-bit hash, value is FSR itself
-  std::unordered_map<uint64_t, FlatSourceRegion>
+  std::unordered_map<uint64_t, unique_ptr<FlatSourceRegion>>
     new_fsr_map_; // key is 64-bit hash, value is FSR itself
 
 }; // class HashSourceController
@@ -119,13 +118,16 @@ struct MeshHashIndex {
   int mesh_id;
   StructuredMesh::MeshIndex ijk;
   // Add a constructor that takes an int and a StructuredMesh::MeshIndex
-  MeshHashIndex(int mesh_id, StructuredMesh::MeshIndex ijk) : mesh_id(mesh_id), ijk(ijk) {}
+  MeshHashIndex(int mesh_id, StructuredMesh::MeshIndex ijk)
+    : mesh_id(mesh_id), ijk(ijk)
+  {}
   MeshHashIndex() = default;
 };
 
 // Custom hash function
 struct MeshHashIndexHash {
-  std::size_t operator()(const MeshHashIndex& mhi) const {
+  std::size_t operator()(const MeshHashIndex& mhi) const
+  {
     std::size_t hash = std::hash<int>()(mhi.mesh_id);
     hash_combine(hash, std::hash<int>()(mhi.ijk[0]));
     hash_combine(hash, std::hash<int>()(mhi.ijk[1]));
@@ -135,25 +137,24 @@ struct MeshHashIndexHash {
 
 private:
   // Combine the hash values of multiple variables
-  template <typename T>
-  void hash_combine(std::size_t& seed, const T& value) const {
+  template<typename T>
+  void hash_combine(std::size_t& seed, const T& value) const
+  {
     seed ^= std::hash<T>()(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   }
 };
 
 // Custom equality function
 struct MeshHashIndexEqual {
-  bool operator()(const MeshHashIndex& mhi1, const MeshHashIndex& mhi2) const {
-    return mhi1.mesh_id == mhi2.mesh_id &&
-           mhi1.ijk[0] == mhi2.ijk[0] &&
-           mhi1.ijk[1] == mhi2.ijk[1] &&
-           mhi1.ijk[2] == mhi2.ijk[2];
+  bool operator()(const MeshHashIndex& mhi1, const MeshHashIndex& mhi2) const
+  {
+    return mhi1.mesh_id == mhi2.mesh_id && mhi1.ijk[0] == mhi2.ijk[0] &&
+           mhi1.ijk[1] == mhi2.ijk[1] && mhi1.ijk[2] == mhi2.ijk[2];
   }
 };
 
 class FlatSourceDomain {
 public:
-
   //----------------------------------------------------------------------------
   // Constructors
   FlatSourceDomain();
@@ -190,17 +191,14 @@ public:
   void apply_mesh_to_cell_and_children(
     int32_t i_cell, int32_t mesh, int32_t target_material_id);
   void apply_meshes();
-  FlatSourceRegion* get_fsr(int64_t source_region, int bin);
-  // FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0,
-  // Position r1, int ray_id, GeometryState& p);
   FlatSourceRegion* get_fsr(
     int64_t source_region, int bin, Position r0, Position r1, int ray_id);
   void update_fsr_manifest(void);
   void mesh_hash_grid_add(int mesh_index, int bin, uint64_t hash);
   vector<uint64_t> mesh_hash_grid_get_neighbors(int mesh_index, int bin);
-  int64_t get_closest_neighbor(FlatSourceRegion& fsr);
+  int64_t get_largest_neighbor(FlatSourceRegion& fsr);
   bool merge_fsr(FlatSourceRegion& fsr);
-  void check_for_small_FSRs(void);
+  int64_t check_for_small_FSRs(void);
 
   //----------------------------------------------------------------------------
   // Data members
@@ -238,8 +236,10 @@ public:
   // The first dimension is left as a vector for easy, access, the next
   // three dimensions are serialized, the 5th (hash) dimension
   // is left as a vector as it is dynamically updated.
-  //vector<vector<vector<unt64_t>>> mesh_hash_grid_;
-  std::unordered_map<MeshHashIndex, std::vector<uint64_t>, MeshHashIndexHash, MeshHashIndexEqual> mesh_hash_grid_;
+  // vector<vector<vector<unt64_t>>> mesh_hash_grid_;
+  std::unordered_map<MeshHashIndex, std::vector<uint64_t>, MeshHashIndexHash,
+    MeshHashIndexEqual>
+    mesh_hash_grid_;
 
 }; // class FlatSourceDomain
 

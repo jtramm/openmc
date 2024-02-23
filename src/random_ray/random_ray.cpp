@@ -235,7 +235,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
 
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
-    FlatSourceRegion* region = domain_->get_fsr(source_region, 0);
+    FlatSourceRegion* region = domain_->get_fsr(source_region, 0, r(), r(), id());
     attenuate_flux_inner(distance, is_active, *region);
   }
   // attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);
@@ -377,9 +377,9 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
     if (rmesh == nullptr)
       fatal_error("Only regular meshes are supported for random ray tracing.");
     int bin = rmesh->get_bin(r());
-    region = domain_->get_fsr(source_region_idx, bin);
+    region = domain_->get_fsr(source_region_idx, bin, r(), r(), id());
   } else {
-    region = domain_->get_fsr(source_region_idx, 0);
+    region = domain_->get_fsr(source_region_idx, 0, r(), r(), id());
   }
 
   for (int e = 0; e < negroups_; e++) {
