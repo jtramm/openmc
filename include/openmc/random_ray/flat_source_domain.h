@@ -242,6 +242,25 @@ public:
     MeshHashIndexEqual>
     mesh_hash_grid_;
 
+      // This is the number of hits that the FSR needs
+  // to get in order to be counted as a "low hitter".
+  // I.e., a value of 1 means that only getting hit 0 or 1
+  // times in an iteration will mean that that iteration
+  // will count towards its miss streak.
+  const int merging_threshold_ = 1;
+
+  // This is the number of iterations in a row that have
+  // been at or under the threshold value. Once the streak is
+  // met, the FSR will be merged. E.g.,
+  const int streak_needed_to_merge_ = 3;
+
+  // Only merge FSRs if they are this factor smaller
+  // than the consuming FSR. E.g., a value of 10x means
+  // that FSRs will not be merged unless the larger FSR
+  // is at least 10x bigger than the small one.
+  const double volume_merging_threshold_ = 10.0;
+
+
 }; // class FlatSourceDomain
 
 //============================================================================

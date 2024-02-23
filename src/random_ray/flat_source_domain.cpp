@@ -1410,7 +1410,6 @@ vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
 // in the mesh to be used as a candidate for merging
 int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
 {
-  const double volume_merge_threshold = 100.0;
 
   // Get the mesh index and bin of the FSR
   int mesh_index = fsr.mesh_;
@@ -1441,7 +1440,7 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
     FlatSourceRegion& neighbor_fsr = fsr_manifest_[neighbor_fsr_index];
     if (fsr.source_region_ == neighbor_fsr.source_region_) {
       double vol = neighbor_fsr.volume_t_;
-      if (vol > largest_volume && vol > fsr.volume_t_ * volume_merge_threshold && !neighbor_fsr.is_merged_ && !neighbor_fsr.is_consumer_) {
+      if (vol > largest_volume && vol > fsr.volume_t_ * volume_merging_threshold_ && !neighbor_fsr.is_merged_ && !neighbor_fsr.is_consumer_) {
         largest_volume = vol;
         largest_fsr_index = neighbor_fsr_index;
       }
@@ -1471,8 +1470,8 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   }
 
   FlatSourceRegion& largest_fsr = fsr_manifest_[largest_fsr_index];
-  printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n",
-    fsr.volume_t_, largest_fsr.volume_t_);
+ // printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n",
+ //   fsr.volume_t_, largest_fsr.volume_t_);
 
   // Merge FSR
   largest_fsr.merge(fsr);
@@ -1494,18 +1493,6 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
 
 int64_t FlatSourceDomain::check_for_small_FSRs(void)
 {
-  // This is the number of hits that the FSR needs
-  // to get in order to be counted as a "low hitter".
-  // I.e., a value of 1 means that only getting hit 0 or 1
-  // times in an iteration will mean that that iteration
-  // will count towards its miss streak.
-  const int threshold = 1;
-
-  // This is the number of iterations in a row that have
-  // been at or under the threshold value. Once the streak is
-  // met, the FSR will be merged. E.g.,
-  const int streak_needed_to_merge = 3;
-
   // I vote that I just merge stuff and leave the dead FSRs there
   // Loop over fsr manifest
   int n_merges = 0;
@@ -1523,19 +1510,19 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
     if (fsr.is_consumer_ || fsr.is_merge_failed_)
       continue;
 
-    if (fsr.was_hit_ <= threshold) {
+    if (fsr.was_hit_ <= merging_threshold_) {
       fsr.no_hit_streak_++;
     } else {
       fsr.no_hit_streak_ = 0;
     }
 
-    if (fsr.no_hit_streak_ >= streak_needed_to_merge) {
+    if (fsr.no_hit_streak_ >= streak_needed_to_merge_) {
       bool merge_success = merge_fsr(fsr);
       if (merge_success) {
         n_merges++;
         n_subdivided_source_regions_--;
-        printf(
-          "Merge of FSR at %d index with volume = %.9le\n", i, fsr.volume_t_);
+       // printf(
+     //     "Merge of FSR at %d index with volume = %.9le\n", i, fsr.volume_t_);
       } else
       {
         fsr.is_merge_failed_ = true;
@@ -1543,8 +1530,8 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
     }
     // fsr_[fsr.source_region_].lock_.unlock();
   }
-  printf("n_merges = %d, total merges to date = %d\n", n_merges,
-    n_merges + n_prev_merges);
+  //printf("n_merges = %d, total merges to date = %d\n", n_merges,
+  //  n_merges + n_prev_merges);
   return n_merges + n_prev_merges;
 }
 
