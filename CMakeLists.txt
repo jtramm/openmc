@@ -207,7 +207,7 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(OPENMC_ENABLE_PROFILE)
-  list(APPEND cxxflags -g -fno-omit-frame-pointer)
+  list(APPEND cxxflags -g -fno-omit-frame-pointer -march=native)
 endif()
 
 if(OPENMC_ENABLE_COVERAGE)

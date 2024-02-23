@@ -16,6 +16,45 @@
 
 namespace openmc {
 
+void FlatSourceRegion::merge(FlatSourceRegion& other)
+{
+  // Find the distance between the two positions
+  double d = (other.position_ - position_).norm();
+  // Find the normalized direction vector connecting the two positions
+  Position u = (other.position_ - position_) / d;
+
+  // compute the fraction of the total volume that the other FSR represents of
+  // the pair
+  double v = other.volume_ / (volume_ + other.volume_);
+
+  // Move the position of the FSR to the new position (volume weighted point
+  // between the two positions)
+  position_ += u * d * v;
+
+  // Add the volume to this FSR
+  volume_t_ += other.volume_t_;
+
+  // We have a problem: it's possible that the tally tasks are not the same, as
+  // they might be in different cartesian mesh bins and thus different tally
+  // regions. Given that the other is very small, we might be fine just
+  // forgetting about its tasks, as its contributions would be small. However,
+  // it's not great, as we are sort of stealing from peter to pay paul with
+  // this. We fix the volume issue, but then we are stealing volume from a tally
+  // space region. There is no good solution to this problem?
+
+  // I think that the best solution is to just forget about the other's tally
+  // tasks, as we need to protect transport and the eigenvalue -- the tallies
+  // are not nearly as sensitive.
+
+  // TODO: maybe I will warn if the tally tasks are not the same.
+
+  // We discard all the flux data etc. The idea is that flux has units per
+  // volume, so we can't just add them together. Also, by definition this
+  // FSR had only like 1 or 0 hits for the last iteration or two, so its
+  // flux estimate is garbage anyhow. Given that we are in the inactive
+  // region, we don't really care here too much.
+}
+
 //==============================================================================
 // FlatSourceDomain implementation
 //==============================================================================
@@ -65,6 +104,25 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   // Sanity check
   if (source_region_id != n_source_regions_) {
     fatal_error("Unexpected number of source regions");
+  }
+
+  // The mesh has grid map has 5 dimensions:
+  // 1. The mesh index
+  // 2. z index
+  // 3. y index
+  // 4. x index
+  // 5. Hash of the FSR
+  int64_t n_total_bins mesh_hash_grid_.resize(meshes_.size());
+  for (int d1 = 0; d1 < meshes_.size(); d1++) {
+    Mesh* m = meshes_[d1].get();
+    RegularMesh* mesh = dynamic_cast<RegularMesh*>(m);
+    mesh_hash_grid_[d1].resize(mesh->shape_[2]);
+    for (int d2 = 0; d2 < mesh->shape_[2]; d2++) {
+      mesh_hash_grid_[d1][d2].resize(mesh->shape_[1]);
+      for (int d3 = 0; d3 < mesh->shape_[1]; d3++) {
+        mesh_hash_grid_[d1][d2][d3].resize(mesh->shape_[0]);
+      }
+    }
   }
 }
 
@@ -1190,7 +1248,6 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
   // presence of two function prototypes, but leaving it in for later
   FlatSourceRegion& base_fsr = fsr_[source_region];
   if (base_fsr.mesh_ == C_NONE) {
-    // Problem: this is no longer a valid FSR. How to handle?
     if (base_fsr.is_in_manifest_) {
       return &fsr_manifest_[base_fsr.manifest_index_];
     } else {
@@ -1258,7 +1315,10 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // If not found, copy base FSR into new FSR
-    auto result = new_map.emplace(std::make_pair(hash, fsr_[source_region]));
+    FlatSourceRegion& new_fsr = fsr_[source_region];
+    new_fsr.source_region_ = source_region;
+    new_fsr.bin_ = bin;
+    auto result = new_map.emplace(std::make_pair(hash, new_fsr));
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1339,6 +1399,101 @@ void FlatSourceDomain::swap_flux(void)
   }
 }
 
+void FlatSourceDomain::mesh_hash_grid_add(
+  int mesh_index, int bin, uint64_t hash)
+{
+  Mesh* mesh = meshes_[mesh_index].get();
+  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+  StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+  mesh_hash_grid_[mesh_index][ijk[2] - 1][ijk[1] - 1][ijk[0] - 1].push_back(
+    hash);
+}
+
+vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
+  int mesh_index, int bin)
+{
+  Mesh* mesh = meshes_[mesh_index].get();
+  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+  StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+  vector<uint64_t> neighbors;
+  // Insert up, down, north, south, east, and west neighbors (if they exist!)
+  if (ijk[2] < rmesh->shape_[2] - 1) {
+    auto& up = mesh_hash_grid_[mesh_index][ijk[2] + 1][ijk[1]][ijk[0]];
+    neighbors.insert(neighbors.end(), up.begin(), up.end());
+  }
+  if (ijk[2] > 0) {
+    auto& down = mesh_hash_grid_[mesh_index][ijk[2] - 1][ijk[1]][ijk[0]];
+    neighbors.insert(neighbors.end(), down.begin(), down.end());
+  }
+  if (ijk[1] < rmesh->shape_[1] - 1) {
+    auto& north = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1] + 1][ijk[0]];
+    neighbors.insert(neighbors.end(), north.begin(), north.end());
+  }
+  if (ijk[1] > 0) {
+    auto& south = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1] - 1][ijk[0]];
+    neighbors.insert(neighbors.end(), south.begin(), south.end());
+  }
+  if (ijk[0] < rmesh->shape_[0] - 1) {
+    auto& east = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1]][ijk[0] + 1];
+    neighbors.insert(neighbors.end(), east.begin(), east.end());
+  }
+  if (ijk[0] > 0) {
+    auto& west = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1]][ijk[0] - 1];
+    neighbors.insert(neighbors.end(), west.begin(), west.end());
+  }
+  return neighbors;
+}
+
+// For a given FSR, this function finds the closest neighbor FSR
+// in the mesh to be used as a candidate for merging
+FlatSourceRegion* FlatSourceDomain::get_closest_neighbor(FlatSourceRegion& fsr)
+{
+  // Get the mesh index and bin of the FSR
+  int mesh_index = fsr.mesh_;
+  Mesh* mesh = meshes_[mesh_index].get();
+  RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+  int bin = fsr.bin_;
+  StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+
+  // Get the neighbors of the FSR
+  vector<uint64_t> neighbors = mesh_hash_grid_get_neighbors(mesh_index, bin);
+
+  // Loop over the neighbors and find the closest one
+  double min_distance = std::numeric_limits<double>::max();
+  FlatSourceRegion* closest_fsr = nullptr;
+  for (auto& hash : neighbors) {
+    // Get hash and has controller bin
+    int hash_bin = hash % N_FSR_HASH_BINS;
+    SourceNode& node = controller_.nodes_[hash_bin];
+    auto& map = node.fsr_map_;
+
+    FlatSourceRegion& neighbor_fsr = fsr_manifest_[map[hash]];
+    if (fsr.source_region_ == neighbor_fsr.source_region_) {
+      double distance = (fsr.position_ - neighbor_fsr.position_).norm();
+      if (distance < min_distance) {
+        min_distance = distance;
+        closest_fsr = &neighbor_fsr;
+      }
+    }
+  }
+  return closest_fsr;
+}
+
+bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
+{
+  // Get the closest neighbor to the FSR
+  FlatSourceRegion* closest_fsr = get_closest_neighbor(fsr);
+  if (closest_fsr == nullptr) {
+    return false;
+  }
+
+  // Merge the FSRs
+  for (int e = 0; e < negroups_; e++) {
+    fsr.scalar_flux_new_[e] += closest_fsr->scalar_flux_new_[e];
+  }
+  return true;
+}
+
 void FlatSourceDomain::update_fsr_manifest(void)
 {
   for (int bin = 0; bin < N_FSR_HASH_BINS; bin++) {
@@ -1347,6 +1502,11 @@ void FlatSourceDomain::update_fsr_manifest(void)
     for (auto& pair : map) {
       fsr_manifest_.push_back(pair.second);
       node.fsr_map_[pair.first] = fsr_manifest_.size() - 1;
+
+      // Store hash of this FSR into the hash grid for
+      // lookup later on if we need to merge low volume FSRs
+      int mesh_id = pair.second.mesh_;
+      mesh_hash_grid_add(mesh_id, pair.second.bin_, pair.first);
     }
     map.clear();
   }

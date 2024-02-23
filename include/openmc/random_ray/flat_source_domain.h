@@ -27,30 +27,29 @@ struct TallyTask {
   {}
 };
 
-
-
 class FlatSourceRegion {
 public:
-  FlatSourceRegion(int negroups) : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f), scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f), source_(negroups), fixed_source_(negroups, 0.0f) {}
-  
-  FlatSourceRegion(const FlatSourceRegion& other) :
-    material_(other.material_),
-    position_recorded_(other.position_recorded_),
-    position_(other.position_),
-    volume_i_(other.volume_i_),
-    volume_(other.volume_),
-    volume_t_(other.volume_t_),
-    was_hit_(other.was_hit_),
-    mesh_(other.mesh_),
-    scalar_flux_new_(other.scalar_flux_new_),
-    scalar_flux_old_(other.scalar_flux_old_),
-    scalar_flux_final_(other.scalar_flux_final_),
-    source_(other.source_),
-    fixed_source_(other.fixed_source_),
-    tally_task_(other.tally_task_),
-    is_in_manifest_(other.is_in_manifest_),
-    manifest_index_(other.manifest_index_)
-    {}
+  FlatSourceRegion(int negroups)
+    : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f),
+      scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f),
+      source_(negroups), fixed_source_(negroups, 0.0f)
+  {}
+
+  FlatSourceRegion(const FlatSourceRegion& other)
+    : material_(other.material_), position_recorded_(other.position_recorded_),
+      position_(other.position_), volume_i_(other.volume_i_),
+      volume_(other.volume_), volume_t_(other.volume_t_),
+      was_hit_(other.was_hit_), mesh_(other.mesh_),
+      scalar_flux_new_(other.scalar_flux_new_),
+      scalar_flux_old_(other.scalar_flux_old_),
+      scalar_flux_final_(other.scalar_flux_final_), source_(other.source_),
+      fixed_source_(other.fixed_source_), tally_task_(other.tally_task_),
+      is_in_manifest_(other.is_in_manifest_),
+      manifest_index_(other.manifest_index_),
+      source_region_(other.source_region_), bin_(other.bin_)
+  {}
+
+  void merge(FlatSourceRegion& other);
 
   OpenMPMutex lock_;
   int material_;
@@ -63,6 +62,8 @@ public:
   int mesh_ {C_NONE};
   bool is_in_manifest_ {false};
   int64_t manifest_index_;
+  int64_t source_region_;
+  int64_t bin_;
 
   // 2D arrays with entry for each energy group
   vector<float> scalar_flux_new_;
@@ -71,12 +72,13 @@ public:
   vector<float> source_;
   vector<float> fixed_source_;
 
-    // Outer dimension is each energy group in the FSR, inner dimension is each tally operation that bin will perform
-  vector<vector<TallyTask>> tally_task_; 
+  // Outer dimension is each energy group in the FSR, inner dimension is each
+  // tally operation that bin will perform
+  vector<vector<TallyTask>> tally_task_;
 
-}; // class FlatSourceRegion 
+}; // class FlatSourceRegion
 
-// The source node receives the FSR ID + Mesh Bin index. It locks, and then 
+// The source node receives the FSR ID + Mesh Bin index. It locks, and then
 // needs to decide if it should allocate another FSR or if there is one already
 // present that works. Bascially, it needs some sort of map? Key + value pair
 // should be the key is the hash and the value is the FSR itself.
@@ -85,9 +87,11 @@ public:
   SourceNode() = default;
 
   OpenMPMutex lock_;
-  std::unordered_map<uint64_t, int64_t> fsr_map_; // key is 64-bit hash, value is FSR itself
-  std::unordered_map<uint64_t, FlatSourceRegion> new_fsr_map_; // key is 64-bit hash, value is FSR itself
-  
+  std::unordered_map<uint64_t, int64_t>
+    fsr_map_; // key is 64-bit hash, value is FSR itself
+  std::unordered_map<uint64_t, FlatSourceRegion>
+    new_fsr_map_; // key is 64-bit hash, value is FSR itself
+
 }; // class HashSourceController
 
 class HashSourceController {
@@ -107,8 +111,6 @@ public:
 
 class FlatSourceDomain {
 public:
-
-
   //----------------------------------------------------------------------------
   // Constructors
   FlatSourceDomain();
@@ -131,7 +133,8 @@ public:
   void apply_fixed_source_to_source_region(
     Discrete* discrete, double strength_factor, int64_t source_region);
   void apply_fixed_source_to_cell_instances(int32_t i_cell, Discrete* discrete,
-    double strength_factor, int target_material_id, const vector<int32_t>& instances);
+    double strength_factor, int target_material_id,
+    const vector<int32_t>& instances);
   void apply_fixed_source_to_cell_and_children(int32_t i_cell,
     Discrete* discrete, double strength_factor, int32_t target_material_id);
   void convert_fixed_sources();
@@ -139,15 +142,21 @@ public:
   double calculate_total_volume_weighted_source_strength();
   void swap_flux(void);
 
-  void apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id, const vector<int32_t>& instances);
-  void apply_mesh_to_cell_and_children(int32_t i_cell,
-  int32_t mesh, int32_t target_material_id);
+  void apply_mesh_to_cell_instances(int32_t i_cell, int32_t mesh,
+    int target_material_id, const vector<int32_t>& instances);
+  void apply_mesh_to_cell_and_children(
+    int32_t i_cell, int32_t mesh, int32_t target_material_id);
   void apply_meshes();
   FlatSourceRegion* get_fsr(int64_t source_region, int bin);
-  //FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id, GeometryState& p);
-    FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0, Position r1, int ray_id);
+  // FlatSourceRegion* get_fsr(int64_t source_region, int bin, Position r0,
+  // Position r1, int ray_id, GeometryState& p);
+  FlatSourceRegion* get_fsr(
+    int64_t source_region, int bin, Position r0, Position r1, int ray_id);
   void update_fsr_manifest(void);
+  void mesh_hash_grid_add(int mesh_index, int bin, uint64_t hash);
+  vector<uint64_t> mesh_hash_grid_get_neighbors(int mesh_index, int bin);
+  FlatSourceRegion* get_closest_neighbor(FlatSourceRegion& fsr);
+  bool merge_fsr(FlatSourceRegion& fsr);
 
 
   //----------------------------------------------------------------------------
@@ -176,6 +185,17 @@ public:
   vector<vector<int>> hitmap;
 
   vector<FlatSourceRegion> fsr_manifest_;
+
+  // This is a 5D vector, with dimensions:
+  // 1. mesh index
+  // 2. z index
+  // 3. y index
+  // 4. x index
+  // 5. FSR hash
+  // The first dimension is left as a vector for easy, access, the next
+  // three dimensions are serialized, the 5th (hash) dimension
+  // is left as a vector as it is dynamically updated.
+  vector<vector<vector<unt64_t>>> mesh_hash_grid_;
 
 }; // class FlatSourceDomain
 
