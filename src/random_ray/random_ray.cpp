@@ -201,6 +201,14 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   //   ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
     
+    // On the rare chance we have a physical segment length
+    // that is super small, we should just ignore it. When
+    // we ray trace in the next step to find mesh bins, then
+    // this distance would be too short to consistently determine
+    // which bin the particle is in due to floating point roundoff.
+    if (distance < 2.0 * TINY_BIT)
+      return;
+
     // Mesh* mesh = domain_->meshes_[i_mesh].get();
     // RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     // if (rmesh == nullptr)

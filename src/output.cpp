@@ -579,7 +579,7 @@ void print_results()
 //==============================================================================
 
 void print_results_random_ray(uint64_t total_geometric_intersections,
-  double avg_miss_rate, int negroups, int64_t n_source_regions,
+  double avg_miss_rate, int negroups, int64_t mfci, int64_t max_regions, int64_t n_source_regions,
   int64_t n_fixed_source_regions)
 {
   using namespace simulation;
@@ -593,22 +593,24 @@ void print_results_random_ray(uint64_t total_geometric_intersections,
 
     header("Simulation Statistics", 4);
     fmt::print(
-      " Total Iterations                  = {}\n", settings::n_batches);
-    fmt::print(" Flat Source Regions (FSRs)        = {}\n", n_source_regions);
+      " Total Iterations                        = {}\n", settings::n_batches);
+    fmt::print(" Material Filled Cell Instances          = {}\n", mfci);
+    fmt::print(" Discovered Flat Source Regions (FSRs)   = {}\n", max_regions);
+    fmt::print(" Simulated FSRs (After Low Vol. Mergers) = {}\n", n_source_regions);
     fmt::print(
-      " FSRs with Fixed Source Terms      = {}\n", n_fixed_source_regions);
-    fmt::print(" Total Geometric Intersections     = {:.4e}\n",
+      " FSRs with Fixed Source Terms            = {}\n", n_fixed_source_regions);
+    fmt::print(" Total Geometric Intersections           = {:.4e}\n",
       static_cast<double>(total_geometric_intersections));
-    fmt::print("   Avg per Iteration               = {:.4e}\n",
+    fmt::print("   Avg per Iteration                     = {:.4e}\n",
       static_cast<double>(total_geometric_intersections) / settings::n_batches);
-    fmt::print("   Avg per Iteration per FSR       = {:.2f}\n",
+    fmt::print("   Avg per Iteration per FSR             = {:.2f}\n",
       static_cast<double>(total_geometric_intersections) /
         static_cast<double>(settings::n_batches) / n_source_regions);
-    fmt::print(" Avg FSR Miss Rate per Iteration   = {:.4f}%\n", avg_miss_rate);
-    fmt::print(" Energy Groups                     = {}\n", negroups);
+    fmt::print(" Avg FSR Miss Rate per Iteration         = {:.4f}%\n", avg_miss_rate);
+    fmt::print(" Energy Groups                           = {}\n", negroups);
     fmt::print(
-      " Total Integrations                = {:.4e}\n", total_integrations);
-    fmt::print("   Avg per Iteration               = {:.4e}\n",
+      " Total Integrations                      = {:.4e}\n", total_integrations);
+    fmt::print("   Avg per Iteration                     = {:.4e}\n",
       total_integrations / settings::n_batches);
 
     header("Timing Statistics", 4);

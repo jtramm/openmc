@@ -310,7 +310,7 @@ void RandomRaySimulation::simulate()
       // domain_.controller_.nodes_[i].fsr_map_.size());
       n_mesh_fsrs += domain_.controller_.nodes_[i].fsr_map_.size();
     }
-    printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
+    //printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
     /*
     for( int i = 0 ; i < 51; i++) {
       for (int j = 0; j < 51; j++) {
@@ -397,7 +397,7 @@ void RandomRaySimulation::output_simulation_results()
   // Print random ray results
   if (mpi::master) {
     print_results_random_ray(total_geometric_intersections_,
-      avg_miss_rate_ / settings::n_batches, negroups_,
+      avg_miss_rate_ / settings::n_batches, negroups_, domain_.n_source_regions_, domain_.discovered_source_regions_, 
       domain_.n_subdivided_source_regions_, domain_.n_fixed_source_regions_);
     if (model::plots.size() > 0) {
       domain_.output_to_vtk();
@@ -415,7 +415,7 @@ void RandomRaySimulation::instability_check(
       static_cast<double>(domain_.n_subdivided_source_regions_)) *
     100.0;
   avg_miss_rate += percent_missed;
-  printf("n_hits = %ld, percent_missed = %f subdivided regions = %ld\n", n_hits, percent_missed, domain_.n_subdivided_source_regions_);
+  //printf("n_hits = %ld, percent_missed = %f subdivided regions = %ld\n", n_hits, percent_missed, domain_.n_subdivided_source_regions_);
   if (percent_missed > 10.0) {
     warning(fmt::format(
       "Very high FSR miss rate detected ({:.3f}%). Instability may occur. "

@@ -1264,8 +1264,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     new_fsr->bin_ = bin;
     node.lock_.unlock();
 
-#pragma omp atomic
-    n_subdivided_source_regions_++;
+
 
     if (fsr_[source_region].mesh_ != C_NONE) {
       Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
@@ -1547,6 +1546,9 @@ void FlatSourceDomain::update_fsr_manifest(void)
       fsr_manifest_.push_back(*pair.second.get());
       node.fsr_map_[pair.first] = fsr_manifest_.size() - 1;
 
+      n_subdivided_source_regions_++;
+      discovered_source_regions_++;
+
       // Store hash of this FSR into the hash grid for
       // lookup later on if we need to merge low volume FSRs
     }
@@ -1561,6 +1563,7 @@ void FlatSourceDomain::update_fsr_manifest(void)
         fsr.is_in_manifest_ = true;
         fsr.manifest_index_ = fsr_manifest_.size() - 1;
         n_subdivided_source_regions_++;
+        discovered_source_regions_++;
       }
     }
   }
