@@ -65,6 +65,7 @@ public:
   bool is_in_manifest_ {false};
   bool is_merged_ {false};
   bool is_consumer_ {false};
+  bool is_merge_failed_ {false};
   int no_hit_streak_ {0};
   int64_t manifest_index_;
   int64_t source_region_;

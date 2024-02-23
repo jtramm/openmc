@@ -40,6 +40,7 @@ void FlatSourceRegion::merge(FlatSourceRegion& other)
 
   // Add the volume to this FSR
   volume_t_ += other.volume_t_;
+  volume_ += other.volume_;
 
   // We have a problem: it's possible that the tally tasks are not the same, as
   // they might be in different cartesian mesh bins and thus different tally
@@ -1162,16 +1163,17 @@ int hashbin(uint32_t a, uint32_t b)
 int emplaces = 0;
 
 // TODO:
-// The bug here I think, (at least, it is A bug, and would explain the SHM fails, but
-// serial glory), is that the locking is done with the assumption that once a pointer
-// to a FSR is generated, that pointer is still valid. Unfortunately, that's not true,
-// as the new map is storing the FSR directly. After we get a handle to it,
-// another thread WILL come along and push more FSRs back to that new map, and the
-// FSR will get moved. The thread still working with that FSR is then writing off
-// in lala land and its updates are also toast.
+// The bug here I think, (at least, it is A bug, and would explain the SHM
+// fails, but serial glory), is that the locking is done with the assumption
+// that once a pointer to a FSR is generated, that pointer is still valid.
+// Unfortunately, that's not true, as the new map is storing the FSR directly.
+// After we get a handle to it, another thread WILL come along and push more
+// FSRs back to that new map, and the FSR will get moved. The thread still
+// working with that FSR is then writing off in lala land and its updates are
+// also toast.
 
-// Solution: just make the new map a map of unique pointers, and copy those fuckers.
-
+// Solution: just make the new map a map of unique pointers, and copy those
+// fuckers.
 
 // FlatSourceRegion* FlatSourceDomain::get_fsr(int64_t source_region, int bin,
 //  Position r0, Position r1, int ray_id, GeometryState& ip)
@@ -1251,13 +1253,15 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // If not found, copy base FSR into new FSR
-    FlatSourceRegion& new_fsr = fsr_[source_region];
-    new_fsr.lock_.lock();
+    // FlatSourceRegion& new_fsr = fsr_[source_region];
     // There's no lock over this stuff!
-    new_fsr.source_region_ = source_region;
-    new_fsr.bin_ = bin;
-    auto result = new_map.emplace(std::make_pair(hash, std::make_unique<FlatSourceRegion>(new_fsr)));
-    new_fsr.lock_.unlock();
+
+    auto result = new_map.emplace(std::make_pair(
+      hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
+
+    FlatSourceRegion* new_fsr = result.first->second.get();
+    new_fsr->source_region_ = source_region;
+    new_fsr->bin_ = bin;
     node.lock_.unlock();
 
 #pragma omp atomic
@@ -1322,7 +1326,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
       fatal_error("Too many subdivided source regions");
     }
     */
-    return result.first->second.get();
+    return new_fsr;
   } else {
     // Otherwise, access the existing FlatSourceRegion
     return &fsr_manifest_[it->second];
@@ -1406,6 +1410,8 @@ vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
 // in the mesh to be used as a candidate for merging
 int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
 {
+  const double volume_merge_threshold = 100.0;
+
   // Get the mesh index and bin of the FSR
   int mesh_index = fsr.mesh_;
   Mesh* mesh = meshes_[mesh_index].get();
@@ -1417,7 +1423,8 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
   vector<uint64_t> neighbors = mesh_hash_grid_get_neighbors(mesh_index, bin);
 
   if (neighbors.size() == 0) {
-    printf("mesh index = %d, bin = %d, Bins ijk = %d %d %d, sr = %ld\n", mesh_index, bin, ijk[0], ijk[1], ijk[2], fsr.source_region_);
+    printf("mesh index = %d, bin = %d, Bins ijk = %d %d %d, sr = %ld\n",
+      mesh_index, bin, ijk[0], ijk[1], ijk[2], fsr.source_region_);
   }
 
   // Loop over the neighbors and find the closest one
@@ -1434,17 +1441,13 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
     FlatSourceRegion& neighbor_fsr = fsr_manifest_[neighbor_fsr_index];
     if (fsr.source_region_ == neighbor_fsr.source_region_) {
       double vol = neighbor_fsr.volume_t_;
-      if (vol > largest_volume && !neighbor_fsr.is_merged_) {
+      if (vol > largest_volume && vol > fsr.volume_t_ * volume_merge_threshold && !neighbor_fsr.is_merged_ && !neighbor_fsr.is_consumer_) {
         largest_volume = vol;
         largest_fsr_index = neighbor_fsr_index;
       }
     }
   }
-  
-  if (largest_fsr_index == C_NONE) {
-    printf(
-      "could not find neighbor in list of %ld neighbors\n", neighbors.size());
-  }
+
   return largest_fsr_index;
 }
 
@@ -1462,9 +1465,11 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   // Get the largest neighbor to the FSR
   int64_t largest_fsr_index = get_largest_neighbor(fsr);
   if (largest_fsr_index == C_NONE) {
-    fatal_error("Failed to merge small volume FSR");
+    //printf("Merging of fsr failed\n");
+    //fatal_error("Failed to merge small volume FSR");
     return false;
   }
+
   FlatSourceRegion& largest_fsr = fsr_manifest_[largest_fsr_index];
   printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n",
     fsr.volume_t_, largest_fsr.volume_t_);
@@ -1515,7 +1520,7 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
       n_prev_merges++;
       continue;
     }
-    if (fsr.is_consumer_)
+    if (fsr.is_consumer_ || fsr.is_merge_failed_)
       continue;
 
     if (fsr.was_hit_ <= threshold) {
@@ -1531,6 +1536,9 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
         n_subdivided_source_regions_--;
         printf(
           "Merge of FSR at %d index with volume = %.9le\n", i, fsr.volume_t_);
+      } else
+      {
+        fsr.is_merge_failed_ = true;
       }
     }
     // fsr_[fsr.source_region_].lock_.unlock();
@@ -1554,7 +1562,6 @@ void FlatSourceDomain::update_fsr_manifest(void)
 
       // Store hash of this FSR into the hash grid for
       // lookup later on if we need to merge low volume FSRs
-
     }
     map.clear();
   }
