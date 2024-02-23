@@ -105,25 +105,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   if (source_region_id != n_source_regions_) {
     fatal_error("Unexpected number of source regions");
   }
-
-  // The mesh has grid map has 5 dimensions:
-  // 1. The mesh index
-  // 2. z index
-  // 3. y index
-  // 4. x index
-  // 5. Hash of the FSR
-  int64_t n_total_bins mesh_hash_grid_.resize(meshes_.size());
-  for (int d1 = 0; d1 < meshes_.size(); d1++) {
-    Mesh* m = meshes_[d1].get();
-    RegularMesh* mesh = dynamic_cast<RegularMesh*>(m);
-    mesh_hash_grid_[d1].resize(mesh->shape_[2]);
-    for (int d2 = 0; d2 < mesh->shape_[2]; d2++) {
-      mesh_hash_grid_[d1][d2].resize(mesh->shape_[1]);
-      for (int d3 = 0; d3 < mesh->shape_[1]; d3++) {
-        mesh_hash_grid_[d1][d2][d3].resize(mesh->shape_[0]);
-      }
-    }
-  }
 }
 
 void FlatSourceDomain::batch_reset()
@@ -394,6 +375,8 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old)
 #pragma omp parallel for reduction(+ : fission_rate_old, fission_rate_new)
   for (int i = 0; i < fsr_manifest_.size(); i++) {
     FlatSourceRegion& fsr = fsr_manifest_[i];
+    if (fsr.is_merged_)
+      continue;
 
     // If simulation averaged volume is zero, don't include this cell
     double volume = fsr.volume_;
@@ -575,6 +558,8 @@ void FlatSourceDomain::random_ray_tally()
 #pragma omp parallel for
   for (int i = 0; i < fsr_manifest_.size(); i++) {
     FlatSourceRegion& fsr = fsr_manifest_[i];
+    if (fsr.is_merged_)
+      continue;
     double volume = fsr.volume_;
     double factor = volume * inverse_source_strength;
     double material = fsr.material_;
@@ -804,7 +789,7 @@ void FlatSourceDomain::output_to_vtk()
               fatal_error(
                 "Only regular meshes are supported for random ray tracing.");
             int bin = rmesh->get_bin(p.r());
-            RegularMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+            StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
             hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
             region = get_fsr(source_region_idx, bin);
           } else {
@@ -1405,8 +1390,8 @@ void FlatSourceDomain::mesh_hash_grid_add(
   Mesh* mesh = meshes_[mesh_index].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
   StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
-  mesh_hash_grid_[mesh_index][ijk[2] - 1][ijk[1] - 1][ijk[0] - 1].push_back(
-    hash);
+  MeshHashIndex mhi(mesh_index, ijk);
+  mesh_hash_grid_[mhi].push_back(hash);
 }
 
 vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
@@ -1414,31 +1399,50 @@ vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
 {
   Mesh* mesh = meshes_[mesh_index].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
-  StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+  StructuredMesh::MeshIndex ijk_base = rmesh->get_indices_from_bin(bin);
+
   vector<uint64_t> neighbors;
   // Insert up, down, north, south, east, and west neighbors (if they exist!)
-  if (ijk[2] < rmesh->shape_[2] - 1) {
-    auto& up = mesh_hash_grid_[mesh_index][ijk[2] + 1][ijk[1]][ijk[0]];
+  if (ijk_base[2] < rmesh->shape_[2]) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[2]++;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& up = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), up.begin(), up.end());
   }
-  if (ijk[2] > 0) {
-    auto& down = mesh_hash_grid_[mesh_index][ijk[2] - 1][ijk[1]][ijk[0]];
+  if (ijk_base[2] > 1) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[2]--;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& down = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), down.begin(), down.end());
   }
-  if (ijk[1] < rmesh->shape_[1] - 1) {
-    auto& north = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1] + 1][ijk[0]];
+  if (ijk_base[1] < rmesh->shape_[1]) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[1]++;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& north = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), north.begin(), north.end());
   }
-  if (ijk[1] > 0) {
-    auto& south = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1] - 1][ijk[0]];
+  if (ijk_base[1] > 1) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[1]--;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& south = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), south.begin(), south.end());
   }
-  if (ijk[0] < rmesh->shape_[0] - 1) {
-    auto& east = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1]][ijk[0] + 1];
+  if (ijk_base[0] < rmesh->shape_[0]) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[0]++;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& east = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), east.begin(), east.end());
   }
-  if (ijk[0] > 0) {
-    auto& west = mesh_hash_grid_[mesh_index][ijk[2]][ijk[1]][ijk[0] - 1];
+  if (ijk_base[0] > 1) {
+    StructuredMesh::MeshIndex ijk = ijk_base;
+    ijk[0]--;
+    MeshHashIndex mhi(mesh_index, ijk);
+    auto& west = mesh_hash_grid_[mhi];
     neighbors.insert(neighbors.end(), west.begin(), west.end());
   }
   return neighbors;
@@ -1446,7 +1450,7 @@ vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
 
 // For a given FSR, this function finds the closest neighbor FSR
 // in the mesh to be used as a candidate for merging
-FlatSourceRegion* FlatSourceDomain::get_closest_neighbor(FlatSourceRegion& fsr)
+int64_t FlatSourceDomain::get_closest_neighbor(FlatSourceRegion& fsr)
 {
   // Get the mesh index and bin of the FSR
   int mesh_index = fsr.mesh_;
@@ -1461,37 +1465,111 @@ FlatSourceRegion* FlatSourceDomain::get_closest_neighbor(FlatSourceRegion& fsr)
   // Loop over the neighbors and find the closest one
   double min_distance = std::numeric_limits<double>::max();
   FlatSourceRegion* closest_fsr = nullptr;
+  int64_t closest_fsr_index = C_NONE;
+
   for (auto& hash : neighbors) {
     // Get hash and has controller bin
     int hash_bin = hash % N_FSR_HASH_BINS;
     SourceNode& node = controller_.nodes_[hash_bin];
     auto& map = node.fsr_map_;
 
+    int64_t neighbor_fsr_index = map[hash];
     FlatSourceRegion& neighbor_fsr = fsr_manifest_[map[hash]];
     if (fsr.source_region_ == neighbor_fsr.source_region_) {
       double distance = (fsr.position_ - neighbor_fsr.position_).norm();
-      if (distance < min_distance) {
+      if (distance < min_distance && !neighbor_fsr.is_merged_) {
         min_distance = distance;
         closest_fsr = &neighbor_fsr;
+        closest_fsr_index = neighbor_fsr_index;
       }
     }
   }
-  return closest_fsr;
+  return closest_fsr_index;
 }
 
+// OK - to do for today:
+// 1. Finish small volume merging class
+// 2. Test on some different problems
+// profit?
+// 3. Add printout at the end showing different types of FSRs
+// 4. Put in bug fixes as PRs (openmp)
+// 5. Update issues with source assignments in base fixed source PR
+
+// This class
 bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
 {
   // Get the closest neighbor to the FSR
-  FlatSourceRegion* closest_fsr = get_closest_neighbor(fsr);
-  if (closest_fsr == nullptr) {
+  int64_t closest_fsr_index = get_closest_neighbor(fsr);
+  if (closest_fsr_index == C_NONE) {
+    warning("Failed to merge small volume FSR");
     return false;
   }
+  FlatSourceRegion& closest_fsr = fsr_manifest_[closest_fsr_index];
+    printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n", fsr.volume_t_, closest_fsr.volume_t_);
 
-  // Merge the FSRs
-  for (int e = 0; e < negroups_; e++) {
-    fsr.scalar_flux_new_[e] += closest_fsr->scalar_flux_new_[e];
-  }
+  // Merge FSR
+  closest_fsr.merge(fsr);
+
+  // Mark merged FSR as being merged (to prevent contrib to k-eff and tallies)
+  fsr.is_merged_ = true;
+
+  // Point FSR hash to the FSR that it merged with
+  uint64_t hash = hashPair(fsr.source_region_, fsr.bin_);
+  int hash_bin = hash % N_FSR_HASH_BINS;
+  SourceNode& node = controller_.nodes_[hash_bin];
+  auto& map = node.fsr_map_;
+  map[hash] = closest_fsr_index;
+
+  // Do we need to do anything with the deleted FSR?
   return true;
+}
+
+void FlatSourceDomain::check_for_small_FSRs(void)
+{
+  // This is the number of hits that the FSR needs
+  // to get in order to be counted as a "low hitter".
+  // I.e., a value of 1 means that only getting hit 0 or 1
+  // times in an iteration will mean that that iteration
+  // will count towards its miss streak.
+  const int threshold = 1;
+
+  // This is the number of iterations in a row that have
+  // been at or under the threshold value. Once the streak is
+  // met, the FSR will be merged. E.g.,
+  const int streak_needed_to_merge = 3;
+
+  // I vote that I just merge stuff and leave the dead FSRs there
+  // Loop over fsr manifest
+  int n_merges = 0;
+  int n_prev_merges = 0;
+ // #pragma omp parallel for reduction(+:n_merges, n_prev_merges)
+  for (int i = 0; i < fsr_manifest_.size(); i++) {
+    FlatSourceRegion& fsr = fsr_manifest_[i];
+    // We can lock the base source region, as no two FSRs that are
+    // not from the same source region will ever interact.
+    //fsr_[fsr.source_region_].lock_.lock();
+    if (fsr.is_merged_)
+    {
+      n_prev_merges++;
+      continue;
+    }
+
+    if (fsr.was_hit_ <= threshold) {
+      fsr.no_hit_streak_++;
+    } else {
+      fsr.no_hit_streak_ = 0;
+    }
+
+    if (fsr.no_hit_streak_ >= streak_needed_to_merge) {
+      bool merge_success = merge_fsr(fsr);
+      if (merge_success) {
+        n_merges++;
+        printf("Merge of FSR at %d index with volume = %.9le\n", i, fsr.volume_t_);
+      }
+    }
+    //fsr_[fsr.source_region_].lock_.unlock();
+  }
+  printf("n_merges = %d, total merges to date = %d\n", n_merges, n_merges + n_prev_merges);
 }
 
 void FlatSourceDomain::update_fsr_manifest(void)

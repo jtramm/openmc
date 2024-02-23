@@ -298,6 +298,11 @@ void RandomRaySimulation::simulate()
     // Update the FSR manifest. This pulls newly discovered FSRs out of maps and
     // into a vector for easy access.
     domain_.update_fsr_manifest();
+
+    // If there are FSRs that are not getting hit regularly, merge them
+    // with larger neighbors from other mesh cells that are within
+    // the same base source region
+    domain_.check_for_small_FSRs();
     
     int n_mesh_fsrs = 0;
     for (int i = 0; i < domain_.controller_.nodes_.size(); i++) {
