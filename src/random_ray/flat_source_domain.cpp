@@ -336,7 +336,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     int material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
       // There are three scenarios we need to consider:
-      if (fsr.was_hit_ > 2) {
+      if (fsr.was_hit_ > 0) {
         // 1. If the FSR was hit this iteration, then the new flux is equal
         // to the flat source from the previous iteration plus the
         // contributions from rays passing through the source region
@@ -345,11 +345,13 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
         fsr.scalar_flux_new_[e] /= (sigma_t * volume);
         fsr.scalar_flux_new_[e] += fsr.source_[e];
+        /*
       } else if (fsr.was_hit_ > 0) {
         float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
         fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
         fsr.scalar_flux_new_[e] += fsr.source_[e];
+        */
       } else if (volume > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
