@@ -1192,17 +1192,14 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
       return &fsr_[source_region];
     }
   }
-
-  // Get hash and has controller bin
+  
   uint64_t hash = hashPair(source_region, bin);
-  int hash_bin = hash % N_FSR_HASH_BINS;
-  SourceNode& node = controller_.nodes_[hash_bin];
-  auto& map = node.fsr_map_;
 
   // Check if the FlatSourceRegion with this hash already exists
-  // Check if the FlatSourceRegion with this hash already exists
-  auto it = map.find(hash);
-  if (it == map.end()) {
+  auto it = fsr_map_.find(hash);
+  if (it == fsr_map_.end()) {
+    int hash_bin = hash % N_FSR_HASH_BINS;
+    SourceNode& node = controller_.nodes_[hash_bin];
     node.lock_.lock();
     auto& new_map = node.new_fsr_map_;
     auto it_new = new_map.find(hash);
@@ -1432,12 +1429,7 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
   int64_t largest_fsr_index = C_NONE;
 
   for (auto& hash : neighbors) {
-    // Get hash and has controller bin
-    int hash_bin = hash % N_FSR_HASH_BINS;
-    SourceNode& node = controller_.nodes_[hash_bin];
-    auto& map = node.fsr_map_;
-
-    int64_t neighbor_fsr_index = map[hash];
+    int64_t neighbor_fsr_index = fsr_map_[hash];
     FlatSourceRegion& neighbor_fsr = fsr_manifest_[neighbor_fsr_index];
     if (fsr.source_region_ == neighbor_fsr.source_region_) {
       double vol = neighbor_fsr.volume_t_;
@@ -1483,10 +1475,7 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
 
   // Point FSR hash to the FSR that it merged with
   uint64_t hash = hashPair(fsr.source_region_, fsr.bin_);
-  int hash_bin = hash % N_FSR_HASH_BINS;
-  SourceNode& node = controller_.nodes_[hash_bin];
-  auto& map = node.fsr_map_;
-  map[hash] = largest_fsr_index;
+  fsr_map_[hash] = largest_fsr_index;
 
   // Do we need to do anything with the deleted FSR?
   return true;
@@ -1546,7 +1535,7 @@ void FlatSourceDomain::update_fsr_manifest(void)
       mesh_hash_grid_add(mesh_id, pair.second->bin_, pair.first);
 
       fsr_manifest_.push_back(*pair.second.get());
-      node.fsr_map_[pair.first] = fsr_manifest_.size() - 1;
+      fsr_map_[pair.first] = fsr_manifest_.size() - 1;
 
       n_subdivided_source_regions_++;
       discovered_source_regions_++;

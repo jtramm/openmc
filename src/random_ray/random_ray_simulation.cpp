@@ -304,12 +304,7 @@ void RandomRaySimulation::simulate()
     // the same base source region
     int64_t merged_fsrs = domain_.check_for_small_FSRs();
     
-    int n_mesh_fsrs = 0;
-    for (int i = 0; i < domain_.controller_.nodes_.size(); i++) {
-      // printf("Controller bin %d hits = %d\n", i,
-      // domain_.controller_.nodes_[i].fsr_map_.size());
-      n_mesh_fsrs += domain_.controller_.nodes_[i].fsr_map_.size();
-    }
+    int n_mesh_fsrs = domain_.fsr_map_.size();
     //printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
     /*
     for( int i = 0 ; i < 51; i++) {

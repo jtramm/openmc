@@ -93,8 +93,7 @@ public:
   SourceNode() = default;
 
   OpenMPMutex lock_;
-  std::unordered_map<uint64_t, int64_t>
-    fsr_map_; // key is 64-bit hash, value is FSR itself
+
   std::unordered_map<uint64_t, unique_ptr<FlatSourceRegion>>
     new_fsr_map_; // key is 64-bit hash, value is FSR itself
 
@@ -228,6 +227,9 @@ public:
   vector<vector<int>> hitmap;
 
   vector<FlatSourceRegion> fsr_manifest_;
+
+  std::unordered_map<uint64_t, int64_t>
+    fsr_map_; // key is 64-bit hash, value is FSR itself
 
   // This is a 5D vector, with dimensions:
   // 1. mesh index
