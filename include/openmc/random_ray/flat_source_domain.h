@@ -228,8 +228,7 @@ public:
 
   vector<FlatSourceRegion> fsr_manifest_;
 
-  std::unordered_map<uint64_t, int64_t>
-    fsr_map_; // key is 64-bit hash, value is FSR itself
+  std::unordered_map<uint64_t, int64_t> fsr_map_; // key is 64-bit hash, value is FSR itself
 
   // This is a 5D vector, with dimensions:
   // 1. mesh index
