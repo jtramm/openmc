@@ -115,6 +115,8 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   }
 }
 
+
+
 void FlatSourceDomain::batch_reset()
 {
 // Reset scalar fluxes, iteration volume tallies, and region hit flags to
@@ -1160,7 +1162,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
       return &material_filled_cell_instance_[source_region];
     }
   }
-  FSRKey key = {source_region, bin};
+  FSRKey key(source_region, bin);
 
   // Check if the FlatSourceRegion with this hash already exists
   auto it = known_fsr_map_.find(key);
@@ -1215,12 +1217,11 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // If not found, copy base FSR into new FSR
-    // FlatSourceRegion& new_fsr = fsr_[source_region];
+     //FlatSourceRegion& new_fsr = fsr_[source_region];
     // There's no lock over this stuff!
 
     //FlatSourceRegion* new_fsr = &discovered_fsr_parallel_map_[key];
-    auto result = discovered_fsr_parallel_map_.emplace(key, &material_filled_cell_instance_[source_region]);
-    FlatSourceRegion* new_fsr = &result.first->second;
+    FlatSourceRegion* new_fsr = discovered_fsr_parallel_map_.emplace(key, material_filled_cell_instance_[source_region]);
 
     //*new_fsr = material_filled_cell_instance_[source_region];
     new_fsr->source_region_ = source_region;
@@ -1316,7 +1317,7 @@ void FlatSourceDomain::mesh_hash_grid_add(
   mesh_hash_grid_[mhi].push_back(key);
 }
 
-vector<FlatSourceDomain::FSRKey> FlatSourceDomain::mesh_hash_grid_get_neighbors(
+vector<FSRKey> FlatSourceDomain::mesh_hash_grid_get_neighbors(
   int mesh_index, int bin)
 {
   Mesh* mesh = meshes_[mesh_index].get();
@@ -1442,7 +1443,8 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   fsr.is_merged_ = true;
 
   // Point FSR hash to the FSR that it merged with
-  FSRKey key = {fsr.source_region_, fsr.bin_};
+    FSRKey key(fsr.source_region_, fsr.bin_);
+
   known_fsr_map_[key] = largest_fsr_index;
 
   // Do we need to do anything with the deleted FSR?
@@ -1504,7 +1506,7 @@ void FlatSourceDomain::update_fsr_manifest(void)
 
   for (int64_t i = known_fsr_.size() - n_new_fsrs; i < known_fsr_.size(); i++) {
     // Store the recently discovered FSRs in the known FSR map
-    FSRKey key = {known_fsr_[i].source_region_, known_fsr_[i].bin_};
+    FSRKey key(known_fsr_[i].source_region_, known_fsr_[i].bin_);
     known_fsr_map_[key] = i;
 
     // Add the FSR to the mesh hash grid

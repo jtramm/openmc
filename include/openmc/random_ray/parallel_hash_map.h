@@ -7,15 +7,12 @@
 
 namespace openmc {
 
-template<typename KeyType, typename ValueType, typename HashFunctor,
-  typename EqualFunctor>
+template<typename KeyType, typename ValueType, typename HashFunctor>
 class ParallelMap {
 
   struct Bucket {
     OpenMPMutex lock_;
-    std::unordered_map<KeyType, std::unique_ptr<ValueType>, HashFunctor,
-      EqualFunctor>
-      map_;
+    std::unordered_map<KeyType, std::unique_ptr<ValueType>, HashFunctor> map_;
   };
 
 public:
@@ -43,7 +40,9 @@ public:
   bool contains(const KeyType& key)
   {
     Bucket& bucket = get_bucket(key);
-    return bucket.map_.contains(key);
+    // C++20
+    // return bucket.map_.contains(key);
+    return bucket.map_.find(key) != bucket.map_.end();
   }
 
   ValueType& operator[](const KeyType& key)
@@ -52,14 +51,14 @@ public:
     return *bucket.map_[key].get();
   }
 
-template<typename K, typename V>
-std::pair<typename std::unordered_map<KeyType, std::unique_ptr<ValueType>, HashFunctor, EqualFunctor>::iterator, bool>
-emplace(K&& key, V&& value) {
+  ValueType* emplace(KeyType& key, ValueType& value)
+  {
     Bucket& bucket = get_bucket(key);
-    // Attempt to emplace the new element into the unordered_map within the bucket.
-    auto result = bucket.map_.emplace(std::forward<K>(key), std::make_unique<ValueType>(std::forward<V>(value)));
-    return result;
-}
+    // Attempt to emplace the new element into the unordered_map within the
+    auto result = bucket.map_.emplace(key, std::make_unique<ValueType>(value));
+    auto it = result.first;
+    return it->second.get();
+  }
 
   // Copies everything into a vector, clears all buckets
   int64_t move_contents_into_vector(vector<ValueType>& v)

@@ -161,7 +161,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   // The source region is the spatial region index
   int64_t source_region =
     domain_->source_region_offsets_[i_cell] + cell_instance();
-  auto& fsr = domain_->fsr_[source_region];
+  auto& fsr = domain_->material_filled_cell_instance_[source_region];
 
   //GeometryState p = *this;
   //GeometryState p;
@@ -373,7 +373,7 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   int64_t source_region_idx =
     domain_->source_region_offsets_[i_cell] + cell_instance();
 
-  auto& fsr = domain->fsr_[source_region_idx];
+  auto& fsr = domain->material_filled_cell_instance_[source_region_idx];
   int i_mesh = fsr.mesh_;
 
   // If there is a mesh present, then we need to get the bin number

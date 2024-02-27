@@ -43,7 +43,7 @@ struct TallyTask {
 
 class FlatSourceRegion {
 public:
-FlatSourceRegion() = default;
+  FlatSourceRegion() = default;
   FlatSourceRegion(int negroups)
     : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f),
       scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f),
@@ -61,9 +61,10 @@ FlatSourceRegion() = default;
       fixed_source_(other.fixed_source_), tally_task_(other.tally_task_),
       is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_),
       is_consumer_(other.is_consumer_), manifest_index_(other.manifest_index_),
-      no_hit_streak_(other.no_hit_streak_), source_region_(other.source_region_),
-      bin_(other.bin_)
+      no_hit_streak_(other.no_hit_streak_),
+      source_region_(other.source_region_), bin_(other.bin_)
   {}
+  ~FlatSourceRegion() = default;
 
   void merge(FlatSourceRegion& other);
 
@@ -143,15 +144,35 @@ struct MeshHashIndexEqual {
   }
 };
 
+class FSRKey {
+public:
+  int64_t mfci;
+  int64_t mesh_bin;
+  FSRKey() = default;
+  FSRKey(int64_t source_region, int64_t bin)
+    : mfci(source_region), mesh_bin(bin)
+  {}
+
+  bool operator==(const FSRKey& other) const
+  {
+    return mfci == other.mfci && mesh_bin == other.mesh_bin;
+  }
+
+  struct HashFunctor {
+    size_t operator()(const FSRKey& key) const
+    {
+      size_t h1 = std::hash<int64_t>()(key.mfci);
+      size_t h2 = std::hash<int64_t>()(key.mesh_bin);
+      return h1 ^ (h2 << 1);
+    }
+  };
+};
+
 class FlatSourceDomain {
 public:
   // Doing source/mesh prep up front:
   // maximize both init performance as well
   // as avoiding use of the map long term, but with the down
-  struct FSRKey {
-    int64_t mfci;
-    int64_t mesh_bin;
-  };
 
   //----------------------------------------------------------------------------
   // Constructors
@@ -202,8 +223,8 @@ public:
   // Data members
 
   int negroups_;                  // Number of energy groups in simulation
-  int64_t n_source_elements_ {0}; // Total number of source regions in the model
-                                  // times the number of energy groups
+  int64_t n_source_elements_ {0}; // Total number of source regions in the
+                                  // model times the number of energy groups
   int64_t n_source_regions_ {0};  // Total number of source regions in the model
   int64_t n_fixed_source_regions_ {0}; // Total number of source regions with
                                        // non-zero fixed source terms
@@ -233,28 +254,9 @@ public:
   // is no mesh present.
 
   vector<FlatSourceRegion> known_fsr_;
-  std::unordered_map<FSRKey, int64_t> known_fsr_map_;
+  std::unordered_map<FSRKey, int64_t, FSRKey::HashFunctor> known_fsr_map_;
 
-  struct HashFunctor {
-    std::size_t operator()(const FSRKey& key) const
-    {
-      return 1;
-      std::size_t h1 = std::hash<int64_t>{}(key.mfci);
-      std::size_t h2 = std::hash<int64_t>{}(key.mesh_bin);
-      return h1 ^ (h2 << 1);
-    }
-  };
-
-  struct EqualFunctor {
-    bool operator()(const FSRKey& lhs,
-      const FSRKey& rhs) const
-    {
-      return lhs.mfci == rhs.mfci && lhs.mesh_bin == rhs.mesh_bin;
-    }
-  };
-
-  ParallelMap<FSRKey, FlatSourceRegion, HashFunctor,
-    EqualFunctor>
+  ParallelMap<FSRKey, FlatSourceRegion, FSRKey::HashFunctor>
     discovered_fsr_parallel_map_;
 
   // This is a 5D vector, with dimensions:
