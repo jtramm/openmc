@@ -87,13 +87,13 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     }
   }
   // Initialize FSRs
-  fsr_.assign(n_source_regions_, negroups_);
+  material_filled_cell_instance_.assign(n_source_regions_, negroups_);
 
   // If in eigenvalue mode, set starting flux to guess of unity
   if (settings::run_mode == RunMode::EIGENVALUE) {
 #pragma omp parallel for
     for (int i = 0; i < n_source_regions_; i++) {
-      auto& fsr = fsr_[i];
+      auto& fsr = material_filled_cell_instance_[i];
       std::fill(fsr.scalar_flux_old_.begin(), fsr.scalar_flux_old_.end(), 1.0f);
     }
   }
@@ -104,7 +104,7 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     Cell& cell = *model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
       for (int j = 0; j < cell.n_instances_; j++) {
-        fsr_[source_region_id++].material_ = cell.material(j);
+        material_filled_cell_instance_[source_region_id++].material_ = cell.material(j);
       }
     }
   }
@@ -120,8 +120,8 @@ void FlatSourceDomain::batch_reset()
 // Reset scalar fluxes, iteration volume tallies, and region hit flags to
 // zero
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     std::fill(fsr.scalar_flux_new_.begin(), fsr.scalar_flux_new_.end(), 0.0f);
     fsr.volume_ = 0.0;
     fsr.was_hit_ = 0;
@@ -131,8 +131,8 @@ void FlatSourceDomain::batch_reset()
 void FlatSourceDomain::accumulate_iteration_flux()
 {
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     for (int e = 0; e < negroups_; e++) {
       fsr.scalar_flux_final_[e] += fsr.scalar_flux_new_[e];
     }
@@ -157,7 +157,7 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
   // Add scattering source
 #pragma omp parallel for
   for (int sr = 0; sr < n_source_regions_; sr++) {
-    auto& fsr = fsr_[sr];
+    auto& fsr = material_filled_cell_instance_[sr];
     int material = fsr.material_;
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
@@ -181,7 +181,7 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
     // Add fission source if in eigenvalue mode
 #pragma omp parallel for
     for (int sr = 0; sr < n_source_regions_; sr++) {
-      auto& fsr = fsr_[sr];
+      auto& fsr = material_filled_cell_instance_[sr];
       int material = fsr.material_;
 
       for (int e_out = 0; e_out < negroups_; e_out++) {
@@ -204,7 +204,7 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
 // Add fixed source source if in fixed source mode
 #pragma omp parallel for
     for (int i = 0; i < n_source_regions_; i++) {
-      auto& fsr = fsr_[i];
+      auto& fsr = material_filled_cell_instance_[i];
       for (int e = 0; e < negroups_; e++) {
         fsr.source_[e] += fsr.fixed_source_[e];
       }
@@ -230,8 +230,8 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
   const int a = 0;
 
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     for (int e_out = 0; e_out < negroups_; e_out++) {
       float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
@@ -251,8 +251,8 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
   if (settings::run_mode == RunMode::EIGENVALUE) {
 // Add fission source if in eigenvalue mode
 #pragma omp parallel for
-    for (int i = 0; i < fsr_manifest_.size(); i++) {
-      FlatSourceRegion& fsr = fsr_manifest_[i];
+    for (int i = 0; i < known_fsr_.size(); i++) {
+      FlatSourceRegion& fsr = known_fsr_[i];
       for (int e_out = 0; e_out < negroups_; e_out++) {
         float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
           MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
@@ -272,8 +272,8 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
   } else {
     // Add fixed source source if in fixed source mode
 #pragma omp parallel for
-    for (int i = 0; i < fsr_manifest_.size(); i++) {
-      FlatSourceRegion& fsr = fsr_manifest_[i];
+    for (int i = 0; i < known_fsr_.size(); i++) {
+      FlatSourceRegion& fsr = known_fsr_[i];
       for (int e = 0; e < negroups_; e++) {
         fsr.source_[e] += fsr.fixed_source_[e];
       }
@@ -295,8 +295,8 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
   // iteration Accumulate cell-wise ray length tallies collected this
   // iteration, then update the simulation-averaged cell-wise volume estimates
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     fsr.volume_t_ += fsr.volume_;
     fsr.volume_i_ = fsr.volume_ * normalization_factor;
     fsr.volume_ = fsr.volume_t_ * volume_normalization_factor;
@@ -321,8 +321,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   const int a = 0;
 
 #pragma omp parallel for reduction(+ : n_hits)
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
 
@@ -385,8 +385,8 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old)
   const int a = 0;
 
 #pragma omp parallel for reduction(+ : fission_rate_old, fission_rate_new)
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
 
@@ -459,8 +459,8 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
 
 // Attempt to generate mapping for all source regions
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
 
@@ -571,8 +571,8 @@ void FlatSourceDomain::random_ray_tally()
 // element, we check if there are any scores needed and apply
 // them.
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
     double volume = fsr.volume_;
@@ -790,7 +790,7 @@ void FlatSourceDomain::output_to_vtk()
           int i_cell = p.lowest_coord().cell;
           int64_t source_region_idx =
             source_region_offsets_[i_cell] + p.cell_instance();
-          auto& fsr = fsr_[source_region_idx];
+          auto& fsr = material_filled_cell_instance_[source_region_idx];
           int i_mesh = fsr.mesh_;
 
           // If there is a mesh present, then we need to get the bin number
@@ -895,7 +895,7 @@ void FlatSourceDomain::apply_fixed_source_to_source_region(
 {
   const auto& discrete_energies = discrete->x();
   const auto& discrete_probs = discrete->prob();
-  auto& fsr = fsr_[source_region];
+  auto& fsr = material_filled_cell_instance_[source_region];
   for (int e = 0; e < discrete_energies.size(); e++) {
     int g = data::mg.get_group_index(discrete_energies[e]);
     fsr.fixed_source_[g] += discrete_probs[e] * strength_factor;
@@ -958,7 +958,7 @@ void FlatSourceDomain::count_fixed_source_regions()
 #pragma omp parallel for reduction(+ : n_fixed_source_regions_)
   for (int sr = 0; sr < n_source_regions_; sr++) {
     float total = 0.f;
-    auto& fsr = fsr_[sr];
+    auto& fsr = material_filled_cell_instance_[sr];
     for (int e = 0; e < negroups_; e++) {
       total += fsr.fixed_source_[e];
     }
@@ -972,8 +972,8 @@ double FlatSourceDomain::calculate_total_volume_weighted_source_strength()
 {
   double source_strength = 0.0;
 #pragma omp parallel for reduction(+ : source_strength)
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     double volume = fsr.volume_;
     for (int e = 0; e < negroups_; e++) {
       source_strength += fsr.fixed_source_[e] * volume;
@@ -1035,7 +1035,7 @@ void FlatSourceDomain::convert_fixed_sources()
 // iteration)
 #pragma omp parallel for
   for (int sr = 0; sr < n_source_regions_; sr++) {
-    auto& fsr = fsr_[sr];
+    auto& fsr = material_filled_cell_instance_[sr];
     int material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
@@ -1061,7 +1061,7 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
     if (target_material_id == C_NONE ||
         cell_material_id == target_material_id) {
       int64_t source_region = source_region_offsets_[i_cell] + j;
-      fsr_[source_region].mesh_ = mesh;
+      material_filled_cell_instance_[source_region].mesh_ = mesh;
     }
   }
 }
@@ -1132,38 +1132,6 @@ void FlatSourceDomain::apply_meshes()
   }
 }
 
-uint64_t hashPair(uint32_t a, uint32_t b)
-{
-  uint64_t hash = 0xcbf29ce484222325; // FNV-1a 64-bit offset basis
-  uint64_t prime = 0x100000001b3;     // FNV-1a 64-bit prime
-
-  // Hash the first integer
-  hash ^= a;
-  hash *= prime;
-
-  // Hash the second integer
-  hash ^= b;
-  hash *= prime;
-
-  // Mix the bits a bit more
-  hash ^= hash >> 33;
-  hash *= 0xff51afd7ed558ccd;
-  hash ^= hash >> 33;
-  hash *= 0xc4ceb9fe1a85ec53;
-  hash ^= hash >> 33;
-
-  return hash;
-}
-
-int hashbin(uint32_t a, uint32_t b)
-{
-  const int n_bins = 10;
-  uint64_t hash = hashPair(a, b);
-  return hash % N_FSR_HASH_BINS;
-}
-
-int emplaces = 0;
-
 // TODO:
 // The bug here I think, (at least, it is A bug, and would explain the SHM
 // fails, but serial glory), is that the locking is done with the assumption
@@ -1184,29 +1152,24 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
 {
   // This conditional will not be triggered right now due to the
   // presence of two function prototypes, but leaving it in for later
-  FlatSourceRegion& base_fsr = fsr_[source_region];
+  FlatSourceRegion& base_fsr = material_filled_cell_instance_[source_region];
   if (base_fsr.mesh_ == C_NONE) {
     if (base_fsr.is_in_manifest_) {
-      return &fsr_manifest_[base_fsr.manifest_index_];
+      return &known_fsr_[base_fsr.manifest_index_];
     } else {
-      return &fsr_[source_region];
+      return &material_filled_cell_instance_[source_region];
     }
   }
-  
-  uint64_t hash = hashPair(source_region, bin);
+  FSRKey key = {source_region, bin};
 
   // Check if the FlatSourceRegion with this hash already exists
-  auto it = fsr_map_.find(hash);
-  if (it == fsr_map_.end()) {
-    int hash_bin = hash % N_FSR_HASH_BINS;
-    SourceNode& node = controller_.nodes_[hash_bin];
-    node.lock_.lock();
-    auto& new_map = node.new_fsr_map_;
-    auto it_new = new_map.find(hash);
-    if (it_new != new_map.end()) {
-      auto* ptr = it_new->second.get();
-      node.lock_.unlock();
-      return ptr;
+  auto it = known_fsr_map_.find(key);
+  if (it == known_fsr_map_.end()) {
+    discovered_fsr_parallel_map_.lock(key);
+    if (discovered_fsr_parallel_map_.contains(key)) {
+      FlatSourceRegion* existing_fsr = &discovered_fsr_parallel_map_[key];
+      discovered_fsr_parallel_map_.unlock(key);
+      return existing_fsr;
     }
     // Before we do anything, check if sr's match...
     GeometryState p;
@@ -1223,7 +1186,7 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
     if (sr0 != source_region) {
       source_region = sr0;
-      node.lock_.unlock();
+      discovered_fsr_parallel_map_.unlock(key);
       printf("Saved SR mismatch!\n");
       // return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this
       // actually works!
@@ -1237,13 +1200,13 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // Now we should check if the bins match....
-    Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+    Mesh* mesh = meshes_[material_filled_cell_instance_[source_region].mesh_].get();
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     int bin_r0 = rmesh->get_bin(r0);
     int bin_r1 = rmesh->get_bin(r1);
     if (bin_r0 != bin) {
       bin = bin_r0;
-      node.lock_.unlock();
+      discovered_fsr_parallel_map_.unlock(key);
       printf("Saved bin mismatch!\n");
       // return get_fsr(source_region, bin, r0, r1, ray_id, ip);
       return get_fsr(source_region, bin, r0, r1, ray_id);
@@ -1255,18 +1218,21 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     // FlatSourceRegion& new_fsr = fsr_[source_region];
     // There's no lock over this stuff!
 
-    auto result = new_map.emplace(std::make_pair(
-      hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
+    //FlatSourceRegion* new_fsr = &discovered_fsr_parallel_map_[key];
+    auto result = discovered_fsr_parallel_map_.emplace(key, &material_filled_cell_instance_[source_region]);
+    FlatSourceRegion* new_fsr = &result.first->second;
 
-    FlatSourceRegion* new_fsr = result.first->second.get();
+    //*new_fsr = material_filled_cell_instance_[source_region];
     new_fsr->source_region_ = source_region;
     new_fsr->bin_ = bin;
-    node.lock_.unlock();
+    discovered_fsr_parallel_map_.unlock(key);
+
+    //auto result = new_map.emplace(std::make_pair(
+     //hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
 
 
-
-    if (fsr_[source_region].mesh_ != C_NONE) {
-      Mesh* mesh = meshes_[fsr_[source_region].mesh_].get();
+    if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
+      Mesh* mesh = meshes_[material_filled_cell_instance_[source_region].mesh_].get();
       RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
       StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
       hitmap[mesh_index[1] - 1][mesh_index[0] - 1] += 1;
@@ -1327,37 +1293,37 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     return new_fsr;
   } else {
     // Otherwise, access the existing FlatSourceRegion
-    return &fsr_manifest_[it->second];
+    return &known_fsr_[it->second];
   }
 }
 
 void FlatSourceDomain::swap_flux(void)
 {
 #pragma omp parallel for
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     fsr.scalar_flux_old_.swap(fsr.scalar_flux_new_);
   }
 }
 
 void FlatSourceDomain::mesh_hash_grid_add(
-  int mesh_index, int bin, uint64_t hash)
+  int mesh_index, int bin, FSRKey key)
 {
   Mesh* mesh = meshes_[mesh_index].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
   StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
   MeshHashIndex mhi(mesh_index, ijk);
-  mesh_hash_grid_[mhi].push_back(hash);
+  mesh_hash_grid_[mhi].push_back(key);
 }
 
-vector<uint64_t> FlatSourceDomain::mesh_hash_grid_get_neighbors(
+vector<FlatSourceDomain::FSRKey> FlatSourceDomain::mesh_hash_grid_get_neighbors(
   int mesh_index, int bin)
 {
   Mesh* mesh = meshes_[mesh_index].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
   StructuredMesh::MeshIndex ijk_base = rmesh->get_indices_from_bin(bin);
 
-  vector<uint64_t> neighbors;
+  vector<FSRKey> neighbors;
   // Insert up, down, north, south, east, and west neighbors (if they exist!)
   if (ijk_base[2] < rmesh->shape_[2]) {
     StructuredMesh::MeshIndex ijk = ijk_base;
@@ -1417,7 +1383,7 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
   StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
 
   // Get the neighbors of the FSR
-  vector<uint64_t> neighbors = mesh_hash_grid_get_neighbors(mesh_index, bin);
+  vector<FSRKey> neighbors = mesh_hash_grid_get_neighbors(mesh_index, bin);
 
   if (neighbors.size() == 0) {
     printf("mesh index = %d, bin = %d, Bins ijk = %d %d %d, sr = %ld\n",
@@ -1428,12 +1394,14 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
   double largest_volume = 0.0;
   int64_t largest_fsr_index = C_NONE;
 
-  for (auto& hash : neighbors) {
-    int64_t neighbor_fsr_index = fsr_map_[hash];
-    FlatSourceRegion& neighbor_fsr = fsr_manifest_[neighbor_fsr_index];
+  for (auto& key : neighbors) {
+    int64_t neighbor_fsr_index = known_fsr_map_[key];
+    FlatSourceRegion& neighbor_fsr = known_fsr_[neighbor_fsr_index];
     if (fsr.source_region_ == neighbor_fsr.source_region_) {
       double vol = neighbor_fsr.volume_t_;
-      if (vol > largest_volume && vol > fsr.volume_t_ * volume_merging_threshold_ && !neighbor_fsr.is_merged_ && !neighbor_fsr.is_consumer_) {
+      if (vol > largest_volume &&
+          vol > fsr.volume_t_ * volume_merging_threshold_ &&
+          !neighbor_fsr.is_merged_ && !neighbor_fsr.is_consumer_) {
         largest_volume = vol;
         largest_fsr_index = neighbor_fsr_index;
       }
@@ -1457,14 +1425,14 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   // Get the largest neighbor to the FSR
   int64_t largest_fsr_index = get_largest_neighbor(fsr);
   if (largest_fsr_index == C_NONE) {
-    //printf("Merging of fsr failed\n");
-    //fatal_error("Failed to merge small volume FSR");
+    // printf("Merging of fsr failed\n");
+    // fatal_error("Failed to merge small volume FSR");
     return false;
   }
 
-  FlatSourceRegion& largest_fsr = fsr_manifest_[largest_fsr_index];
- // printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n",
- //   fsr.volume_t_, largest_fsr.volume_t_);
+  FlatSourceRegion& largest_fsr = known_fsr_[largest_fsr_index];
+  // printf("Merging fsr of volume %.3le with larger FSR with volume %.3le\n",
+  //   fsr.volume_t_, largest_fsr.volume_t_);
 
   // Merge FSR
   largest_fsr.merge(fsr);
@@ -1474,8 +1442,8 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   fsr.is_merged_ = true;
 
   // Point FSR hash to the FSR that it merged with
-  uint64_t hash = hashPair(fsr.source_region_, fsr.bin_);
-  fsr_map_[hash] = largest_fsr_index;
+  FSRKey key = {fsr.source_region_, fsr.bin_};
+  known_fsr_map_[key] = largest_fsr_index;
 
   // Do we need to do anything with the deleted FSR?
   return true;
@@ -1488,8 +1456,8 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
   int n_merges = 0;
   int n_prev_merges = 0;
   // #pragma omp parallel for reduction(+:n_merges, n_prev_merges)
-  for (int i = 0; i < fsr_manifest_.size(); i++) {
-    FlatSourceRegion& fsr = fsr_manifest_[i];
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
     // We can lock the base source region, as no two FSRs that are
     // not from the same source region will ever interact.
     // fsr_[fsr.source_region_].lock_.lock();
@@ -1511,48 +1479,66 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
       if (merge_success) {
         n_merges++;
         n_subdivided_source_regions_--;
-       // printf(
-     //     "Merge of FSR at %d index with volume = %.9le\n", i, fsr.volume_t_);
-      } else
-      {
+        // printf(
+        //     "Merge of FSR at %d index with volume = %.9le\n", i,
+        //     fsr.volume_t_);
+      } else {
         fsr.is_merge_failed_ = true;
       }
     }
     // fsr_[fsr.source_region_].lock_.unlock();
   }
-  //printf("n_merges = %d, total merges to date = %d\n", n_merges,
-  //  n_merges + n_prev_merges);
+  // printf("n_merges = %d, total merges to date = %d\n", n_merges,
+  //   n_merges + n_prev_merges);
   return n_merges + n_prev_merges;
 }
 
 void FlatSourceDomain::update_fsr_manifest(void)
 {
-  for (int bin = 0; bin < N_FSR_HASH_BINS; bin++) {
-    SourceNode& node = controller_.nodes_[bin];
-    auto& map = node.new_fsr_map_;
-    for (auto& pair : map) {
-      int mesh_id = pair.second->mesh_;
-      mesh_hash_grid_add(mesh_id, pair.second->bin_, pair.first);
+  // --------------------------------------------------------------------------!
+  // Copy discovered mesh-subdivided FSRs into the known FSR vector and map
+  // --------------------------------------------------------------------------!
 
-      fsr_manifest_.push_back(*pair.second.get());
-      fsr_map_[pair.first] = fsr_manifest_.size() - 1;
+  int64_t n_new_fsrs =
+    discovered_fsr_parallel_map_.move_contents_into_vector(known_fsr_);
 
-      n_subdivided_source_regions_++;
-      discovered_source_regions_++;
+  for (int64_t i = known_fsr_.size() - n_new_fsrs; i < known_fsr_.size(); i++) {
+    // Store the recently discovered FSRs in the known FSR map
+    FSRKey key = {known_fsr_[i].source_region_, known_fsr_[i].bin_};
+    known_fsr_map_[key] = i;
 
-      // Store hash of this FSR into the hash grid for
-      // lookup later on if we need to merge low volume FSRs
-    }
-    map.clear();
+    // Add the FSR to the mesh hash grid
+    int64_t mesh_id = known_fsr_[i].mesh_;
+    int64_t bin = known_fsr_[i].bin_;
+    mesh_hash_grid_add(mesh_id, bin, key);
   }
 
-  for (int sr = 0; sr < n_source_regions_; sr++) {
-    FlatSourceRegion& fsr = fsr_[sr];
-    if (fsr.position_recorded_) {
-      if (!fsr.is_in_manifest_) {
-        fsr_manifest_.push_back(fsr);
-        fsr.is_in_manifest_ = true;
-        fsr.manifest_index_ = fsr_manifest_.size() - 1;
+  // Bookkeeping to keep track of total source regions
+  n_subdivided_source_regions_ += n_new_fsrs;
+  discovered_source_regions_ += n_new_fsrs;
+
+  // --------------------------------------------------------------------------!
+  // Copy discovered base FSRs into the known FSR vector
+  // --------------------------------------------------------------------------!
+
+  // For non-subdivided FSRS (i.e., FSRs with no mesh assigned to them),
+  // we need to move them all from the base FSR vector to the
+  // known FSR vector and mark them as discovered. They are not added
+  // to the map, as they do not have a mesh bin or hash key.
+  for (int sr = 0; sr < material_filled_cell_instance_.size(); sr++) {
+    FlatSourceRegion& base_fsr = material_filled_cell_instance_[sr];
+    if (base_fsr.position_recorded_) {
+      if (!base_fsr.is_in_manifest_) {
+        // If the FSR has been hit and has not yet been added to the list
+        // of known physical FSRs, add it to the vector
+        known_fsr_.push_back(base_fsr);
+
+        // After copying the FSR into the known FSR vector, mark it as
+        // being as such and point it to the correct location in the vector
+        base_fsr.is_in_manifest_ = true;
+        base_fsr.manifest_index_ = known_fsr_.size() - 1;
+
+        // Bookkeeping to keep track of total source regions
         n_subdivided_source_regions_++;
         discovered_source_regions_++;
       }

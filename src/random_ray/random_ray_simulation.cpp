@@ -255,8 +255,8 @@ void RandomRaySimulation::simulate()
 
   int non_zero = 0;
   for (int sr = 0; sr < domain_.n_source_regions_; sr++) {
-    int mesh = domain_.fsr_[sr].mesh_;
-    int material_idx = domain_.fsr_[sr].material_;
+    int mesh = domain_.material_filled_cell_instance_[sr].mesh_;
+    int material_idx = domain_.material_filled_cell_instance_[sr].material_;
     std::string name = model::materials[material_idx]->name_;
     if (mesh != C_NONE)
       non_zero++;
@@ -304,7 +304,7 @@ void RandomRaySimulation::simulate()
     // the same base source region
     int64_t merged_fsrs = domain_.check_for_small_FSRs();
     
-    int n_mesh_fsrs = domain_.fsr_map_.size();
+    int n_mesh_fsrs = domain_.known_fsr_map_.size();
     //printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
     /*
     for( int i = 0 ; i < 51; i++) {

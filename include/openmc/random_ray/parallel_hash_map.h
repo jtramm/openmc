@@ -5,9 +5,11 @@
 
 #include <memory>
 
+namespace openmc {
+
 template<typename KeyType, typename ValueType, typename HashFunctor,
   typename EqualFunctor>
-class ParallelHashMap {
+class ParallelMap {
 
   struct Bucket {
     OpenMPMutex lock_;
@@ -17,18 +19,18 @@ class ParallelHashMap {
   };
 
 public:
-  ParallelHashMap(int n_buckets = 1000) : buckets_(n_buckets) {}
+  ParallelMap(int n_buckets = 1000) : buckets_(n_buckets) {}
 
-  lock(const KeyType& key)
+  void lock(const KeyType& key)
   {
     Bucket& bucket = get_bucket(key);
-    bucket.lock();
+    bucket.lock_.lock();
   }
 
-  unlock(const KeyType& key)
+  void unlock(const KeyType& key)
   {
     Bucket& bucket = get_bucket(key);
-    bucket.unlock();
+    bucket.lock_.unlock();
   }
 
   void clear()
@@ -47,10 +49,17 @@ public:
   ValueType& operator[](const KeyType& key)
   {
     Bucket& bucket = get_bucket(key);
-    auto& uptr = bucket.map_[key];
-
-    return *uptr->get();
+    return *bucket.map_[key].get();
   }
+
+template<typename K, typename V>
+std::pair<typename std::unordered_map<KeyType, std::unique_ptr<ValueType>, HashFunctor, EqualFunctor>::iterator, bool>
+emplace(K&& key, V&& value) {
+    Bucket& bucket = get_bucket(key);
+    // Attempt to emplace the new element into the unordered_map within the bucket.
+    auto result = bucket.map_.emplace(std::forward<K>(key), std::make_unique<ValueType>(std::forward<V>(value)));
+    return result;
+}
 
   // Copies everything into a vector, clears all buckets
   int64_t move_contents_into_vector(vector<ValueType>& v)
@@ -69,11 +78,13 @@ public:
 private:
   Bucket& get_bucket(const KeyType& key)
   {
-    buckets_[hash(key) % buckets_.size()];
+    return buckets_[hash(key) % buckets_.size()];
   }
 
   HashFunctor hash;
   vector<Bucket> buckets_;
 };
+
+} // namespace openmc
 
 #endif // OPENMC_RANDOM_RAY_PARALLEL_HASH_MAP_H

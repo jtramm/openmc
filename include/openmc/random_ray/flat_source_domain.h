@@ -7,10 +7,10 @@
 #include "openmc/mesh.h"
 #include "openmc/openmp_interface.h"
 #include "openmc/position.h"
+#include "openmc/random_ray/parallel_hash_map.h"
 #include "openmc/source.h"
 
 namespace openmc {
-#define N_FSR_HASH_BINS 1000
 
 //----------------------------------------------------------------------------
 // Helper Structs
@@ -29,8 +29,21 @@ struct TallyTask {
   {}
 };
 
+// Actually -- since we want to be able to use the base as an active
+// FSR when we are discovering them in the first iteration, it is probably
+// best to just get rid of the Base and make everything the same. Much less
+// confusing than having two classes, where the second barely adds anything.
+
+// I am drawn to the idea of not having to have ANY base FSRs, and just
+// do everything dynamic, but it is very true that initializing the FSRs
+// individually in a bottom up manner is going to be stupid and expensive.
+// It's fine if it was needed, but I don't think there are going to be
+// too many cases where only a few percent of FSRs are actually physical
+// (absent any craziness with mesh overlaying)
+
 class FlatSourceRegion {
 public:
+FlatSourceRegion() = default;
   FlatSourceRegion(int negroups)
     : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f),
       scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f),
@@ -46,9 +59,10 @@ public:
       scalar_flux_old_(other.scalar_flux_old_),
       scalar_flux_final_(other.scalar_flux_final_), source_(other.source_),
       fixed_source_(other.fixed_source_), tally_task_(other.tally_task_),
-      is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_), is_consumer_(other.is_consumer_),
-      manifest_index_(other.manifest_index_), no_hit_streak_(no_hit_streak_),
-      source_region_(other.source_region_), bin_(other.bin_)
+      is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_),
+      is_consumer_(other.is_consumer_), manifest_index_(other.manifest_index_),
+      no_hit_streak_(other.no_hit_streak_), source_region_(other.source_region_),
+      bin_(other.bin_)
   {}
 
   void merge(FlatSourceRegion& other);
@@ -83,30 +97,6 @@ public:
   vector<vector<TallyTask>> tally_task_;
 
 }; // class FlatSourceRegion
-
-// The source node receives the FSR ID + Mesh Bin index. It locks, and then
-// needs to decide if it should allocate another FSR or if there is one already
-// present that works. Bascially, it needs some sort of map? Key + value pair
-// should be the key is the hash and the value is the FSR itself.
-class SourceNode {
-public:
-  SourceNode() = default;
-
-  OpenMPMutex lock_;
-
-  std::unordered_map<uint64_t, unique_ptr<FlatSourceRegion>>
-    new_fsr_map_; // key is 64-bit hash, value is FSR itself
-
-}; // class HashSourceController
-
-class HashSourceController {
-public:
-  HashSourceController(int n_bins) : nodes_(n_bins) {};
-  HashSourceController() : nodes_(N_FSR_HASH_BINS) {};
-
-  vector<SourceNode> nodes_;
-
-}; // class HashSourceController
 
 /*
  * The FlatSourceDomain class encompasses data and methods for storing
@@ -155,6 +145,14 @@ struct MeshHashIndexEqual {
 
 class FlatSourceDomain {
 public:
+  // Doing source/mesh prep up front:
+  // maximize both init performance as well
+  // as avoiding use of the map long term, but with the down
+  struct FSRKey {
+    int64_t mfci;
+    int64_t mesh_bin;
+  };
+
   //----------------------------------------------------------------------------
   // Constructors
   FlatSourceDomain();
@@ -194,8 +192,8 @@ public:
   FlatSourceRegion* get_fsr(
     int64_t source_region, int bin, Position r0, Position r1, int ray_id);
   void update_fsr_manifest(void);
-  void mesh_hash_grid_add(int mesh_index, int bin, uint64_t hash);
-  vector<uint64_t> mesh_hash_grid_get_neighbors(int mesh_index, int bin);
+  void mesh_hash_grid_add(int mesh_index, int bin, FSRKey key);
+  vector<FSRKey> mesh_hash_grid_get_neighbors(int mesh_index, int bin);
   int64_t get_largest_neighbor(FlatSourceRegion& fsr);
   bool merge_fsr(FlatSourceRegion& fsr);
   int64_t check_for_small_FSRs(void);
@@ -212,8 +210,6 @@ public:
 
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
 
-  std::vector<FlatSourceRegion> fsr_;
-
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells
   std::vector<int64_t> source_region_offsets_;
@@ -221,14 +217,45 @@ public:
   static std::unordered_map<int32_t, int32_t> mesh_map_;
   static vector<unique_ptr<Mesh>> meshes_;
 
-  HashSourceController controller_;
   int64_t n_subdivided_source_regions_ {0};
   int64_t discovered_source_regions_ {0};
   vector<vector<int>> hitmap;
 
-  vector<FlatSourceRegion> fsr_manifest_;
+  // It would be nice to get around this one, as its sort of useless
+  // but we need it in order to accelerate the lookup when there is no
+  // mesh overlay. I.e., to skip all the unordered_map stuff.
+  // Oh, actually, wait, this is bad. We can't really get by
+  // with a base class here, as these get used the first iteration.
+  vector<FlatSourceRegion> material_filled_cell_instance_;
 
-  std::unordered_map<uint64_t, int64_t> fsr_map_; // key is 64-bit hash, value is FSR itself
+  // Hypothetically, I could get rid of the above if just using teh same
+  // mapping logic with 0 for the bin. Downside is slowness when there
+  // is no mesh present.
+
+  vector<FlatSourceRegion> known_fsr_;
+  std::unordered_map<FSRKey, int64_t> known_fsr_map_;
+
+  struct HashFunctor {
+    std::size_t operator()(const FSRKey& key) const
+    {
+      return 1;
+      std::size_t h1 = std::hash<int64_t>{}(key.mfci);
+      std::size_t h2 = std::hash<int64_t>{}(key.mesh_bin);
+      return h1 ^ (h2 << 1);
+    }
+  };
+
+  struct EqualFunctor {
+    bool operator()(const FSRKey& lhs,
+      const FSRKey& rhs) const
+    {
+      return lhs.mfci == rhs.mfci && lhs.mesh_bin == rhs.mesh_bin;
+    }
+  };
+
+  ParallelMap<FSRKey, FlatSourceRegion, HashFunctor,
+    EqualFunctor>
+    discovered_fsr_parallel_map_;
 
   // This is a 5D vector, with dimensions:
   // 1. mesh index
@@ -240,11 +267,11 @@ public:
   // three dimensions are serialized, the 5th (hash) dimension
   // is left as a vector as it is dynamically updated.
   // vector<vector<vector<unt64_t>>> mesh_hash_grid_;
-  std::unordered_map<MeshHashIndex, std::vector<uint64_t>, MeshHashIndexHash,
+  std::unordered_map<MeshHashIndex, std::vector<FSRKey>, MeshHashIndexHash,
     MeshHashIndexEqual>
     mesh_hash_grid_;
 
-      // This is the number of hits that the FSR needs
+  // This is the number of hits that the FSR needs
   // to get in order to be counted as a "low hitter".
   // I.e., a value of 1 means that only getting hit 0 or 1
   // times in an iteration will mean that that iteration
@@ -261,7 +288,6 @@ public:
   // that FSRs will not be merged unless the larger FSR
   // is at least 10x bigger than the small one.
   const double volume_merging_threshold_ = 10.0;
-
 
 }; // class FlatSourceDomain
 
