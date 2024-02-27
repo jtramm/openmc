@@ -807,7 +807,8 @@ void FlatSourceDomain::output_to_vtk()
                 "Only regular meshes are supported for random ray tracing.");
             int bin = rmesh->get_bin(p.r());
             StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
-            hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
+            //hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
+            hit_count = 0;
             region = get_fsr(source_region_idx, bin, p.r(), p.r(), 0);
           } else {
             region = get_fsr(source_region_idx, 0, p.r(), p.r(), 0);
@@ -1127,11 +1128,11 @@ void FlatSourceDomain::apply_meshes()
     }
   } // End loop over source region meshes
 
-  if (meshes_.size() > 0) {
+ /*  if (meshes_.size() > 0) {
     int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
     int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
     hitmap = vector<vector<int>>(y, vector<int>(x, 0));
-  }
+  } */
 }
 
 // TODO:
@@ -1231,13 +1232,13 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     //auto result = new_map.emplace(std::make_pair(
      //hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
 
-
-    if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
+  // TODO: Bring back the hitmap?
+/*     if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
       Mesh* mesh = meshes_[material_filled_cell_instance_[source_region].mesh_].get();
       RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
       StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
       hitmap[mesh_index[1] - 1][mesh_index[0] - 1] += 1;
-    }
+    } */
 
     /*
     if( mesh_index[1]-1 ==0 && mesh_index[0]-1 == 0)

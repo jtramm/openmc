@@ -240,7 +240,7 @@ public:
 
   int64_t n_subdivided_source_regions_ {0};
   int64_t discovered_source_regions_ {0};
-  vector<vector<int>> hitmap;
+  //vector<vector<int>> hitmap;
 
   // It would be nice to get around this one, as its sort of useless
   // but we need it in order to accelerate the lookup when there is no
