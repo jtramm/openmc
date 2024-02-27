@@ -42,8 +42,6 @@ void openmc_run_random_ray()
   // End main simulation timer
   openmc::simulation::time_total.stop();
 
-  sim.domain_.discovered_fsr_parallel_map_.load_report();
-
   // Finalize OpenMC
   openmc_simulation_finalize();
 

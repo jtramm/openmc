@@ -1309,13 +1309,13 @@ void FlatSourceDomain::swap_flux(void)
 }
 
 void FlatSourceDomain::mesh_hash_grid_add(
-  int mesh_index, int bin, FSRKey key)
+  int mesh_index, int bin, FSRKey fsr_key)
 {
   Mesh* mesh = meshes_[mesh_index].get();
   RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
   StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
-  MeshHashIndex mhi(mesh_index, ijk);
-  mesh_hash_grid_[mhi].push_back(key);
+  RegularMeshKey rm_key(mesh_index, ijk);
+  mesh_hash_grid_[rm_key].push_back(fsr_key);
 }
 
 vector<FSRKey> FlatSourceDomain::mesh_hash_grid_get_neighbors(
@@ -1330,43 +1330,43 @@ vector<FSRKey> FlatSourceDomain::mesh_hash_grid_get_neighbors(
   if (ijk_base[2] < rmesh->shape_[2]) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[2]++;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& up = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& up = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), up.begin(), up.end());
   }
   if (ijk_base[2] > 1) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[2]--;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& down = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& down = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), down.begin(), down.end());
   }
   if (ijk_base[1] < rmesh->shape_[1]) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[1]++;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& north = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& north = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), north.begin(), north.end());
   }
   if (ijk_base[1] > 1) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[1]--;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& south = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& south = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), south.begin(), south.end());
   }
   if (ijk_base[0] < rmesh->shape_[0]) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[0]++;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& east = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& east = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), east.begin(), east.end());
   }
   if (ijk_base[0] > 1) {
     StructuredMesh::MeshIndex ijk = ijk_base;
     ijk[0]--;
-    MeshHashIndex mhi(mesh_index, ijk);
-    auto& west = mesh_hash_grid_[mhi];
+    RegularMeshKey rm_key(mesh_index, ijk);
+    auto& west = mesh_hash_grid_[rm_key];
     neighbors.insert(neighbors.end(), west.begin(), west.end());
   }
   return neighbors;
@@ -1506,7 +1506,6 @@ void FlatSourceDomain::update_fsr_manifest(void)
 
   int64_t n_new_fsrs =
     discovered_fsr_parallel_map_.move_contents_into_vector(known_fsr_);
-
   for (int64_t i = known_fsr_.size() - n_new_fsrs; i < known_fsr_.size(); i++) {
     // Store the recently discovered FSRs in the known FSR map
     FSRKey key(known_fsr_[i].source_region_, known_fsr_[i].bin_);

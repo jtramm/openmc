@@ -63,7 +63,6 @@ public:
   // Copies everything into a vector, clears all buckets
   int64_t move_contents_into_vector(vector<ValueType>& v)
   {
-    load_report();
     int64_t n_new = 0;
     for (auto& bucket : buckets_) {
       for (auto& pair : bucket.map_) {
@@ -73,21 +72,6 @@ public:
       bucket.map_.clear();
     }
     return n_new;
-  }
-
-  void load_report()
-  {
-    int min = std::numeric_limits<int>::max();
-    int max = 0;
-    int total = 0;
-    for (auto& bucket : buckets_) {
-      int n = bucket.map_.size();
-      min = std::min(min, n);
-      max = std::max(max, n);
-      total += n;
-    }
-    printf("ParallelMap load report: min=%d, max=%d, avg=%f\n", min, max,
-      total / (double)buckets_.size());
   }
 
 private:

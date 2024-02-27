@@ -105,43 +105,40 @@ public:
  * random ray simulation domain.
  */
 
-struct MeshHashIndex {
+// This is the standard hash combine function from boost
+// https://www.boost.org/doc/libs/1_55_0/doc/html/hash/reference.html#boost.hash_combine
+inline void hash_combine(size_t& seed, const size_t& v)
+{
+  seed ^= (v + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+}
+
+class RegularMeshKey {
+public:
   int mesh_id;
   StructuredMesh::MeshIndex ijk;
   // Add a constructor that takes an int and a StructuredMesh::MeshIndex
-  MeshHashIndex(int mesh_id, StructuredMesh::MeshIndex ijk)
+  RegularMeshKey(int mesh_id, StructuredMesh::MeshIndex ijk)
     : mesh_id(mesh_id), ijk(ijk)
   {}
-  MeshHashIndex() = default;
-};
+  RegularMeshKey() = default;
 
-// Custom hash function
-struct MeshHashIndexHash {
-  std::size_t operator()(const MeshHashIndex& mhi) const
+  bool operator==(const RegularMeshKey& other) const
   {
-    std::size_t hash = std::hash<int>()(mhi.mesh_id);
-    hash_combine(hash, std::hash<int>()(mhi.ijk[0]));
-    hash_combine(hash, std::hash<int>()(mhi.ijk[1]));
-    hash_combine(hash, std::hash<int>()(mhi.ijk[2]));
-    return hash;
+    return mesh_id == other.mesh_id && ijk[0] == other.ijk[0] &&
+           ijk[1] == other.ijk[1] && ijk[2] == other.ijk[2];
   }
 
-private:
-  // Combine the hash values of multiple variables
-  template<typename T>
-  void hash_combine(std::size_t& seed, const T& value) const
-  {
-    seed ^= std::hash<T>()(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-  }
-};
-
-// Custom equality function
-struct MeshHashIndexEqual {
-  bool operator()(const MeshHashIndex& mhi1, const MeshHashIndex& mhi2) const
-  {
-    return mhi1.mesh_id == mhi2.mesh_id && mhi1.ijk[0] == mhi2.ijk[0] &&
-           mhi1.ijk[1] == mhi2.ijk[1] && mhi1.ijk[2] == mhi2.ijk[2];
-  }
+  struct HashFunctor {
+    size_t operator()(const RegularMeshKey& key) const
+    {
+      size_t seed = 0;
+      hash_combine(seed, key.mesh_id);
+      hash_combine(seed, key.ijk[0]);
+      hash_combine(seed, key.ijk[1]);
+      hash_combine(seed, key.ijk[2]);
+      return seed;
+    }
+  };
 };
 
 class FSRKey {
@@ -153,11 +150,13 @@ public:
     : mfci(source_region), mesh_bin(bin)
   {}
 
+  // Equality operator required by the unordered_map
   bool operator==(const FSRKey& other) const
   {
     return mfci == other.mfci && mesh_bin == other.mesh_bin;
   }
 
+  // Hashing functor required by the unordered_map
   struct HashFunctor {
     size_t operator()(const FSRKey& key) const
     {
@@ -165,11 +164,6 @@ public:
       hash_combine(seed, key.mfci);
       hash_combine(seed, key.mesh_bin);
       return seed;
-    }
-
-    void hash_combine(size_t& seed, const size_t& v) const
-    {
-      seed ^= (v + 0x9e3779b9 + (seed << 6) + (seed >> 2));
     }
   };
 };
@@ -246,7 +240,7 @@ public:
 
   int64_t n_subdivided_source_regions_ {0};
   int64_t discovered_source_regions_ {0};
-  //vector<vector<int>> hitmap;
+  // vector<vector<int>> hitmap;
 
   // It would be nice to get around this one, as its sort of useless
   // but we need it in order to accelerate the lookup when there is no
@@ -275,8 +269,8 @@ public:
   // three dimensions are serialized, the 5th (hash) dimension
   // is left as a vector as it is dynamically updated.
   // vector<vector<vector<unt64_t>>> mesh_hash_grid_;
-  std::unordered_map<MeshHashIndex, std::vector<FSRKey>, MeshHashIndexHash,
-    MeshHashIndexEqual>
+  std::unordered_map<RegularMeshKey, std::vector<FSRKey>,
+    RegularMeshKey::HashFunctor>
     mesh_hash_grid_;
 
   // This is the number of hits that the FSR needs
