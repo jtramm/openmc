@@ -1460,6 +1460,8 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
   // #pragma omp parallel for reduction(+:n_merges, n_prev_merges)
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
+    if(fsr.mesh_ == C_NONE)
+      continue;
     // We can lock the base source region, as no two FSRs that are
     // not from the same source region will ever interact.
     // fsr_[fsr.source_region_].lock_.lock();
