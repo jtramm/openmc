@@ -161,9 +161,15 @@ public:
   struct HashFunctor {
     size_t operator()(const FSRKey& key) const
     {
-      size_t h1 = std::hash<int64_t>()(key.mfci);
-      size_t h2 = std::hash<int64_t>()(key.mesh_bin);
-      return h1 ^ (h2 << 1);
+      size_t seed = 0;
+      hash_combine(seed, key.mfci);
+      hash_combine(seed, key.mesh_bin);
+      return seed;
+    }
+
+    void hash_combine(size_t& seed, const size_t& v) const
+    {
+      seed ^= (v + 0x9e3779b9 + (seed << 6) + (seed >> 2));
     }
   };
 };
