@@ -977,6 +977,8 @@ double FlatSourceDomain::calculate_total_volume_weighted_source_strength()
 #pragma omp parallel for reduction(+ : source_strength)
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
+    if (fsr.is_merged_)
+      continue;
     double volume = fsr.volume_;
     for (int e = 0; e < negroups_; e++) {
       source_strength += fsr.fixed_source_[e] * volume;
