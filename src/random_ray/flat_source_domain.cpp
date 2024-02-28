@@ -114,6 +114,38 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   if (source_region_id != n_source_regions_) {
     fatal_error("Unexpected number of source regions");
   }
+
+  // Initialize tally volumes
+  tally_volumes_.resize(model::tallies.size());
+  for (int i = 0; i < model::tallies.size(); i++) {
+    tally_volumes_[i] = model::tallies[i]->results();
+  }
+  // Initialize tally volumes
+  tally_.resize(model::tallies.size());
+  for (int i = 0; i < model::tallies.size(); i++) {
+    tally_[i] = model::tallies[i]->results();
+  }
+
+  // Compute simulation domain volume based on ray source
+  IndependentSource* is =
+    dynamic_cast<IndependentSource*>(RandomRay::ray_source_.get());
+  SpatialDistribution* space_dist = is->space();
+  SpatialBox* sb = dynamic_cast<SpatialBox*>(space_dist);
+  Position dims = sb->upper_right() - sb->lower_left();
+  simulation_volume_ = dims.x * dims.y * dims.z;
+}
+
+// Set the 3D xtensor to zero for all tallies
+void FlatSourceDomain::reset_tally_volumes()
+{
+#pragma omp parallel for
+  for (auto& tensor : tally_volumes_) {
+    tensor.fill(0.0); // Set all elements of the tensor to 0.0
+  }
+#pragma omp parallel for
+  for (auto& tensor : tally_) {
+    tensor.fill(0.0); // Set all elements of the tensor to 0.0
+  }
 }
 
 void FlatSourceDomain::batch_reset()
@@ -581,8 +613,9 @@ void FlatSourceDomain::initialize_tally_tasks(FlatSourceRegion& fsr)
           // If a valid tally, filter, and score cobination has been
           // found, then add it to the list of tally tasks for this source
           // element.
-          fsr.tally_task_[e].emplace_back(
-            i_tally, filter_index, score_index, score_bin);
+          TallyTask task(i_tally, filter_index, score_index, score_bin);
+          fsr.tally_task_[e].push_back(task);
+          fsr.volume_task_.insert(task);
         }
       }
     }
@@ -605,29 +638,8 @@ void FlatSourceDomain::random_ray_tally()
 {
   openmc::simulation::time_tallies.start();
 
-  double total_volume = 0.0;
-#pragma omp parallel for reduction(+ : total_volume)
-  for (int i = 0; i < known_fsr_.size(); i++) {
-    FlatSourceRegion& fsr = known_fsr_[i];
-    if (fsr.is_merged_)
-      continue;
-    total_volume += fsr.volume_;
-  }
-
-  // Compute the volume weighted total strength of fixed sources throughout
-  // the domain using up to date stochastic source region volumes. Note that
-  // this value is different than the sum of the user input IndependentSource
-  // object strengths, as the raw user input strengths do not account for the
-  // volumes of each source. Computing this quantity is useful for normalizing
-  // output in the same manner as would be expected in Monte Carlo mode.
-  double inverse_source_strength = 1.0;
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    inverse_source_strength =
-      1.0 / calculate_total_volume_weighted_source_strength();
-    printf("Inverse source strength: %.6le\n", inverse_source_strength);
-        inverse_source_strength =
-     1.0 ;
-  }
+  // Reset our tally volumes to zero
+  reset_tally_volumes();
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -644,17 +656,17 @@ void FlatSourceDomain::random_ray_tally()
     FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
-    double volume = 60.0 * 60.0 * 100.0 * fsr.volume_;
-    double factor = volume * inverse_source_strength;
+    double volume = fsr.volume_ * simulation_volume_;
     double material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
-      double flux = fsr.scalar_flux_new_[e] * factor/1000.0;
+      double flux = fsr.scalar_flux_new_[e] * volume;
       for (auto& task : fsr.tally_task_[e]) {
         double score;
         switch (task.score_type) {
 
         case SCORE_FLUX:
-          score = flux;
+          score =
+            flux; // This is not right, as I need to divide by total volume
           break;
 
         case SCORE_TOTAL:
@@ -683,12 +695,50 @@ void FlatSourceDomain::random_ray_tally()
           break;
         }
         Tally& tally {*model::tallies[task.tally_idx]};
+        if (task.score_type == SCORE_FLUX) {
 #pragma omp atomic
-        tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
-          score;
+          tally_[task.tally_idx](
+            task.filter_idx, task.score_idx, TallyResult::VALUE) += score;
+        } else {
+#pragma omp atomic
+          tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
+            score;
+        }
+      }
+    } // end energy group loop
+    for (const auto& task : fsr.volume_task_) {
+      if (task.score_type == SCORE_FLUX) {
+#pragma omp atomic
+        tally_volumes_[task.tally_idx](
+          task.filter_idx, task.score_idx, TallyResult::VALUE) += volume;
+      }
+    }
+  } // end FSR loop
+
+#pragma omp parallel for
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
+    if (fsr.is_merged_)
+      continue;
+    for (int e = 0; e < negroups_; e++) {
+      for (auto& task : fsr.tally_task_[e]) {
+        if (task.score_type == SCORE_FLUX) {
+          Tally& tally {*model::tallies[task.tally_idx]};
+          double vol_flux = tally_[task.tally_idx](
+            task.filter_idx, task.score_idx, TallyResult::VALUE);
+          double vol = tally_volumes_[task.tally_idx](
+            task.filter_idx, task.score_idx, TallyResult::VALUE);
+          if (vol > 0.0) {
+#pragma omp atomic
+            tally.results_(task.filter_idx, task.score_idx,
+              TallyResult::VALUE) += vol_flux / vol;
+          }
+        }
       }
     }
   }
+
+  openmc::simulation::time_tallies.stop();
 }
 
 // TODO: Make this work for AOS...
@@ -1264,8 +1314,8 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
       source_region = sr0;
       discovered_fsr_parallel_map_.unlock(key);
       printf("Saved SR mismatch!\n");
-      // return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow -- this
-      // actually works!
+      // return get_fsr(source_region, bin, r0, r1, ray_id, ip); // Wow --
+      // this actually works!
 
       return get_fsr(
         source_region, bin, r0, r1, ray_id); // Wow -- this actually works!
@@ -1310,12 +1360,13 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     // hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
 
     // TODO: Bring back the hitmap?
-    /*     if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
-          Mesh* mesh =
+    /*     if (material_filled_cell_instance_[source_region].mesh_ != C_NONE)
+       { Mesh* mesh =
        meshes_[material_filled_cell_instance_[source_region].mesh_].get();
           RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
           StructuredMesh::MeshIndex mesh_index =
-       rmesh->get_indices_from_bin(bin); hitmap[mesh_index[1] - 1][mesh_index[0]
+       rmesh->get_indices_from_bin(bin); hitmap[mesh_index[1] -
+       1][mesh_index[0]
        - 1] += 1;
         } */
 
@@ -1344,15 +1395,16 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
       StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
       printf("source region = %ld, bin = %d, index x = %d, index y = %d\n",
         source_region, bin, mesh_index[0], mesh_index[1]);
-      printf("Ray id = %d, position r0 = (%f, %f, %f), position r1 = (%f, %f, "
+      printf("Ray id = %d, position r0 = (%f, %f, %f), position r1 = (%f, %f,
+    "
              "%f) pi position = (%f, %f, %f) length = %.6le\n",
         ray_id, r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, ip.r().x, ip.r().y,
         ip.r().z, (r1 - r0).norm());
       int bin_r0 = rmesh->get_bin(r0);
       int bin_r1 = rmesh->get_bin(r1);
       int bin_ip = rmesh->get_bin(ip.r());
-      printf("bin r0 = %d, bin r1 = %d, bin ip = %d\n", bin_r0, bin_r1, bin_ip);
-      Particle p;
+      printf("bin r0 = %d, bin r1 = %d, bin ip = %d\n", bin_r0, bin_r1,
+    bin_ip); Particle p;
 
       p.r() = r0;
       bool found = exhaustive_find_cell(p);

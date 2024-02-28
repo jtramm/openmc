@@ -12,6 +12,13 @@
 
 namespace openmc {
 
+// This is the standard hash combine function from boost
+// https://www.boost.org/doc/libs/1_55_0/doc/html/hash/reference.html#boost.hash_combine
+inline void hash_combine(size_t& seed, const size_t& v)
+{
+  seed ^= (v + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+}
+
 //----------------------------------------------------------------------------
 // Helper Structs
 
@@ -27,6 +34,25 @@ struct TallyTask {
     : tally_idx(tally_idx), filter_idx(filter_idx), score_idx(score_idx),
       score_type(score_type)
   {}
+  TallyTask() = default;
+
+  bool operator==(const TallyTask& other) const
+  {
+    return tally_idx == other.tally_idx && filter_idx == other.filter_idx &&
+           score_idx == other.score_idx && score_type == other.score_type;
+  }
+
+  struct HashFunctor {
+    size_t operator()(const TallyTask& task) const
+    {
+      size_t seed = 0;
+      hash_combine(seed, task.tally_idx);
+      hash_combine(seed, task.filter_idx);
+      hash_combine(seed, task.score_idx);
+      hash_combine(seed, task.score_type);
+      return seed;
+    }
+  };
 };
 
 // Actually -- since we want to be able to use the base as an active
@@ -96,6 +122,7 @@ public:
   // Outer dimension is each energy group in the FSR, inner dimension is each
   // tally operation that bin will perform
   vector<vector<TallyTask>> tally_task_;
+  std::unordered_set<TallyTask, TallyTask::HashFunctor> volume_task_;
 
 }; // class FlatSourceRegion
 
@@ -104,13 +131,6 @@ public:
  * scalar flux and source region for all flat source regions in a
  * random ray simulation domain.
  */
-
-// This is the standard hash combine function from boost
-// https://www.boost.org/doc/libs/1_55_0/doc/html/hash/reference.html#boost.hash_combine
-inline void hash_combine(size_t& seed, const size_t& v)
-{
-  seed ^= (v + 0x9e3779b9 + (seed << 6) + (seed >> 2));
-}
 
 class RegularMeshKey {
 public:
@@ -219,6 +239,7 @@ public:
   bool merge_fsr(FlatSourceRegion& fsr);
   int64_t check_for_small_FSRs(void);
   void initialize_tally_tasks(FlatSourceRegion& fsr);
+  void reset_tally_volumes();
 
   //----------------------------------------------------------------------------
   // Data members
@@ -229,6 +250,13 @@ public:
   int64_t n_source_regions_ {0};  // Total number of source regions in the model
   int64_t n_fixed_source_regions_ {0}; // Total number of source regions with
                                        // non-zero fixed source terms
+
+  double
+    simulation_volume_; // Total physical volume of the simulation domain, as
+                        // defined by the 3D box of the random ray source
+  int64_t n_rays_sampled_ {0}; // Total number of rays sampled in the simulation
+  int64_t n_rays_rejected_ {
+    0}; // Total number of rays rejected in the simulation
 
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
 
@@ -273,6 +301,13 @@ public:
   std::unordered_map<RegularMeshKey, std::vector<FSRKey>,
     RegularMeshKey::HashFunctor>
     mesh_hash_grid_;
+
+  //! Results for each bin -- the first dimension of the array is for the
+  //! combination of filters (e.g. specific cell, specific energy group, etc.)
+  //! and the second dimension of the array is for scores (e.g. flux, total
+  //! reaction rate, fission reaction rate, etc.)
+  vector<xt::xtensor<double, 3>> tally_volumes_;
+  vector<xt::xtensor<double, 3>> tally_;
 
   // This is the number of hits that the FSR needs
   // to get in order to be counted as a "low hitter".
