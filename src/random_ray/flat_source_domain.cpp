@@ -656,7 +656,17 @@ void FlatSourceDomain::random_ray_tally()
     FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
+      
+    // The fsr.volume_ is the unitless fractional simulation averaged volume
+    // (i.e., it is the FSR's fraction of the overall simulation volume). The
+    // simulation_volume_ is the total 3D physical volume in cm^3 of the entire
+    // global simulation domain (as defined by the ray source box). Thus, the
+    // FSR's true 3D spatial volume in cm^3 is found by multiplying its fraction
+    // of the total volume by the total volume. Not important in eigenvalue
+    // solves, but useful in fixed source solves for returning the flux shape
+    // with a magnitude that makes sense relative to the fixed source strength.
     double volume = fsr.volume_ * simulation_volume_;
+
     double material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
       double flux = fsr.scalar_flux_new_[e] * volume;
