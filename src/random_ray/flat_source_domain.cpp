@@ -104,7 +104,8 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     Cell& cell = *model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
       for (int j = 0; j < cell.n_instances_; j++) {
-        material_filled_cell_instance_[source_region_id++].material_ = cell.material(j);
+        material_filled_cell_instance_[source_region_id++].material_ =
+          cell.material(j);
       }
     }
   }
@@ -114,8 +115,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     fatal_error("Unexpected number of source regions");
   }
 }
-
-
 
 void FlatSourceDomain::batch_reset()
 {
@@ -537,6 +536,62 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
   mapped_all_tallies_ = all_source_regions_mapped;
 }
 
+void FlatSourceDomain::initialize_tally_tasks(FlatSourceRegion& fsr)
+{
+  // A particle located at the recorded midpoint of a ray
+  // crossing through this source region is used to establish
+  // the spatial location of the source region
+  Particle p;
+  p.r() = fsr.position_;
+  p.r_last() = fsr.position_;
+  bool found = exhaustive_find_cell(p);
+
+  // Loop over energy groups (so as to support energy filters)
+  for (int e = 0; e < negroups_; e++) {
+
+    // Set particle to the current energy
+    p.g() = e;
+    p.g_last() = e;
+    p.E() = data::mg.energy_bin_avg_[p.g()];
+    p.E_last() = p.E();
+
+    // Loop over all active tallies. This logic is essentially identical
+    // to what happens when scanning for applicable tallies during
+    // MC transport.
+    for (int i_tally = 0; i_tally < model::tallies.size(); i_tally++) {
+      Tally& tally {*model::tallies[i_tally]};
+
+      // Initialize an iterator over valid filter bin combinations.
+      // If there are no valid combinations, use a continue statement
+      // to ensure we skip the assume_separate break below.
+      auto filter_iter = FilterBinIter(tally, p);
+      auto end = FilterBinIter(tally, true, &p.filter_matches());
+      if (filter_iter == end)
+        continue;
+
+      // Loop over filter bins.
+      for (; filter_iter != end; ++filter_iter) {
+        auto filter_index = filter_iter.index_;
+        auto filter_weight = filter_iter.weight_;
+
+        // Loop over scores
+        for (auto score_index = 0; score_index < tally.scores_.size();
+             score_index++) {
+          auto score_bin = tally.scores_[score_index];
+          // If a valid tally, filter, and score cobination has been
+          // found, then add it to the list of tally tasks for this source
+          // element.
+          fsr.tally_task_[e].emplace_back(
+            i_tally, filter_index, score_index, score_bin);
+        }
+      }
+    }
+    // Reset all the filter matches for the next tally event.
+    for (auto& match : p.filter_matches())
+      match.bins_present_ = false;
+  }
+}
+
 // Tallying in random ray is not done directly during transport, rather,
 // it is done only once after each power iteration. This is made possible
 // by way of a mapping data structure that relates spatial source regions
@@ -550,6 +605,15 @@ void FlatSourceDomain::random_ray_tally()
 {
   openmc::simulation::time_tallies.start();
 
+  double total_volume = 0.0;
+#pragma omp parallel for reduction(+ : total_volume)
+  for (int i = 0; i < known_fsr_.size(); i++) {
+    FlatSourceRegion& fsr = known_fsr_[i];
+    if (fsr.is_merged_)
+      continue;
+    total_volume += fsr.volume_;
+  }
+
   // Compute the volume weighted total strength of fixed sources throughout
   // the domain using up to date stochastic source region volumes. Note that
   // this value is different than the sum of the user input IndependentSource
@@ -560,6 +624,9 @@ void FlatSourceDomain::random_ray_tally()
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     inverse_source_strength =
       1.0 / calculate_total_volume_weighted_source_strength();
+    printf("Inverse source strength: %.6le\n", inverse_source_strength);
+        inverse_source_strength =
+     1.0 ;
   }
 
   // Temperature and angle indices, if using multiple temperature
@@ -577,11 +644,11 @@ void FlatSourceDomain::random_ray_tally()
     FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
-    double volume = fsr.volume_;
+    double volume = 60.0 * 60.0 * 100.0 * fsr.volume_;
     double factor = volume * inverse_source_strength;
     double material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
-      double flux = fsr.scalar_flux_new_[e] * factor;
+      double flux = fsr.scalar_flux_new_[e] * factor/1000.0;
       for (auto& task : fsr.tally_task_[e]) {
         double score;
         switch (task.score_type) {
@@ -807,7 +874,7 @@ void FlatSourceDomain::output_to_vtk()
                 "Only regular meshes are supported for random ray tracing.");
             int bin = rmesh->get_bin(p.r());
             StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
-            //hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
+            // hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
             hit_count = 0;
             region = get_fsr(source_region_idx, bin, p.r(), p.r(), 0);
           } else {
@@ -974,6 +1041,7 @@ void FlatSourceDomain::count_fixed_source_regions()
 double FlatSourceDomain::calculate_total_volume_weighted_source_strength()
 {
   double source_strength = 0.0;
+
 #pragma omp parallel for reduction(+ : source_strength)
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
@@ -983,6 +1051,8 @@ double FlatSourceDomain::calculate_total_volume_weighted_source_strength()
     for (int e = 0; e < negroups_; e++) {
       source_strength += fsr.fixed_source_[e] * volume;
     }
+    // if( source_strength > 0.0)
+    // printf("source strength in FSR %d is %.6le\n", i, source_strength);
   }
   return source_strength;
 }
@@ -1002,7 +1072,8 @@ void FlatSourceDomain::convert_fixed_sources()
     Discrete* energy = dynamic_cast<Discrete*>(is->energy());
     const std::unordered_set<int32_t>& domain_ids = is->domain_ids();
 
-    double strength_factor = is->strength() / total_strength;
+    // double strength_factor = is->strength() / total_strength;
+    double strength_factor = is->strength();
 
     if (is->domain_type() == IndependentSource::DomainType::MATERIAL) {
       for (int32_t material_id : domain_ids) {
@@ -1130,11 +1201,11 @@ void FlatSourceDomain::apply_meshes()
     }
   } // End loop over source region meshes
 
- /*  if (meshes_.size() > 0) {
-    int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
-    int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
-    hitmap = vector<vector<int>>(y, vector<int>(x, 0));
-  } */
+  /*  if (meshes_.size() > 0) {
+     int x = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[0];
+     int y = dynamic_cast<RegularMesh*>(meshes_[0].get())->shape_[1];
+     hitmap = vector<vector<int>>(y, vector<int>(x, 0));
+   } */
 }
 
 // TODO:
@@ -1205,7 +1276,8 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // Now we should check if the bins match....
-    Mesh* mesh = meshes_[material_filled_cell_instance_[source_region].mesh_].get();
+    Mesh* mesh =
+      meshes_[material_filled_cell_instance_[source_region].mesh_].get();
     RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
     int bin_r0 = rmesh->get_bin(r0);
     int bin_r1 = rmesh->get_bin(r1);
@@ -1220,27 +1292,32 @@ FlatSourceRegion* FlatSourceDomain::get_fsr(
     }
 
     // If not found, copy base FSR into new FSR
-     //FlatSourceRegion& new_fsr = fsr_[source_region];
+    // FlatSourceRegion& new_fsr = fsr_[source_region];
     // There's no lock over this stuff!
 
-    //FlatSourceRegion* new_fsr = &discovered_fsr_parallel_map_[key];
-    FlatSourceRegion* new_fsr = discovered_fsr_parallel_map_.emplace(key, material_filled_cell_instance_[source_region]);
+    // FlatSourceRegion* new_fsr = &discovered_fsr_parallel_map_[key];
+    FlatSourceRegion* new_fsr = discovered_fsr_parallel_map_.emplace(
+      key, material_filled_cell_instance_[source_region]);
 
     //*new_fsr = material_filled_cell_instance_[source_region];
     new_fsr->source_region_ = source_region;
     new_fsr->bin_ = bin;
+    // new_fsr->position_ = r0;
+    // new_fsr->position_recorded_ = 1;
     discovered_fsr_parallel_map_.unlock(key);
 
-    //auto result = new_map.emplace(std::make_pair(
-     //hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
+    // auto result = new_map.emplace(std::make_pair(
+    // hash, std::make_unique<FlatSourceRegion>(fsr_[source_region])));
 
-  // TODO: Bring back the hitmap?
-/*     if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
-      Mesh* mesh = meshes_[material_filled_cell_instance_[source_region].mesh_].get();
-      RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
-      StructuredMesh::MeshIndex mesh_index = rmesh->get_indices_from_bin(bin);
-      hitmap[mesh_index[1] - 1][mesh_index[0] - 1] += 1;
-    } */
+    // TODO: Bring back the hitmap?
+    /*     if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
+          Mesh* mesh =
+       meshes_[material_filled_cell_instance_[source_region].mesh_].get();
+          RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+          StructuredMesh::MeshIndex mesh_index =
+       rmesh->get_indices_from_bin(bin); hitmap[mesh_index[1] - 1][mesh_index[0]
+       - 1] += 1;
+        } */
 
     /*
     if( mesh_index[1]-1 ==0 && mesh_index[0]-1 == 0)
@@ -1446,7 +1523,7 @@ bool FlatSourceDomain::merge_fsr(FlatSourceRegion& fsr)
   fsr.is_merged_ = true;
 
   // Point FSR hash to the FSR that it merged with
-    FSRKey key(fsr.source_region_, fsr.bin_);
+  FSRKey key(fsr.source_region_, fsr.bin_);
 
   known_fsr_map_[key] = largest_fsr_index;
 
@@ -1463,7 +1540,7 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
   // #pragma omp parallel for reduction(+:n_merges, n_prev_merges)
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
-    if(fsr.mesh_ == C_NONE)
+    if (fsr.mesh_ == C_NONE)
       continue;
     // We can lock the base source region, as no two FSRs that are
     // not from the same source region will ever interact.
@@ -1502,13 +1579,15 @@ int64_t FlatSourceDomain::check_for_small_FSRs(void)
 
 void FlatSourceDomain::update_fsr_manifest(void)
 {
+  int64_t starting_size = known_fsr_.size();
+
   // --------------------------------------------------------------------------!
   // Copy discovered mesh-subdivided FSRs into the known FSR vector and map
   // --------------------------------------------------------------------------!
 
   int64_t n_new_fsrs =
     discovered_fsr_parallel_map_.move_contents_into_vector(known_fsr_);
-  for (int64_t i = known_fsr_.size() - n_new_fsrs; i < known_fsr_.size(); i++) {
+  for (int64_t i = starting_size; i < known_fsr_.size(); i++) {
     // Store the recently discovered FSRs in the known FSR map
     FSRKey key(known_fsr_[i].source_region_, known_fsr_[i].bin_);
     known_fsr_map_[key] = i;
@@ -1518,10 +1597,6 @@ void FlatSourceDomain::update_fsr_manifest(void)
     int64_t bin = known_fsr_[i].bin_;
     mesh_hash_grid_add(mesh_id, bin, key);
   }
-
-  // Bookkeeping to keep track of total source regions
-  n_subdivided_source_regions_ += n_new_fsrs;
-  discovered_source_regions_ += n_new_fsrs;
 
   // --------------------------------------------------------------------------!
   // Copy discovered base FSRs into the known FSR vector
@@ -1549,6 +1624,19 @@ void FlatSourceDomain::update_fsr_manifest(void)
         discovered_source_regions_++;
       }
     }
+  }
+
+  // --------------------------------------------------------------------------!
+  // Initialize tally tasks for new FSRs
+  // --------------------------------------------------------------------------!
+
+  // Bookkeeping to keep track of total source regions
+  n_subdivided_source_regions_ += known_fsr_.size() - starting_size;
+  discovered_source_regions_ += known_fsr_.size() - starting_size;
+
+#pragma omp parallel for
+  for (int64_t i = starting_size; i < known_fsr_.size(); i++) {
+    initialize_tally_tasks(known_fsr_[i]);
   }
 }
 

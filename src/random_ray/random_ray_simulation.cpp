@@ -337,11 +337,10 @@ void RandomRaySimulation::simulate()
 
     // Execute all tallying tasks, if this is an active batch
     if (simulation::current_batch > settings::n_inactive && mpi::master) {
-
       // Generate mapping between source regions and tallies
-      if (!domain_.mapped_all_tallies_) {
-        domain_.convert_source_regions_to_tallies();
-      }
+      //if (!domain_.mapped_all_tallies_) {
+      //  domain_.convert_source_regions_to_tallies();
+      //}
 
       // Use above mapping to contribute FSR flux data to appropriate tallies
       domain_.random_ray_tally();

@@ -218,6 +218,7 @@ public:
   int64_t get_largest_neighbor(FlatSourceRegion& fsr);
   bool merge_fsr(FlatSourceRegion& fsr);
   int64_t check_for_small_FSRs(void);
+  void initialize_tally_tasks(FlatSourceRegion& fsr);
 
   //----------------------------------------------------------------------------
   // Data members
