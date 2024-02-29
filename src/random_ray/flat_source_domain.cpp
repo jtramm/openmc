@@ -405,7 +405,9 @@ int64_t n_negative = 0;
       }
     }
   }
-  if (n_negative / (static_cast<double>(n_hits)*negroups_) > 0.01) {
+  double percent_negative = 100.0 * n_negative / (static_cast<double>(n_hits)*negroups_);
+  printf("Percent negative = %.6lf\n", percent_negative);
+  if (percent_negative > 1.0) {
     fatal_error("More than 1% of the scalar fluxes are negative. This may be a "
             "sign of a problem with the simulation.");
   }
