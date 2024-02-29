@@ -257,14 +257,16 @@ void RandomRaySimulation::simulate()
   for (int sr = 0; sr < domain_.n_source_regions_; sr++) {
     int mesh = domain_.material_filled_cell_instance_[sr].mesh_;
     int material_idx = domain_.material_filled_cell_instance_[sr].material_;
-    std::string name = model::materials[material_idx]->name_;
     if (mesh != C_NONE)
       non_zero++;
   }
-  printf("FSRs with mesh assignments = %d\n", non_zero);
+  printf("FSRs with mesh assignments = %d, FSRs = %d\n", non_zero, domain_.n_source_regions_);
 
   // Update source term (scattering + fission)
   domain_.prepare_base_neutron_source(1.0);
+
+  //domain_.output_to_vtk();
+  //return;
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {

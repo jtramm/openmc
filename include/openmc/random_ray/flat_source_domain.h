@@ -69,7 +69,7 @@ struct TallyTask {
 
 class FlatSourceRegion {
 public:
-  FlatSourceRegion() = default;
+  //FlatSourceRegion() = default;
   FlatSourceRegion(int negroups)
     : tally_task_(negroups), scalar_flux_new_(negroups, 0.0f),
       scalar_flux_old_(negroups, 0.0f), scalar_flux_final_(negroups, 0.0f),

@@ -104,6 +104,8 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     Cell& cell = *model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
       for (int j = 0; j < cell.n_instances_; j++) {
+        //printf("setting material from cell ID %d, instance %d, to %d\n", i, j,
+       //   cell.material(j));
         material_filled_cell_instance_[source_region_id++].material_ =
           cell.material(j);
       }
@@ -194,6 +196,8 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
     int material = fsr.material_;
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
+      //printf("material = %d, size of macro_xs_ = %d\n", material,
+       // data::mg.macro_xs_.size());
       float sigma_t = data::mg.macro_xs_[material].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
       float scatter_source = 0.0f;
@@ -352,9 +356,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   // angle data.
   const int t = 0;
   const int a = 0;
-
+int64_t n_negative = 0;
 #pragma omp parallel for reduction(+ : n_hits)
-  for (int i = 0; i < known_fsr_.size(); i++) {
+  for (int64_t i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
@@ -369,7 +373,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     int material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
       // There are three scenarios we need to consider:
-      if (fsr.was_hit_ > 0) {
+      if (fsr.was_hit_ > 2) {
         // 1. If the FSR was hit this iteration, then the new flux is equal
         // to the flat source from the previous iteration plus the
         // contributions from rays passing through the source region
@@ -378,13 +382,13 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
         fsr.scalar_flux_new_[e] /= (sigma_t * volume);
         fsr.scalar_flux_new_[e] += fsr.source_[e];
-        /*
+        
       } else if (fsr.was_hit_ > 0) {
         float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
         fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
         fsr.scalar_flux_new_[e] += fsr.source_[e];
-        */
+        
       } else if (volume > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
@@ -396,7 +400,14 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // to 0 to avoid dividing anything by a zero volume.
         fsr.scalar_flux_new_[e] = 0.f;
       }
+      if (fsr.scalar_flux_new_[e] < 0.0) {
+        n_negative++;
+      }
     }
+  }
+  if (n_negative / (static_cast<double>(n_hits)*negroups_) > 0.01) {
+    fatal_error("More than 1% of the scalar fluxes are negative. This may be a "
+            "sign of a problem with the simulation.");
   }
 
   // Return the number of source regions that were hit this iteration
@@ -656,7 +667,7 @@ void FlatSourceDomain::random_ray_tally()
     FlatSourceRegion& fsr = known_fsr_[i];
     if (fsr.is_merged_)
       continue;
-      
+
     // The fsr.volume_ is the unitless fractional simulation averaged volume
     // (i.e., it is the FSR's fraction of the overall simulation volume). The
     // simulation_volume_ is the total 3D physical volume in cm^3 of the entire
@@ -905,6 +916,9 @@ void FlatSourceDomain::output_to_vtk()
     std::vector<FlatSourceRegion*> voxel_indices(Nx * Ny * Nz);
     std::vector<int> hits(Nx * Ny * Nz);
 
+    FlatSourceRegion default_fsr(negroups_);
+    default_fsr.material_ = C_NONE;
+
 #pragma omp parallel for collapse(3)
     for (int z = 0; z < Nz; z++) {
       for (int y = 0; y < Ny; y++) {
@@ -916,6 +930,11 @@ void FlatSourceDomain::output_to_vtk()
           Particle p;
           p.r() = sample;
           bool found = exhaustive_find_cell(p);
+          if (!found) {
+            voxel_indices[z * Ny * Nx + y * Nx + x] = &default_fsr;
+            hits[z * Ny * Nx + y * Nx + x] = 0;
+            continue;
+          }
           int i_cell = p.lowest_coord().cell;
           int64_t source_region_idx =
             source_region_offsets_[i_cell] + p.cell_instance();
@@ -940,7 +959,11 @@ void FlatSourceDomain::output_to_vtk()
           } else {
             region = get_fsr(source_region_idx, 0, p.r(), p.r(), 0);
           }
-
+          if (region == nullptr) {
+            fatal_error(
+              fmt::format("Could not find FSR for position ({}, {}, {})",
+                sample.x, sample.y, sample.z));
+          }
           voxel_indices[z * Ny * Nx + y * Nx + x] = region;
           hits[z * Ny * Nx + y * Nx + x] = hit_count;
         }
@@ -977,7 +1000,12 @@ void FlatSourceDomain::output_to_vtk()
     fprintf(plot, "SCALARS FSRs float\n");
     fprintf(plot, "LOOKUP_TABLE default\n");
     for (auto fsr : voxel_indices) {
-      float value = future_prn(10, reinterpret_cast<uint64_t>(fsr));
+      float value;
+      if (fsr == &default_fsr) {
+        value = std::numeric_limits<double>::quiet_NaN();
+      } else {
+        value = future_prn(10, reinterpret_cast<uint64_t>(fsr));
+      }
       value = flip_endianness<float>(value);
       fwrite(&value, sizeof(float), 1, plot);
     }
@@ -1005,12 +1033,14 @@ void FlatSourceDomain::output_to_vtk()
     for (auto fsr : voxel_indices) {
       float total_fission = 0.0;
       int mat = fsr->material_;
-      for (int g = 0; g < negroups_; g++) {
-        float flux = fsr->scalar_flux_final_[g];
-        flux /= (settings::n_batches - settings::n_inactive);
-        float Sigma_f = data::mg.macro_xs_[mat].get_xs(
-          MgxsType::FISSION, g, nullptr, nullptr, nullptr, 0, 0);
-        total_fission += Sigma_f * flux;
+      if (mat != C_NONE) {
+        for (int g = 0; g < negroups_; g++) {
+          float flux = fsr->scalar_flux_final_[g];
+          flux /= (settings::n_batches - settings::n_inactive);
+          float Sigma_f = data::mg.macro_xs_[mat].get_xs(
+            MgxsType::FISSION, g, nullptr, nullptr, nullptr, 0, 0);
+          total_fission += Sigma_f * flux;
+        }
       }
       total_fission = flip_endianness<float>(total_fission);
       fwrite(&total_fission, sizeof(float), 1, plot);
@@ -1680,10 +1710,6 @@ void FlatSourceDomain::update_fsr_manifest(void)
         // being as such and point it to the correct location in the vector
         base_fsr.is_in_manifest_ = true;
         base_fsr.manifest_index_ = known_fsr_.size() - 1;
-
-        // Bookkeeping to keep track of total source regions
-        n_subdivided_source_regions_++;
-        discovered_source_regions_++;
       }
     }
   }
