@@ -88,7 +88,7 @@ public:
       is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_),
       is_consumer_(other.is_consumer_), manifest_index_(other.manifest_index_),
       no_hit_streak_(other.no_hit_streak_),
-      source_region_(other.source_region_), bin_(other.bin_)
+      source_region_(other.source_region_), bin_(other.bin_), cell_id_(other.cell_id_), universe_id_(other.universe_id_)
   {}
   ~FlatSourceRegion() = default;
 
@@ -111,6 +111,8 @@ public:
   int64_t manifest_index_;
   int64_t source_region_;
   int64_t bin_;
+  int cell_id_;
+  int universe_id_;
 
   // 2D arrays with entry for each energy group
   vector<float> scalar_flux_new_;

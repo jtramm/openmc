@@ -283,7 +283,8 @@ void RandomRay::attenuate_flux_inner(
     float sigma_t = data::mg.macro_xs_[material].get_xs(
       MgxsType::TOTAL, e, NULL, NULL, NULL, t, a);
     float tau = sigma_t * distance;
-    float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+    //float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+    float exponential = -(expm1f(-tau));
     float new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
     delta_psi_[e] = new_delta_psi;
     angular_flux_[e] -= new_delta_psi;

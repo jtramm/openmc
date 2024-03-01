@@ -104,10 +104,15 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     Cell& cell = *model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
       for (int j = 0; j < cell.n_instances_; j++) {
-        //printf("setting material from cell ID %d, instance %d, to %d\n", i, j,
-       //   cell.material(j));
-        material_filled_cell_instance_[source_region_id++].material_ =
+        // printf("setting material from cell ID %d, instance %d, to %d\n", i,
+        // j,
+        //   cell.material(j));
+        material_filled_cell_instance_[source_region_id].material_ =
           cell.material(j);
+        material_filled_cell_instance_[source_region_id].cell_id_ =
+          cell.id_;
+        material_filled_cell_instance_[source_region_id++].universe_id_ =
+          model::universes[cell.universe_]->id_;
       }
     }
   }
@@ -196,8 +201,8 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
     int material = fsr.material_;
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
-      //printf("material = %d, size of macro_xs_ = %d\n", material,
-       // data::mg.macro_xs_.size());
+      // printf("material = %d, size of macro_xs_ = %d\n", material,
+      //  data::mg.macro_xs_.size());
       float sigma_t = data::mg.macro_xs_[material].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
       float scatter_source = 0.0f;
@@ -307,6 +312,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
       }
     }
   } else {
+
     // Add fixed source source if in fixed source mode
 #pragma omp parallel for
     for (int i = 0; i < known_fsr_.size(); i++) {
@@ -356,7 +362,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   // angle data.
   const int t = 0;
   const int a = 0;
-int64_t n_negative = 0;
+  int64_t n_negative = 0;
+  int64_t n_zero = 0;
 #pragma omp parallel for reduction(+ : n_hits)
   for (int64_t i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
@@ -373,23 +380,24 @@ int64_t n_negative = 0;
     int material = fsr.material_;
     for (int e = 0; e < negroups_; e++) {
       // There are three scenarios we need to consider:
-      if (fsr.was_hit_ > 2) {
+      if (fsr.was_hit_ > 0) {
         // 1. If the FSR was hit this iteration, then the new flux is equal
         // to the flat source from the previous iteration plus the
         // contributions from rays passing through the source region
         // (computed during the transport sweep)
         float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
-        fsr.scalar_flux_new_[e] /= (sigma_t * volume);
-        fsr.scalar_flux_new_[e] += fsr.source_[e];
-        
-      } else if (fsr.was_hit_ > 0) {
-        float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
         fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
         fsr.scalar_flux_new_[e] += fsr.source_[e];
-        
-      } else if (volume > 0.0) {
+      }
+
+/*       else if (fsr.was_hit_ > 0) {
+              float sigma_t = data::mg.macro_xs_[material].get_xs(
+                MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
+              fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
+              fsr.scalar_flux_new_[e] += fsr.source_[e];  */
+
+     else if (volume > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
         // equal to the contribution from the flat source alone.
@@ -400,16 +408,21 @@ int64_t n_negative = 0;
         // to 0 to avoid dividing anything by a zero volume.
         fsr.scalar_flux_new_[e] = 0.f;
       }
+
       if (fsr.scalar_flux_new_[e] < 0.0) {
         n_negative++;
       }
+     // if (fsr.scalar_flux_new_[e] < 0.0) {
+    //    fsr.scalar_flux_new_[e] *= 0.5;
+    //  }
     }
   }
-  double percent_negative = 100.0 * n_negative / (static_cast<double>(n_hits)*negroups_);
+  double percent_negative =
+    100.0 * n_negative / (static_cast<double>(n_hits) * negroups_);
   printf("Percent negative = %.6lf\n", percent_negative);
   if (percent_negative > 1.0) {
     fatal_error("More than 1% of the scalar fluxes are negative. This may be a "
-            "sign of a problem with the simulation.");
+                "sign of a problem with the simulation.");
   }
 
   // Return the number of source regions that were hit this iteration
@@ -990,9 +1003,12 @@ void FlatSourceDomain::output_to_vtk()
     for (int g = 0; g < negroups_; g++) {
       fprintf(plot, "SCALARS flux_group_%d float\n", g);
       fprintf(plot, "LOOKUP_TABLE default\n");
+      float smallest_nonzero = 1.0e35;
       for (auto fsr : voxel_indices) {
         float flux = fsr->scalar_flux_final_[g];
         flux /= (settings::n_batches - settings::n_inactive);
+        if (flux < 0.f || flux == 0.f)
+          flux = std::numeric_limits<double>::quiet_NaN();;
         flux = flip_endianness<float>(flux);
         fwrite(&flux, sizeof(float), 1, plot);
       }
@@ -1017,6 +1033,24 @@ void FlatSourceDomain::output_to_vtk()
     fprintf(plot, "LOOKUP_TABLE default\n");
     for (auto fsr : voxel_indices) {
       int mat = fsr->material_;
+      mat = flip_endianness<int>(mat);
+      fwrite(&mat, sizeof(int), 1, plot);
+    }
+
+    // Plot universe
+    fprintf(plot, "SCALARS universe int\n");
+    fprintf(plot, "LOOKUP_TABLE default\n");
+    for (auto fsr : voxel_indices) {
+      int mat = fsr->universe_id_;
+      mat = flip_endianness<int>(mat);
+      fwrite(&mat, sizeof(int), 1, plot);
+    }
+
+        // Plot cells
+    fprintf(plot, "SCALARS cell int\n");
+    fprintf(plot, "LOOKUP_TABLE default\n");
+    for (auto fsr : voxel_indices) {
+      int mat = fsr->cell_id_;
       mat = flip_endianness<int>(mat);
       fwrite(&mat, sizeof(int), 1, plot);
     }
@@ -1046,6 +1080,26 @@ void FlatSourceDomain::output_to_vtk()
       }
       total_fission = flip_endianness<float>(total_fission);
       fwrite(&total_fission, sizeof(float), 1, plot);
+    }
+
+        // Plot fixed source
+    fprintf(plot, "SCALARS total_fixed_source float\n");
+    fprintf(plot, "LOOKUP_TABLE default\n");
+    for (auto fsr : voxel_indices) {
+      float total_src = 0.0;
+      int mat = fsr->material_;
+      if (mat != C_NONE) {
+        for (int g = 0; g < negroups_; g++) {
+          // We multiply by sigma t, as the fixed source was divided
+          // by this when initializing
+          float sigma_t = data::mg.macro_xs_[fsr->material_].get_xs(
+        MgxsType::TOTAL, g, nullptr, nullptr, nullptr, 0, 0);
+          total_src += fsr->fixed_source_[g] * sigma_t;
+
+        }
+      }
+      total_src = flip_endianness<float>(total_src);
+      fwrite(&total_src, sizeof(float), 1, plot);
     }
 
     fclose(plot);
