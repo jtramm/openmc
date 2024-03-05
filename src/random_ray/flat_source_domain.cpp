@@ -109,8 +109,7 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
         //   cell.material(j));
         material_filled_cell_instance_[source_region_id].material_ =
           cell.material(j);
-        material_filled_cell_instance_[source_region_id].cell_id_ =
-          cell.id_;
+        material_filled_cell_instance_[source_region_id].cell_id_ = cell.id_;
         material_filled_cell_instance_[source_region_id++].universe_id_ =
           model::universes[cell.universe_]->id_;
       }
@@ -200,6 +199,11 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
     auto& fsr = material_filled_cell_instance_[sr];
     int material = fsr.material_;
 
+    // Void has only fixed source
+    if (material == C_NONE) {
+      continue;
+    }
+
     for (int e_out = 0; e_out < negroups_; e_out++) {
       // printf("material = %d, size of macro_xs_ = %d\n", material,
       //  data::mg.macro_xs_.size());
@@ -225,6 +229,11 @@ void FlatSourceDomain::prepare_base_neutron_source(double k_eff)
     for (int sr = 0; sr < n_source_regions_; sr++) {
       auto& fsr = material_filled_cell_instance_[sr];
       int material = fsr.material_;
+
+      // Void has only fixed source
+      if (material == C_NONE) {
+        continue;
+      }
 
       for (int e_out = 0; e_out < negroups_; e_out++) {
         float sigma_t = data::mg.macro_xs_[material].get_xs(
@@ -274,15 +283,22 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 #pragma omp parallel for
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
+    int material = fsr.material_;
+
+    // Void has only fixed source
+    if (material == C_NONE) {
+      continue;
+    }
+
     for (int e_out = 0; e_out < negroups_; e_out++) {
-      float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
+      float sigma_t = data::mg.macro_xs_[material].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
       float scatter_source = 0.0f;
 
       for (int e_in = 0; e_in < negroups_; e_in++) {
         float scalar_flux = fsr.scalar_flux_old_[e_in];
 
-        float sigma_s = data::mg.macro_xs_[fsr.material_].get_xs(
+        float sigma_s = data::mg.macro_xs_[material].get_xs(
           MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr, t, a);
         scatter_source += sigma_s * scalar_flux;
       }
@@ -295,16 +311,23 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 #pragma omp parallel for
     for (int i = 0; i < known_fsr_.size(); i++) {
       FlatSourceRegion& fsr = known_fsr_[i];
+      int material = fsr.material_;
+
+      // Void has only fixed source
+      if (material == C_NONE) {
+        continue;
+      }
+
       for (int e_out = 0; e_out < negroups_; e_out++) {
-        float sigma_t = data::mg.macro_xs_[fsr.material_].get_xs(
+        float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
         float fission_source = 0.0f;
 
         for (int e_in = 0; e_in < negroups_; e_in++) {
           float scalar_flux = fsr.scalar_flux_old_[e_in];
-          float nu_sigma_f = data::mg.macro_xs_[fsr.material_].get_xs(
+          float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
             MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr, t, a);
-          float chi = data::mg.macro_xs_[fsr.material_].get_xs(
+          float chi = data::mg.macro_xs_[material].get_xs(
             MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr, t, a);
           fission_source += nu_sigma_f * scalar_flux * chi;
         }
@@ -378,43 +401,39 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     double volume = fsr.volume_;
     double volume_i = fsr.volume_i_;
     int material = fsr.material_;
-    for (int e = 0; e < negroups_; e++) {
-      // There are three scenarios we need to consider:
-      if (fsr.was_hit_ > 0) {
-        // 1. If the FSR was hit this iteration, then the new flux is equal
-        // to the flat source from the previous iteration plus the
-        // contributions from rays passing through the source region
-        // (computed during the transport sweep)
-        float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
-        fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
-        fsr.scalar_flux_new_[e] += fsr.source_[e];
+    if (material == C_NONE) {
+      // Void regions use a different solution to the characteristic
+      for (int e = 0; e < negroups_; e++) {
+        fsr.scalar_flux_new_[e] /= volume_i;
+        fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i * 0.5f;
       }
-
-/*       else if (fsr.was_hit_ > 0) {
-              float sigma_t = data::mg.macro_xs_[material].get_xs(
-                MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
-              fsr.scalar_flux_new_[e] /= (sigma_t * volume_i);
-              fsr.scalar_flux_new_[e] += fsr.source_[e];  */
-
-     else if (volume > 0.0) {
-        // 2. If the FSR was not hit this iteration, but has been hit some
-        // previous iteration, then we simply set the new scalar flux to be
-        // equal to the contribution from the flat source alone.
-        fsr.scalar_flux_new_[e] = fsr.source_[e];
-      } else {
-        // If the FSR was not hit this iteration, and it has never been hit
-        // in any iteration (i.e., volume is zero), then we want to set this
-        // to 0 to avoid dividing anything by a zero volume.
-        fsr.scalar_flux_new_[e] = 0.f;
+    } else {
+      for (int e = 0; e < negroups_; e++) {
+        // There are three scenarios we need to consider:
+        if (fsr.was_hit_ > 0) {
+          // 1. If the FSR was hit this iteration, then the new flux is equal
+          // to the flat source from the previous iteration plus the
+          // contributions from rays passing through the source region
+          // (computed during the transport sweep)
+          float sigma_t = data::mg.macro_xs_[material].get_xs(
+            MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
+          fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
+          fsr.scalar_flux_new_[e] += fsr.source_[e];
+        } else if (volume > 0.0) {
+          // 2. If the FSR was not hit this iteration, but has been hit some
+          // previous iteration, then we simply set the new scalar flux to be
+          // equal to the contribution from the flat source alone.
+          fsr.scalar_flux_new_[e] = fsr.source_[e];
+        } else {
+          // If the FSR was not hit this iteration, and it has never been hit
+          // in any iteration (i.e., volume is zero), then we want to set this
+          // to 0 to avoid dividing anything by a zero volume.
+          fsr.scalar_flux_new_[e] = 0.f;
+        }
+        if (fsr.scalar_flux_new_[e] < 0.0) {
+          n_negative++;
+        }
       }
-
-      if (fsr.scalar_flux_new_[e] < 0.0) {
-        n_negative++;
-      }
-     // if (fsr.scalar_flux_new_[e] < 0.0) {
-    //    fsr.scalar_flux_new_[e] *= 0.5;
-    //  }
     }
   }
   double percent_negative =
@@ -456,6 +475,10 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old)
     }
 
     int material = fsr.material_;
+
+    // Void won't contribute to fission rate
+    if (material == C_NONE)
+      continue;
 
     double sr_fission_source_old = 0;
     double sr_fission_source_new = 0;
@@ -1008,7 +1031,8 @@ void FlatSourceDomain::output_to_vtk()
         float flux = fsr->scalar_flux_final_[g];
         flux /= (settings::n_batches - settings::n_inactive);
         if (flux < 0.f || flux == 0.f)
-          flux = std::numeric_limits<double>::quiet_NaN();;
+          flux = std::numeric_limits<double>::quiet_NaN();
+        ;
         flux = flip_endianness<float>(flux);
         fwrite(&flux, sizeof(float), 1, plot);
       }
@@ -1046,7 +1070,7 @@ void FlatSourceDomain::output_to_vtk()
       fwrite(&mat, sizeof(int), 1, plot);
     }
 
-        // Plot cells
+    // Plot cells
     fprintf(plot, "SCALARS cell int\n");
     fprintf(plot, "LOOKUP_TABLE default\n");
     for (auto fsr : voxel_indices) {
@@ -1082,7 +1106,7 @@ void FlatSourceDomain::output_to_vtk()
       fwrite(&total_fission, sizeof(float), 1, plot);
     }
 
-        // Plot fixed source
+    // Plot fixed source
     fprintf(plot, "SCALARS total_fixed_source float\n");
     fprintf(plot, "LOOKUP_TABLE default\n");
     for (auto fsr : voxel_indices) {
@@ -1093,9 +1117,12 @@ void FlatSourceDomain::output_to_vtk()
           // We multiply by sigma t, as the fixed source was divided
           // by this when initializing
           float sigma_t = data::mg.macro_xs_[fsr->material_].get_xs(
-        MgxsType::TOTAL, g, nullptr, nullptr, nullptr, 0, 0);
+            MgxsType::TOTAL, g, nullptr, nullptr, nullptr, 0, 0);
           total_src += fsr->fixed_source_[g] * sigma_t;
-
+        }
+      } else {
+        for (int g = 0; g < negroups_; g++) {
+          total_src += fsr->fixed_source_[g];
         }
       }
       total_src = flip_endianness<float>(total_src);
@@ -1259,6 +1286,12 @@ void FlatSourceDomain::convert_fixed_sources()
   for (int sr = 0; sr < n_source_regions_; sr++) {
     auto& fsr = material_filled_cell_instance_[sr];
     int material = fsr.material_;
+
+    // If material is void, we treat differently so
+    // do not divide by sigma t
+    if (material == C_NONE)
+      continue;
+
     for (int e = 0; e < negroups_; e++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
         MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);

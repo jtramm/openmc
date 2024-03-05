@@ -326,6 +326,51 @@ void RandomRay::attenuate_flux_inner(
   }
 }
 
+void RandomRay::attenuate_flux_inner_void(
+  double distance, bool is_active, FlatSourceRegion& fsr)
+{
+  // The number of geometric intersections is counted for reporting purposes
+  n_event()++;
+
+  // If ray is in the active phase (not in dead zone), make contributions to
+  // source region bookkeeping
+  if (is_active) {
+
+    // Acquire lock for source region
+    fsr.lock_.lock();
+
+    // Accumulate delta psi into new estimate of source region flux for
+    // this iteration
+    for (int e = 0; e < negroups_; e++) {
+      fsr.scalar_flux_new_[e] += angular_flux_[e] * distance;
+    }
+
+    // If the source region hasn't been hit yet this iteration,
+    // indicate that it now has
+    fsr.was_hit_++;
+
+    // Accomulate volume (ray distance) into this iteration's estimate
+    // of the source region's volume
+    fsr.volume_ += distance;
+
+    // Tally valid position inside the source region (e.g., midpoint of
+    // the ray) if not done already
+    if (!fsr.position_recorded_) {
+      Position midpoint = r() + u() * (distance / 2.0);
+      fsr.position_ = midpoint;
+      fsr.position_recorded_ = 1;
+    }
+
+    // Release lock
+    fsr.lock_.unlock();
+  }
+
+  // MOC incoming flux attenuation + source contribution/attenuation equation
+  for (int e = 0; e < negroups_; e++) {;
+    angular_flux_[e] += fsr.source_[e] * distance;
+  }
+}
+
 void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 {
   domain_ = domain;
