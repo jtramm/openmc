@@ -405,7 +405,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       // Void regions use a different solution to the characteristic
       for (int e = 0; e < negroups_; e++) {
         fsr.scalar_flux_new_[e] /= volume_i;
-        fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i * 0.5f;
+        fsr.scalar_flux_new_[e] += fsr.fixed_source_[e] * volume_i * 0.5f;
       }
     } else {
       for (int e = 0; e < negroups_; e++) {
@@ -1032,7 +1032,6 @@ void FlatSourceDomain::output_to_vtk()
         flux /= (settings::n_batches - settings::n_inactive);
         if (flux < 0.f || flux == 0.f)
           flux = std::numeric_limits<double>::quiet_NaN();
-        ;
         flux = flip_endianness<float>(flux);
         fwrite(&flux, sizeof(float), 1, plot);
       }
@@ -1060,32 +1059,33 @@ void FlatSourceDomain::output_to_vtk()
       mat = flip_endianness<int>(mat);
       fwrite(&mat, sizeof(int), 1, plot);
     }
+    /*
+        // Plot universe
+        fprintf(plot, "SCALARS universe int\n");
+        fprintf(plot, "LOOKUP_TABLE default\n");
+        for (auto fsr : voxel_indices) {
+          int mat = fsr->universe_id_;
+          mat = flip_endianness<int>(mat);
+          fwrite(&mat, sizeof(int), 1, plot);
+        }
 
-    // Plot universe
-    fprintf(plot, "SCALARS universe int\n");
-    fprintf(plot, "LOOKUP_TABLE default\n");
-    for (auto fsr : voxel_indices) {
-      int mat = fsr->universe_id_;
-      mat = flip_endianness<int>(mat);
-      fwrite(&mat, sizeof(int), 1, plot);
-    }
+        // Plot cells
+        fprintf(plot, "SCALARS cell int\n");
+        fprintf(plot, "LOOKUP_TABLE default\n");
+        for (auto fsr : voxel_indices) {
+          int mat = fsr->cell_id_;
+          mat = flip_endianness<int>(mat);
+          fwrite(&mat, sizeof(int), 1, plot);
+        }
 
-    // Plot cells
-    fprintf(plot, "SCALARS cell int\n");
-    fprintf(plot, "LOOKUP_TABLE default\n");
-    for (auto fsr : voxel_indices) {
-      int mat = fsr->cell_id_;
-      mat = flip_endianness<int>(mat);
-      fwrite(&mat, sizeof(int), 1, plot);
-    }
-
-    // Plot hitmap
-    fprintf(plot, "SCALARS FSRs_per_mesh int\n");
-    fprintf(plot, "LOOKUP_TABLE default\n");
-    for (int bin : hits) {
-      bin = flip_endianness<int>(bin);
-      fwrite(&bin, sizeof(int), 1, plot);
-    }
+        // Plot hitmap
+        fprintf(plot, "SCALARS FSRs_per_mesh int\n");
+        fprintf(plot, "LOOKUP_TABLE default\n");
+        for (int bin : hits) {
+          bin = flip_endianness<int>(bin);
+          fwrite(&bin, sizeof(int), 1, plot);
+        }
+    */
 
     // Plot fission source
     fprintf(plot, "SCALARS total_fission_source float\n");
@@ -1155,7 +1155,13 @@ void FlatSourceDomain::apply_fixed_source_to_cell_instances(int32_t i_cell,
 
   for (int j : instances) {
     int cell_material_idx = cell.material(j);
-    int cell_material_id = model::materials[cell_material_idx]->id();
+    int cell_material_id;
+    if (cell_material_idx == C_NONE) {
+      cell_material_id = C_NONE;
+    } else {
+      cell_material_id = model::materials[cell_material_idx]->id();
+    }
+
     if (target_material_id == C_NONE ||
         cell_material_id == target_material_id) {
       int64_t source_region = source_region_offsets_[i_cell] + j;
@@ -1301,7 +1307,7 @@ void FlatSourceDomain::convert_fixed_sources()
 }
 
 void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id, const vector<int32_t>& instances)
+  int32_t mesh, int target_material_id, const vector<int32_t>& instances, bool is_target_void)
 {
   Cell& cell = *model::cells[i_cell];
   if (cell.type_ != Fill::MATERIAL)
@@ -1312,25 +1318,37 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
     //        "actual cell instances\n",
     //   cell.id_, j, instances.size(), cell.n_instances_);
     int cell_material_idx = cell.material(j);
-    int cell_material_id = model::materials[cell_material_idx]->id();
-    if (target_material_id == C_NONE ||
+    int cell_material_id;
+    if (cell_material_idx == C_NONE) {
+      cell_material_id = C_NONE;
+    } else {
+      cell_material_id = model::materials[cell_material_idx]->id();
+    }
+
+    if ((target_material_id == C_NONE && !is_target_void) ||
         cell_material_id == target_material_id) {
       int64_t source_region = source_region_offsets_[i_cell] + j;
+      if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
+        // print out the source region that is broken:
+        fatal_error(
+          fmt::format("Source region {} already has mesh id {} applied, but trying to apply mesh id {}",
+            source_region, material_filled_cell_instance_[source_region].mesh_, mesh));
+      }
       material_filled_cell_instance_[source_region].mesh_ = mesh;
     }
   }
 }
 
 void FlatSourceDomain::apply_mesh_to_cell_and_children(
-  int32_t i_cell, int32_t mesh, int32_t target_material_id)
+  int32_t i_cell, int32_t mesh, int32_t target_material_id, bool is_target_void)
 {
   Cell& cell = *model::cells[i_cell];
 
   if (cell.type_ == Fill::MATERIAL) {
     vector<int> instances(cell.n_instances_);
     std::iota(instances.begin(), instances.end(), 0);
-    apply_mesh_to_cell_instances(i_cell, mesh, target_material_id, instances);
-  } else if (target_material_id == C_NONE) {
+    apply_mesh_to_cell_instances(i_cell, mesh, target_material_id, instances, is_target_void);
+  } else if (target_material_id == C_NONE && !is_target_void) {
     // printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
     for (int j = 0; j < cell.n_instances_; j++) {
       //   printf(
@@ -1341,12 +1359,15 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(
       for (const auto& pair : cell_instance_list) {
         int32_t i_child_cell = pair.first;
         apply_mesh_to_cell_instances(
-          i_child_cell, mesh, target_material_id, pair.second);
+          i_child_cell, mesh, target_material_id, pair.second, is_target_void);
       }
     }
   }
 }
 
+// Problem: my logic breaks if I am trying to apply things to a void region,
+// where the target material ID is C_NONE. Might be worth making a different
+// argument to pass through that indicates the presence of void.
 void FlatSourceDomain::apply_meshes()
 {
   // Loop over external sources
@@ -1359,22 +1380,28 @@ void FlatSourceDomain::apply_meshes()
     const std::unordered_set<int32_t>& domain_ids = rm->domain_ids();
 
     if (rm->domain_type() == RegularMesh::DomainType::MATERIAL) {
+      printf("applying mesh %d to material domain\n", m);
       for (int32_t material_id : domain_ids) {
         for (int i_cell = 0; i_cell < model::cells.size(); i_cell++) {
-          apply_mesh_to_cell_and_children(i_cell, m, material_id);
+          printf("applying material ID %d to cell %d\n", material_id, i_cell);
+          if (material_id == C_NONE) {
+            apply_mesh_to_cell_and_children(i_cell, m, material_id, true);
+          } else {
+            apply_mesh_to_cell_and_children(i_cell, m, material_id, false);
+          }
         }
       }
     } else if (rm->domain_type() == RegularMesh::DomainType::CELL) {
       for (int32_t cell_id : domain_ids) {
         int32_t i_cell = model::cell_map[cell_id];
-        apply_mesh_to_cell_and_children(i_cell, m, C_NONE);
+        apply_mesh_to_cell_and_children(i_cell, m, C_NONE, false);
       }
     } else if (rm->domain_type() == RegularMesh::DomainType::UNIVERSE) {
       for (int32_t universe_id : domain_ids) {
         int32_t i_universe = model::universe_map[universe_id];
         Universe& universe = *model::universes[i_universe];
         for (int32_t i_cell : universe.cells_) {
-          apply_mesh_to_cell_and_children(i_cell, m, C_NONE);
+          apply_mesh_to_cell_and_children(i_cell, m, C_NONE, false);
         }
       }
     }

@@ -163,8 +163,8 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
     domain_->source_region_offsets_[i_cell] + cell_instance();
   auto& fsr = domain_->material_filled_cell_instance_[source_region];
 
-  //GeometryState p = *this;
-  //GeometryState p;
+  // GeometryState p = *this;
+  // GeometryState p;
   /*
   bool found = exhaustive_find_cell(p);
   if(!found)
@@ -173,13 +173,15 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
     fatal_error("find cell failure...");
   }
   int true_i_cell = p.lowest_coord().cell;
-  int64_t true_sr = domain_->source_region_offsets_[true_i_cell] + p.cell_instance();
-  if( true_sr != source_region )
+  int64_t true_sr = domain_->source_region_offsets_[true_i_cell] +
+  p.cell_instance(); if( true_sr != source_region )
   {
-    printf("Ray %d: source region mismatch. i_cell input = %d, true_i_cell = %d, source_region = %ld, true_sr = %ld\n", id(), i_cell, true_i_cell, source_region, true_sr);
+    printf("Ray %d: source region mismatch. i_cell input = %d, true_i_cell = %d,
+  source_region = %ld, true_sr = %ld\n", id(), i_cell, true_i_cell,
+  source_region, true_sr);
   }
   */
-  //source_region = true_sr;
+  // source_region = true_sr;
 
   int i_mesh = fsr.mesh_;
   /*
@@ -200,7 +202,7 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
   // printf("\tRay current bin indices (x, y, z): %d %d %d\n", ijk[0] - 1,
   //   ijk[1] - 1, ijk[2] - 1);
   if (i_mesh >= 0) {
-    
+
     // On the rare chance we have a physical segment length
     // that is super small, we should just ignore it. When
     // we ray trace in the next step to find mesh bins, then
@@ -234,19 +236,35 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
       // if (length > 1.0e-5)
       {
         FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
-          r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length+ length) * u(), id());
-        //FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
-        //  r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset + TINY_BIT + cum_length//+ length) * u(), id(), p);
+          r() + (offset + TINY_BIT + cum_length) * u(),
+          r() + (offset + TINY_BIT + cum_length + length) * u(), id());
+        // FlatSourceRegion* region = domain_->get_fsr(source_region, bin,
+        //   r() + (offset + TINY_BIT + cum_length) * u(), r() + (offset +
+        //   TINY_BIT + cum_length//+ length) * u(), id(), p);
         attenuate_flux_inner(length, is_active, *region);
       }
-            cum_length += length;
-
+      cum_length += length;
     }
   } else { // If the FSR doesn't have a mesh, let's just say the bin is zero
-    FlatSourceRegion* region = domain_->get_fsr(source_region, 0, r(), r(), id());
+    FlatSourceRegion* region =
+      domain_->get_fsr(source_region, 0, r(), r(), id());
     attenuate_flux_inner(distance, is_active, *region);
   }
   // attenuate_flux_inner(distance, is_active, domain_->fsr_[source_region]);
+}
+
+void RandomRay::attenuate_flux_inner(
+  double distance, bool is_active, FlatSourceRegion& fsr)
+{
+  // The number of geometric intersections is counted for reporting purposes
+  n_event()++;
+
+  // The source element is the energy-specific region index
+  if (this->material() == C_NONE) {
+    attenuate_flux_inner_void(distance, is_active, fsr);
+  } else {
+    attenuate_flux_inner_non_void(distance, is_active, fsr);
+  }
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -262,12 +280,9 @@ void RandomRay::attenuate_flux(double distance, double offset, bool is_active)
 // than use of many atomic operations corresponding to each energy group
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
-void RandomRay::attenuate_flux_inner(
+void RandomRay::attenuate_flux_inner_non_void(
   double distance, bool is_active, FlatSourceRegion& fsr)
 {
-  // The number of geometric intersections is counted for reporting purposes
-  n_event()++;
-
   // The source element is the energy-specific region index
   int material = this->material();
 
@@ -283,7 +298,8 @@ void RandomRay::attenuate_flux_inner(
     float sigma_t = data::mg.macro_xs_[material].get_xs(
       MgxsType::TOTAL, e, NULL, NULL, NULL, t, a);
     float tau = sigma_t * distance;
-    //float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+    // float exponential = cjosey_exponential(tau); // exponential = 1 -
+    // exp(-tau)
     float exponential = -(expm1f(-tau));
     float new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
     delta_psi_[e] = new_delta_psi;
@@ -329,9 +345,6 @@ void RandomRay::attenuate_flux_inner(
 void RandomRay::attenuate_flux_inner_void(
   double distance, bool is_active, FlatSourceRegion& fsr)
 {
-  // The number of geometric intersections is counted for reporting purposes
-  n_event()++;
-
   // If ray is in the active phase (not in dead zone), make contributions to
   // source region bookkeeping
   if (is_active) {
@@ -366,8 +379,8 @@ void RandomRay::attenuate_flux_inner_void(
   }
 
   // MOC incoming flux attenuation + source contribution/attenuation equation
-  for (int e = 0; e < negroups_; e++) {;
-    angular_flux_[e] += fsr.source_[e] * distance;
+  for (int e = 0; e < negroups_; e++) {
+    angular_flux_[e] += fsr.fixed_source_[e] * distance;
   }
 }
 

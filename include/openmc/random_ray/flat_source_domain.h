@@ -228,9 +228,9 @@ public:
   void swap_flux(void);
 
   void apply_mesh_to_cell_instances(int32_t i_cell, int32_t mesh,
-    int target_material_id, const vector<int32_t>& instances);
+    int target_material_id, const vector<int32_t>& instances, bool is_target_void);
   void apply_mesh_to_cell_and_children(
-    int32_t i_cell, int32_t mesh, int32_t target_material_id);
+    int32_t i_cell, int32_t mesh, int32_t target_material_id, bool is_target_void);
   void apply_meshes();
   FlatSourceRegion* get_fsr(
     int64_t source_region, int bin, Position r0, Position r1, int ray_id);
