@@ -15,6 +15,13 @@ namespace openmc {
 // TODO: Inherit from GeometryState instead of Particle
 class RandomRay : public Particle {
 public:
+  struct Intersection {
+    double s;
+    FlatSourceRegion* fsr;
+    int material;
+    bool is_active;
+    bool vacuum_apply_at_end;
+  };
   //----------------------------------------------------------------------------
   // Constructors
   RandomRay();
@@ -27,9 +34,9 @@ public:
   void attenuate_flux_inner(
     double distance, bool is_active, FlatSourceRegion& fsr);
   void attenuate_flux_inner_non_void(
-    double distance, bool is_active, FlatSourceRegion& fsr);
+    double distance, bool is_active, FlatSourceRegion& fsr, int material);
   void attenuate_flux_inner_void(
-    double distance, bool is_active, FlatSourceRegion& fsr);
+    double distance, bool is_active, FlatSourceRegion& fsr, int material);
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
   uint64_t transport_history_based_single_ray();
 
@@ -38,6 +45,7 @@ public:
   static double distance_inactive_;      // Inactive (dead zone) ray length
   static double distance_active_;        // Active ray length
   static unique_ptr<Source> ray_source_; // Starting source for ray sampling
+  static bool ray_trace_mode_;           // Flag for ray tracing mode
 
   //----------------------------------------------------------------------------
   // Data members
@@ -50,7 +58,8 @@ public:
   bool is_active_ {false};
   bool is_alive_ {true};
   vector<LocalCoord> coord_last_; //!< coordinates for all levels
-};                                // class RandomRay
+  vector<Intersection> intersections_;
+}; // class RandomRay
 
 } // namespace openmc
 

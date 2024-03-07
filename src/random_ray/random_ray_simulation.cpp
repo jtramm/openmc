@@ -260,13 +260,15 @@ void RandomRaySimulation::simulate()
     if (mesh != C_NONE)
       non_zero++;
   }
-  printf("FSRs with mesh assignments = %d, FSRs = %d\n", non_zero, domain_.n_source_regions_);
+  printf("FSRs with mesh assignments = %d, FSRs = %d\n", non_zero,
+    domain_.n_source_regions_);
 
   // Update source term (scattering + fission)
   domain_.prepare_base_neutron_source(1.0);
 
-  //domain_.output_to_vtk();
-  //return;
+  // domain_.output_to_vtk();
+  // return;
+  vector<RandomRay> rays(simulation::work_per_rank);
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
@@ -288,26 +290,73 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
+    RandomRay::ray_trace_mode_ = true;
+
+    if (RandomRay::ray_trace_mode_) {
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
-    for (int i = 0; i < simulation::work_per_rank; i++) {
-      RandomRay ray(i, &domain_);
-      total_geometric_intersections_ +=
-        ray.transport_history_based_single_ray();
+      for (int i = 0; i < simulation::work_per_rank; i++) {
+        rays[i].initialize_ray(i, &domain_);
+        total_geometric_intersections_ +=
+          rays[i].transport_history_based_single_ray();
+      }
+
+// Correct Segment Lengths
+#pragma omp parallel for schedule(dynamic)
+      for (int i = 0; i < simulation::work_per_rank; i++) {
+        for (RandomRay::Intersection& seg : rays[i].intersections_) {
+          if( seg.is_active == false )
+            continue;
+          double it_vol = seg.fsr->volume_;
+          double new_total_volume = (seg.fsr->volume_t_ + it_vol) / simulation::current_batch;
+          double correction = new_total_volume / it_vol;
+          //printf("correction = %lf\n", correction);
+          seg.s *= correction;
+        }
+      }
+
+// Transport sweep over all random rays for the iteration
+#pragma omp parallel for schedule(dynamic)
+      for (int i = 0; i < simulation::work_per_rank; i++) {
+        for (RandomRay::Intersection& seg : rays[i].intersections_) {
+          // The source element is the energy-specific region index
+          if (seg.material == C_NONE) {
+            rays[i].attenuate_flux_inner_void(
+              seg.s, seg.is_active, *seg.fsr, seg.material);
+          } else {
+            rays[i].attenuate_flux_inner_non_void(
+              seg.s, seg.is_active, *seg.fsr, seg.material);
+          }
+          if (seg.vacuum_apply_at_end) {
+            std::fill(
+              rays[i].angular_flux_.begin(), rays[i].angular_flux_.end(), 0.0);
+          }
+        }
+      }
+    } else {
+      // Transport sweep over all random rays for the iteration
+#pragma omp parallel for schedule(dynamic)                                     \
+  reduction(+ : total_geometric_intersections_)
+      for (int i = 0; i < simulation::work_per_rank; i++) {
+        rays[i].initialize_ray(i, &domain_);
+        total_geometric_intersections_ +=
+          rays[i].transport_history_based_single_ray();
+      }
     }
 
-    // Update the FSR manifest. This pulls newly discovered FSRs out of maps and
-    // into a vector for easy access.
+    // Update the FSR manifest. This pulls newly discovered FSRs out of maps
+    // and into a vector for easy access.
     domain_.update_fsr_manifest();
 
     // If there are FSRs that are not getting hit regularly, merge them
     // with larger neighbors from other mesh cells that are within
     // the same base source region
     int64_t merged_fsrs = domain_.check_for_small_FSRs();
-    
+
     int n_mesh_fsrs = domain_.known_fsr_map_.size();
-    //printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n", n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
+    // printf("Total mesh FSRs = %d, total FSRs = %ld, less merges = %ld\n",
+    // n_mesh_fsrs, domain_.fsr_manifest_.size(), n_mesh_fsrs - merged_fsrs);
     /*
     for( int i = 0 ; i < 51; i++) {
       for (int j = 0; j < 51; j++) {
@@ -319,7 +368,8 @@ void RandomRaySimulation::simulate()
 
     simulation::time_transport.stop();
 
-    // If using multiple MPI ranks, perform all reduce on all transport results
+    // If using multiple MPI ranks, perform all reduce on all transport
+    // results
     domain_.all_reduce_replicated_source_regions();
 
     // Normalize scalar flux and update volumes
@@ -340,14 +390,15 @@ void RandomRaySimulation::simulate()
     // Execute all tallying tasks, if this is an active batch
     if (simulation::current_batch > settings::n_inactive && mpi::master) {
       // Generate mapping between source regions and tallies
-      //if (!domain_.mapped_all_tallies_) {
+      // if (!domain_.mapped_all_tallies_) {
       //  domain_.convert_source_regions_to_tallies();
       //}
 
       // Use above mapping to contribute FSR flux data to appropriate tallies
       domain_.random_ray_tally();
 
-      // Add this iteration's scalar flux estimate to final accumulated estimate
+      // Add this iteration's scalar flux estimate to final accumulated
+      // estimate
       domain_.accumulate_iteration_flux();
     }
 
@@ -393,7 +444,8 @@ void RandomRaySimulation::output_simulation_results()
   // Print random ray results
   if (mpi::master) {
     print_results_random_ray(total_geometric_intersections_,
-      avg_miss_rate_ / settings::n_batches, negroups_, domain_.n_source_regions_, domain_.discovered_source_regions_, 
+      avg_miss_rate_ / settings::n_batches, negroups_,
+      domain_.n_source_regions_, domain_.discovered_source_regions_,
       domain_.n_subdivided_source_regions_, domain_.n_fixed_source_regions_);
     if (model::plots.size() > 0) {
       domain_.output_to_vtk();
@@ -411,7 +463,8 @@ void RandomRaySimulation::instability_check(
       static_cast<double>(domain_.n_subdivided_source_regions_)) *
     100.0;
   avg_miss_rate += percent_missed;
-  //printf("n_hits = %ld, percent_missed = %f subdivided regions = %ld\n", n_hits, percent_missed, domain_.n_subdivided_source_regions_);
+  // printf("n_hits = %ld, percent_missed = %f subdivided regions = %ld\n",
+  // n_hits, percent_missed, domain_.n_subdivided_source_regions_);
   if (percent_missed > 10.0) {
     warning(fmt::format(
       "Very high FSR miss rate detected ({:.3f}%). Instability may occur. "

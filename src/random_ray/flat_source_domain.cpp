@@ -364,6 +364,7 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
     fsr.volume_t_ += fsr.volume_;
+    fsr.volume_i_last_ = fsr.volume_i_;
     fsr.volume_i_ = fsr.volume_ * normalization_factor;
     fsr.volume_ = fsr.volume_t_ * volume_normalization_factor;
     for (int e = 0; e < negroups_; e++) {
@@ -400,6 +401,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 
     double volume = fsr.volume_;
     double volume_i = fsr.volume_i_;
+        double volume_i_last = fsr.volume_i_last_;
+       //  printf("vol corr term = %.6lf\n", volume_i / volume);
+
     int material = fsr.material_;
     if (material == C_NONE) {
       // Void regions use a different solution to the characteristic
@@ -417,8 +421,40 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           // (computed during the transport sweep)
           float sigma_t = data::mg.macro_xs_[material].get_xs(
             MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
-          fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
-          fsr.scalar_flux_new_[e] += fsr.source_[e];
+
+          // The 4th estimator I had tried out at some point was to actually do all the ray tracing up front,
+          // and then to scale the individual segment lengths such that they add up to the simulation averaged expected
+          // length. This makes the source term consistent, and the flux term consistent. The downside is that it
+          // leads to another decision: namely, how to handle the angular flux (e.g, should it use the value with the)
+          // scaled segment lengths, or the true segment lengths? Do we need to do one integration or two, basically?
+
+          // The other major issue here is how on earth we are going to know all the segments up front. A lot of memory,
+          // I suppose, but OK on CPU? Easy in event-based mode though...
+
+          float naive_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume_i);
+          float naive_source_term = fsr.source_[e];
+
+          float sim_avg_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume);
+          float sim_avg_source_term = fsr.source_[e];
+
+          float vol_cor_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume);
+          float vol_cor_source_term = fsr.source_[e] * (volume_i / volume);
+
+          float naive_estimator = naive_flux_term + naive_source_term;
+          float sim_avg_estimator = sim_avg_flux_term + sim_avg_source_term;
+          float vol_cor_estimator = vol_cor_flux_term + vol_cor_source_term;
+
+          //fsr.scalar_flux_new_[e] = (naive_estimator + sim_avg_estimator + vol_cor_estimator) / 3.0f;
+          fsr.scalar_flux_new_[e] = sim_avg_estimator;
+          //fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
+          //fsr.scalar_flux_new_[e] /= (sigma_t * volume); // SIM AVG ESTIMATOR
+          //fsr.scalar_flux_new_[e] += fsr.source_[e];
+          //fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume; // SIM AVG + Vol Corr.
+         // if (volume_i_last > 0.0)
+          //  fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i_last / volume; // SIM AVG + Vol Corr.
+         // else
+            //fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume;
+
         } else if (volume > 0.0) {
           // 2. If the FSR was not hit this iteration, but has been hit some
           // previous iteration, then we simply set the new scalar flux to be
@@ -1307,7 +1343,8 @@ void FlatSourceDomain::convert_fixed_sources()
 }
 
 void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
-  int32_t mesh, int target_material_id, const vector<int32_t>& instances, bool is_target_void)
+  int32_t mesh, int target_material_id, const vector<int32_t>& instances,
+  bool is_target_void)
 {
   Cell& cell = *model::cells[i_cell];
   if (cell.type_ != Fill::MATERIAL)
@@ -1330,9 +1367,10 @@ void FlatSourceDomain::apply_mesh_to_cell_instances(int32_t i_cell,
       int64_t source_region = source_region_offsets_[i_cell] + j;
       if (material_filled_cell_instance_[source_region].mesh_ != C_NONE) {
         // print out the source region that is broken:
-        fatal_error(
-          fmt::format("Source region {} already has mesh id {} applied, but trying to apply mesh id {}",
-            source_region, material_filled_cell_instance_[source_region].mesh_, mesh));
+        fatal_error(fmt::format("Source region {} already has mesh id {} "
+                                "applied, but trying to apply mesh id {}",
+          source_region, material_filled_cell_instance_[source_region].mesh_,
+          mesh));
       }
       material_filled_cell_instance_[source_region].mesh_ = mesh;
     }
@@ -1347,7 +1385,8 @@ void FlatSourceDomain::apply_mesh_to_cell_and_children(
   if (cell.type_ == Fill::MATERIAL) {
     vector<int> instances(cell.n_instances_);
     std::iota(instances.begin(), instances.end(), 0);
-    apply_mesh_to_cell_instances(i_cell, mesh, target_material_id, instances, is_target_void);
+    apply_mesh_to_cell_instances(
+      i_cell, mesh, target_material_id, instances, is_target_void);
   } else if (target_material_id == C_NONE && !is_target_void) {
     // printf("cell id %d, n instances %d\n", cell.id_, cell.n_instances_);
     for (int j = 0; j < cell.n_instances_; j++) {

@@ -88,7 +88,7 @@ public:
       is_in_manifest_(other.is_in_manifest_), is_merged_(other.is_merged_),
       is_consumer_(other.is_consumer_), manifest_index_(other.manifest_index_),
       no_hit_streak_(other.no_hit_streak_),
-      source_region_(other.source_region_), bin_(other.bin_), cell_id_(other.cell_id_), universe_id_(other.universe_id_)
+      source_region_(other.source_region_), bin_(other.bin_), cell_id_(other.cell_id_), universe_id_(other.universe_id_), volume_i_last_(other.volume_i_last_)
   {}
   ~FlatSourceRegion() = default;
 
@@ -99,6 +99,7 @@ public:
   int position_recorded_ {0};
   Position position_;
   double volume_i_ {0.0};
+  double volume_i_last_ {0.0};
   double volume_ {0.0};
   double volume_t_ {0.0};
   int was_hit_ {0};

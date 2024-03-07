@@ -71,6 +71,7 @@ inline float cjosey_exponential(const float tau)
 double RandomRay::distance_inactive_;
 double RandomRay::distance_active_;
 unique_ptr<Source> RandomRay::ray_source_;
+bool RandomRay::ray_trace_mode_ = true;
 
 RandomRay::RandomRay()
   : negroups_(data::mg.num_energy_groups_),
@@ -258,12 +259,40 @@ void RandomRay::attenuate_flux_inner(
 {
   // The number of geometric intersections is counted for reporting purposes
   n_event()++;
+  int material = this->material();
 
-  // The source element is the energy-specific region index
-  if (this->material() == C_NONE) {
-    attenuate_flux_inner_void(distance, is_active, fsr);
+  if (is_active) {
+    fsr.lock_.lock();
+    fsr.volume_ += distance;
+    // If the source region hasn't been hit yet this iteration,
+    // indicate that it now has
+    fsr.was_hit_++;
+
+    // Accomulate volume (ray distance) into this iteration's estimate
+    // of the source region's volume
+    // fsr.volume_ += distance;
+
+    // Tally valid position inside the source region (e.g., midpoint of
+    // the ray) if not done already
+    if (!fsr.position_recorded_) {
+      Position midpoint = r() + u() * (distance / 2.0);
+      fsr.position_ = midpoint;
+      fsr.position_recorded_ = 1;
+    }
+
+    fsr.lock_.unlock();
+  }
+
+  if (ray_trace_mode_) {
+    intersections_.emplace_back(
+      Intersection {distance, &fsr, material, is_active, false});
   } else {
-    attenuate_flux_inner_non_void(distance, is_active, fsr);
+    // The source element is the energy-specific region index
+    if (this->material() == C_NONE) {
+      attenuate_flux_inner_void(distance, is_active, fsr, material);
+    } else {
+      attenuate_flux_inner_non_void(distance, is_active, fsr, material);
+    }
   }
 }
 
@@ -281,10 +310,9 @@ void RandomRay::attenuate_flux_inner(
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
 void RandomRay::attenuate_flux_inner_non_void(
-  double distance, bool is_active, FlatSourceRegion& fsr)
+  double distance, bool is_active, FlatSourceRegion& fsr, int material)
 {
   // The source element is the energy-specific region index
-  int material = this->material();
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -302,6 +330,7 @@ void RandomRay::attenuate_flux_inner_non_void(
     // exp(-tau)
     float exponential = -(expm1f(-tau));
     float new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
+
     delta_psi_[e] = new_delta_psi;
     angular_flux_[e] -= new_delta_psi;
   }
@@ -320,22 +349,6 @@ void RandomRay::attenuate_flux_inner_non_void(
       fsr.scalar_flux_new_[e] += delta_psi_[e];
     }
 
-    // If the source region hasn't been hit yet this iteration,
-    // indicate that it now has
-    fsr.was_hit_++;
-
-    // Accomulate volume (ray distance) into this iteration's estimate
-    // of the source region's volume
-    fsr.volume_ += distance;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!fsr.position_recorded_) {
-      Position midpoint = r() + u() * (distance / 2.0);
-      fsr.position_ = midpoint;
-      fsr.position_recorded_ = 1;
-    }
-
     // Release lock
     // omp_unset_lock(&fsr.lock_);
     fsr.lock_.unlock();
@@ -343,7 +356,7 @@ void RandomRay::attenuate_flux_inner_non_void(
 }
 
 void RandomRay::attenuate_flux_inner_void(
-  double distance, bool is_active, FlatSourceRegion& fsr)
+  double distance, bool is_active, FlatSourceRegion& fsr, int material)
 {
   // If ray is in the active phase (not in dead zone), make contributions to
   // source region bookkeeping
@@ -356,22 +369,6 @@ void RandomRay::attenuate_flux_inner_void(
     // this iteration
     for (int e = 0; e < negroups_; e++) {
       fsr.scalar_flux_new_[e] += angular_flux_[e] * distance;
-    }
-
-    // If the source region hasn't been hit yet this iteration,
-    // indicate that it now has
-    fsr.was_hit_++;
-
-    // Accomulate volume (ray distance) into this iteration's estimate
-    // of the source region's volume
-    fsr.volume_ += distance;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!fsr.position_recorded_) {
-      Position midpoint = r() + u() * (distance / 2.0);
-      fsr.position_ = midpoint;
-      fsr.position_recorded_ = 1;
     }
 
     // Release lock
@@ -387,6 +384,7 @@ void RandomRay::attenuate_flux_inner_void(
 void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 {
   domain_ = domain;
+  clear();
 
   // Reset particle event counter
   n_event() = 0;
@@ -452,6 +450,11 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   for (int e = 0; e < negroups_; e++) {
     angular_flux_[e] = region->source_[e];
   }
+
+  intersections_.clear();
+  distance_travelled_ = 0.0;
+  is_active_ = false;
+  is_alive_ = true;
 }
 
 } // namespace openmc
