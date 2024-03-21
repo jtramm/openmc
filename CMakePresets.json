@@ -25,7 +25,7 @@
             "inherits": ["unity"],
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "mpicc",
-                "CMAKE_CXX_COMPILER": "mpic++"
+                "CMAKE_CXX_COMPILER": "mpicxx"
             },
             "environment": {
                 "INTEL_CXX_FLAGS": "-fiopenmp"
@@ -67,6 +67,23 @@
             }
         },
         {
+            "name": "llvm_native",
+            "inherits": ["llvm"],
+            "displayName": "LLVM native GPU (whatever is detected on this node)",
+            "environment": {
+                "PRESET_CXX_FLAGS": "--offload-arch=native"
+            }
+        },
+        {
+            "name": "llvm_native_mpi",
+            "inherits": ["llvm_native"],
+            "displayName": "LLVM native GPU (whatever is detected on this node) with MPI",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "mpicc",
+                "CMAKE_CXX_COMPILER": "mpicxx"
+            }
+        },
+        {
             "name": "llvm_v100",
             "inherits": ["llvm"],
             "displayName": "LLVM Clang V100",
@@ -80,7 +97,7 @@
             "displayName": "LLVM Clang A100",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "mpicc",
-                "CMAKE_CXX_COMPILER": "mpic++"
+                "CMAKE_CXX_COMPILER": "mpicxx"
             },
             "environment": {
                 "PRESET_CXX_FLAGS": "-fopenmp-targets=nvptx64 -Xopenmp-target -march=sm_70"
@@ -100,7 +117,7 @@
             "displayName": "LLVM Clang A100",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "mpicc",
-                "CMAKE_CXX_COMPILER": "mpic++"
+                "CMAKE_CXX_COMPILER": "mpicxx"
             }
         },
         {
