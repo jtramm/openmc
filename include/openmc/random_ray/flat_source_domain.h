@@ -243,6 +243,7 @@ public:
   int64_t check_for_small_FSRs(void);
   void initialize_tally_tasks(FlatSourceRegion& fsr);
   void reset_tally_volumes();
+  void output_to_vtk_slim(int iter);
 
   //----------------------------------------------------------------------------
   // Data members

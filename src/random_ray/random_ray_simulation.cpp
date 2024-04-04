@@ -266,7 +266,9 @@ void RandomRaySimulation::simulate()
   // Update source term (scattering + fission)
   domain_.prepare_base_neutron_source(1.0);
 
-  // domain_.output_to_vtk();
+  for( int i = 0; i < model::cells.size(); i++ ){
+    printf("Cell idx %d has cell id %d\n", i, model::cells[i]->id_);
+  }  // domain_.output_to_vtk();
   // return;
   vector<RandomRay> rays(simulation::work_per_rank);
 
@@ -290,7 +292,7 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
-    RandomRay::ray_trace_mode_ = true;
+    RandomRay::ray_trace_mode_ = false;
 
     if (RandomRay::ray_trace_mode_) {
 // Transport sweep over all random rays for the iteration
@@ -306,13 +308,15 @@ void RandomRaySimulation::simulate()
 #pragma omp parallel for schedule(dynamic)
       for (int i = 0; i < simulation::work_per_rank; i++) {
         for (RandomRay::Intersection& seg : rays[i].intersections_) {
-          if( seg.is_active == false )
+          if (seg.is_active == false)
             continue;
           double it_vol = seg.fsr->volume_;
-          double new_total_volume = (seg.fsr->volume_t_ + it_vol) / simulation::current_batch;
+          double new_total_volume =
+            (seg.fsr->volume_t_ + it_vol) / simulation::current_batch;
           double correction = new_total_volume / it_vol;
-          //printf("correction = %lf\n", correction);
-          seg.s *= correction;
+          // printf("correction = %lf\n", correction);
+          seg.correction = correction;
+          // seg.s *= correction;
         }
       }
 
@@ -323,10 +327,10 @@ void RandomRaySimulation::simulate()
           // The source element is the energy-specific region index
           if (seg.material == C_NONE) {
             rays[i].attenuate_flux_inner_void(
-              seg.s, seg.is_active, *seg.fsr, seg.material);
+              seg.s, seg.is_active, *seg.fsr, seg.material, seg.correction);
           } else {
             rays[i].attenuate_flux_inner_non_void(
-              seg.s, seg.is_active, *seg.fsr, seg.material);
+              seg.s, seg.is_active, *seg.fsr, seg.material, seg.correction);
           }
           if (seg.vacuum_apply_at_end) {
             std::fill(
@@ -412,7 +416,12 @@ void RandomRaySimulation::simulate()
         }
         fclose(fp);
         */
-
+       int start_plot = 0;
+       int end_plot = 201;
+    if (simulation::current_batch > start_plot &&
+        simulation::current_batch <= end_plot) {
+      domain_.output_to_vtk_slim(simulation::current_batch);
+    }
     // Set phi_old = phi_new
     domain_.swap_flux();
 

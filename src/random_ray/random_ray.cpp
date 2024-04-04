@@ -285,7 +285,7 @@ void RandomRay::attenuate_flux_inner(
 
   if (ray_trace_mode_) {
     intersections_.emplace_back(
-      Intersection {distance, &fsr, material, is_active, false});
+      Intersection {distance, &fsr, material, is_active, false, 1.0});
   } else {
     // The source element is the energy-specific region index
     if (this->material() == C_NONE) {
@@ -310,7 +310,7 @@ void RandomRay::attenuate_flux_inner(
 // individually (at least on CPU). Several other bookeeping tasks are also
 // performed when inside the lock.
 void RandomRay::attenuate_flux_inner_non_void(
-  double distance, bool is_active, FlatSourceRegion& fsr, int material)
+  double distance, bool is_active, FlatSourceRegion& fsr, int material, double correction)
 {
   // The source element is the energy-specific region index
 
@@ -325,13 +325,19 @@ void RandomRay::attenuate_flux_inner_non_void(
   for (int e = 0; e < negroups_; e++) {
     float sigma_t = data::mg.macro_xs_[material].get_xs(
       MgxsType::TOTAL, e, NULL, NULL, NULL, t, a);
-    float tau = sigma_t * distance;
+    float tau = sigma_t * distance * correction;
     // float exponential = cjosey_exponential(tau); // exponential = 1 -
     // exp(-tau)
     float exponential = -(expm1f(-tau));
     float new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
 
     delta_psi_[e] = new_delta_psi;
+
+
+    //tau = sigma_t * distance;
+    //exponential = -(expm1f(-tau));
+   // new_delta_psi = (angular_flux_[e] - fsr.source_[e]) * exponential;
+
     angular_flux_[e] -= new_delta_psi;
   }
 
@@ -356,7 +362,7 @@ void RandomRay::attenuate_flux_inner_non_void(
 }
 
 void RandomRay::attenuate_flux_inner_void(
-  double distance, bool is_active, FlatSourceRegion& fsr, int material)
+  double distance, bool is_active, FlatSourceRegion& fsr, int material, double correction)
 {
   // If ray is in the active phase (not in dead zone), make contributions to
   // source region bookkeeping
@@ -368,7 +374,7 @@ void RandomRay::attenuate_flux_inner_void(
     // Accumulate delta psi into new estimate of source region flux for
     // this iteration
     for (int e = 0; e < negroups_; e++) {
-      fsr.scalar_flux_new_[e] += angular_flux_[e] * distance;
+      fsr.scalar_flux_new_[e] += angular_flux_[e] * distance * correction;
     }
 
     // Release lock

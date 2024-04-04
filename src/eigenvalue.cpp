@@ -348,6 +348,7 @@ void calculate_average_keff()
     simulation::k_sum[0] += simulation::k_generation[i];
     simulation::k_sum[1] += std::pow(simulation::k_generation[i], 2);
 
+
     // Determine mean
     simulation::keff = simulation::k_sum[0] / n;
 
@@ -365,7 +366,7 @@ void calculate_average_keff()
       simulation::keff_std =
         t_value *
         std::sqrt(
-          (simulation::k_sum[1] / n - std::pow(simulation::keff, 2)) / (n - 1));
+          (simulation::k_sum[1] / n  - std::pow(simulation::keff, 2)) / (n - 1));
     }
   }
 }

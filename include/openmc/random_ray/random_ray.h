@@ -21,6 +21,7 @@ public:
     int material;
     bool is_active;
     bool vacuum_apply_at_end;
+    double correction;
   };
   //----------------------------------------------------------------------------
   // Constructors
@@ -34,9 +35,9 @@ public:
   void attenuate_flux_inner(
     double distance, bool is_active, FlatSourceRegion& fsr);
   void attenuate_flux_inner_non_void(
-    double distance, bool is_active, FlatSourceRegion& fsr, int material);
+    double distance, bool is_active, FlatSourceRegion& fsr, int material, double correction=1.0);
   void attenuate_flux_inner_void(
-    double distance, bool is_active, FlatSourceRegion& fsr, int material);
+    double distance, bool is_active, FlatSourceRegion& fsr, int material, double correction=1.0);
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
   uint64_t transport_history_based_single_ray();
 

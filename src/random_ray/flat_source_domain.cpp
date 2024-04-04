@@ -14,6 +14,9 @@
 #include "openmc/tallies/tally_scoring.h"
 #include "openmc/timer.h"
 
+#include <iomanip> // for std::setw and std::setfill
+#include <sstream>
+
 namespace openmc {
 
 void FlatSourceRegion::merge(FlatSourceRegion& other)
@@ -401,8 +404,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 
     double volume = fsr.volume_;
     double volume_i = fsr.volume_i_;
-        double volume_i_last = fsr.volume_i_last_;
-       //  printf("vol corr term = %.6lf\n", volume_i / volume);
+    double volume_i_last = fsr.volume_i_last_;
+    //  printf("vol corr term = %.6lf\n", volume_i / volume);
 
     int material = fsr.material_;
     if (material == C_NONE) {
@@ -422,38 +425,51 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           float sigma_t = data::mg.macro_xs_[material].get_xs(
             MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
 
-          // The 4th estimator I had tried out at some point was to actually do all the ray tracing up front,
-          // and then to scale the individual segment lengths such that they add up to the simulation averaged expected
-          // length. This makes the source term consistent, and the flux term consistent. The downside is that it
-          // leads to another decision: namely, how to handle the angular flux (e.g, should it use the value with the)
-          // scaled segment lengths, or the true segment lengths? Do we need to do one integration or two, basically?
+          // The 4th estimator I had tried out at some point was to actually do
+          // all the ray tracing up front, and then to scale the individual
+          // segment lengths such that they add up to the simulation averaged
+          // expected length. This makes the source term consistent, and the
+          // flux term consistent. The downside is that it leads to another
+          // decision: namely, how to handle the angular flux (e.g, should it
+          // use the value with the) scaled segment lengths, or the true segment
+          // lengths? Do we need to do one integration or two, basically?
 
-          // The other major issue here is how on earth we are going to know all the segments up front. A lot of memory,
-          // I suppose, but OK on CPU? Easy in event-based mode though...
+          // The other major issue here is how on earth we are going to know all
+          // the segments up front. A lot of memory, I suppose, but OK on CPU?
+          // Easy in event-based mode though...
 
-          float naive_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume_i);
+          float naive_flux_term =
+            fsr.scalar_flux_new_[e] / (sigma_t * volume_i);
           float naive_source_term = fsr.source_[e];
 
-          float sim_avg_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume);
+          float sim_avg_flux_term =
+            fsr.scalar_flux_new_[e] / (sigma_t * volume);
           float sim_avg_source_term = fsr.source_[e];
 
-          float vol_cor_flux_term = fsr.scalar_flux_new_[e] / (sigma_t * volume);
+          float vol_cor_flux_term =
+            fsr.scalar_flux_new_[e] / (sigma_t * volume);
           float vol_cor_source_term = fsr.source_[e] * (volume_i / volume);
 
           float naive_estimator = naive_flux_term + naive_source_term;
           float sim_avg_estimator = sim_avg_flux_term + sim_avg_source_term;
           float vol_cor_estimator = vol_cor_flux_term + vol_cor_source_term;
 
-          //fsr.scalar_flux_new_[e] = (naive_estimator + sim_avg_estimator + vol_cor_estimator) / 3.0f;
-          fsr.scalar_flux_new_[e] = sim_avg_estimator;
-          //fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
-          //fsr.scalar_flux_new_[e] /= (sigma_t * volume); // SIM AVG ESTIMATOR
-          //fsr.scalar_flux_new_[e] += fsr.source_[e];
-          //fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume; // SIM AVG + Vol Corr.
-         // if (volume_i_last > 0.0)
-          //  fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i_last / volume; // SIM AVG + Vol Corr.
-         // else
-            //fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume;
+          // fsr.scalar_flux_new_[e] = (naive_estimator + sim_avg_estimator +
+          // vol_cor_estimator) / 3.0f;
+          //fsr.scalar_flux_new_[e] = sim_avg_estimator;
+           fsr.scalar_flux_new_[e] = naive_estimator;
+          // fsr.scalar_flux_new_[e] = vol_cor_estimator;
+
+          // fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
+          // fsr.scalar_flux_new_[e] /= (sigma_t * volume); // SIM AVG ESTIMATOR
+          // fsr.scalar_flux_new_[e] += fsr.source_[e];
+          // fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume; //
+          // SIM AVG + Vol Corr.
+          // if (volume_i_last > 0.0)
+          //  fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i_last /
+          //  volume; // SIM AVG + Vol Corr.
+          // else
+          // fsr.scalar_flux_new_[e] += fsr.source_[e] * volume_i / volume;
 
         } else if (volume > 0.0) {
           // 2. If the FSR was not hit this iteration, but has been hit some
@@ -824,6 +840,7 @@ void FlatSourceDomain::random_ray_tally()
           double vol = tally_volumes_[task.tally_idx](
             task.filter_idx, task.score_idx, TallyResult::VALUE);
           if (vol > 0.0) {
+            // printf("vol_flux = %.6lf, vol = %.6lf\n", vol_flux, vol);
 #pragma omp atomic
             tally.results_(task.filter_idx, task.score_idx,
               TallyResult::VALUE) += vol_flux / vol;
@@ -1065,7 +1082,7 @@ void FlatSourceDomain::output_to_vtk()
       float smallest_nonzero = 1.0e35;
       for (auto fsr : voxel_indices) {
         float flux = fsr->scalar_flux_final_[g];
-        flux /= (settings::n_batches - settings::n_inactive);
+        flux /= (simulation::current_batch - settings::n_inactive);
         if (flux < 0.f || flux == 0.f)
           flux = std::numeric_limits<double>::quiet_NaN();
         flux = flip_endianness<float>(flux);
@@ -1095,7 +1112,7 @@ void FlatSourceDomain::output_to_vtk()
       mat = flip_endianness<int>(mat);
       fwrite(&mat, sizeof(int), 1, plot);
     }
-    /*
+    
         // Plot universe
         fprintf(plot, "SCALARS universe int\n");
         fprintf(plot, "LOOKUP_TABLE default\n");
@@ -1106,13 +1123,23 @@ void FlatSourceDomain::output_to_vtk()
         }
 
         // Plot cells
-        fprintf(plot, "SCALARS cell int\n");
+        fprintf(plot, "SCALARS cell_id int\n");
         fprintf(plot, "LOOKUP_TABLE default\n");
         for (auto fsr : voxel_indices) {
           int mat = fsr->cell_id_;
           mat = flip_endianness<int>(mat);
           fwrite(&mat, sizeof(int), 1, plot);
         }
+
+                // Plot cells idx
+        fprintf(plot, "SCALARS cell_idx int\n");
+        fprintf(plot, "LOOKUP_TABLE default\n");
+        for (auto fsr : voxel_indices) {
+          int mat = model::cell_map[fsr->cell_id_];
+          mat = flip_endianness<int>(mat);
+          fwrite(&mat, sizeof(int), 1, plot);
+        }
+
 
         // Plot hitmap
         fprintf(plot, "SCALARS FSRs_per_mesh int\n");
@@ -1121,7 +1148,7 @@ void FlatSourceDomain::output_to_vtk()
           bin = flip_endianness<int>(bin);
           fwrite(&bin, sizeof(int), 1, plot);
         }
-    */
+    
 
     // Plot fission source
     fprintf(plot, "SCALARS total_fission_source float\n");
@@ -1165,6 +1192,172 @@ void FlatSourceDomain::output_to_vtk()
       fwrite(&total_src, sizeof(float), 1, plot);
     }
 
+    fclose(plot);
+  }
+}
+
+// Outputs all basic material, FSR ID, multigroup flux, and
+// fission source data to .vtk file that can be directly
+// loaded and displayed by Paraview.
+void FlatSourceDomain::output_to_vtk_slim(int iter)
+{    
+  // Rename .h5 plot filename(s) to .vtk filenames
+  for (int p = 0; p < model::plots.size(); p++) {
+    PlottableInterface* plot = model::plots[p].get();
+    plot->path_plot() =
+      plot->path_plot().substr(0, plot->path_plot().find_last_of('.')) + ".vtk";
+  }
+
+  // Print header information
+  print_plot();
+
+  // Outer loop over plots
+  for (int p = 0; p < model::plots.size(); p++) {
+
+    // Get handle to OpenMC plot object and extract params
+    Plot* openmc_plot = dynamic_cast<Plot*>(model::plots[p].get());
+std::stringstream ss;
+    ss << std::setw(4) << std::setfill('0') << iter;
+    auto fname = openmc_plot->path_plot().substr(0, openmc_plot->path_plot().find_last_of('.')) + "_" + ss.str() + ".vtk";
+    fname = "/mnt/c/Users/jtramm/Downloads/plots/" + fname;
+    // Random ray plots only support voxel plots
+    if (openmc_plot == nullptr) {
+      warning(fmt::format("Plot {} is invalid plot type -- only voxel plotting "
+                          "is allowed in random ray mode.",
+        p));
+      continue;
+    } else if (openmc_plot->type_ != Plot::PlotType::voxel) {
+      warning(fmt::format("Plot {} is invalid plot type -- only voxel plotting "
+                          "is allowed in random ray mode.",
+        p));
+      continue;
+    }
+
+    int Nx = openmc_plot->pixels_[0];
+    int Ny = openmc_plot->pixels_[1];
+    int Nz = openmc_plot->pixels_[2];
+    Position origin = openmc_plot->origin_;
+    Position width = openmc_plot->width_;
+    Position ll = origin - width / 2.0;
+    double x_delta = width.x / Nx;
+    double y_delta = width.y / Ny;
+    double z_delta = width.z / Nz;
+    std::string filename = openmc_plot->path_plot();
+
+
+    // Perform sanity checks on file size
+    uint64_t bytes = Nx * Ny * Nz * (2 + 1) * sizeof(float);
+    write_message(5, "Processing plot {}: {}... (Estimated size is {} MB)",
+      openmc_plot->id(), filename, bytes / 1.0e6);
+    if (bytes / 1.0e9 > 1.0) {
+      warning("Voxel plot specification is very large (>1 GB). Plotting may be "
+              "slow.");
+    } else if (bytes / 1.0e9 > 100.0) {
+      fatal_error("Voxel plot specification is too large (>100 GB). Exiting.");
+    }
+
+    // Relate voxel spatial locations to random ray source regions
+    std::vector<FlatSourceRegion*> voxel_indices(Nx * Ny * Nz);
+    std::vector<int> hits(Nx * Ny * Nz);
+
+    FlatSourceRegion default_fsr(negroups_);
+    default_fsr.material_ = C_NONE;
+
+#pragma omp parallel for collapse(3)
+    for (int z = 0; z < Nz; z++) {
+      for (int y = 0; y < Ny; y++) {
+        for (int x = 0; x < Nx; x++) {
+          Position sample;
+          sample.z = ll.z + z_delta / 2.0 + z * z_delta;
+          sample.y = ll.y + y_delta / 2.0 + y * y_delta;
+          sample.x = ll.x + x_delta / 2.0 + x * x_delta;
+          Particle p;
+          p.r() = sample;
+          bool found = exhaustive_find_cell(p);
+          if (!found) {
+            voxel_indices[z * Ny * Nx + y * Nx + x] = &default_fsr;
+            hits[z * Ny * Nx + y * Nx + x] = 0;
+            continue;
+          }
+          int i_cell = p.lowest_coord().cell;
+          int64_t source_region_idx =
+            source_region_offsets_[i_cell] + p.cell_instance();
+          auto& fsr = material_filled_cell_instance_[source_region_idx];
+          int i_mesh = fsr.mesh_;
+
+          // If there is a mesh present, then we need to get the bin number
+          // corresponding to the ray spatial location
+          FlatSourceRegion* region;
+          int hit_count = 0;
+          if (i_mesh >= 0) {
+            Mesh* mesh = meshes_[i_mesh].get();
+            RegularMesh* rmesh = dynamic_cast<RegularMesh*>(mesh);
+            if (rmesh == nullptr)
+              fatal_error(
+                "Only regular meshes are supported for random ray tracing.");
+            int bin = rmesh->get_bin(p.r());
+            StructuredMesh::MeshIndex ijk = rmesh->get_indices_from_bin(bin);
+            // hit_count = hitmap[ijk[1] - 1][ijk[0] - 1];
+            hit_count = 0;
+            region = get_fsr(source_region_idx, bin, p.r(), p.r(), 0);
+          } else {
+            region = get_fsr(source_region_idx, 0, p.r(), p.r(), 0);
+          }
+          if (region == nullptr) {
+            fatal_error(
+              fmt::format("Could not find FSR for position ({}, {}, {})",
+                sample.x, sample.y, sample.z));
+          }
+          voxel_indices[z * Ny * Nx + y * Nx + x] = region;
+          // hits[z * Ny * Nx + y * Nx + x] = hit_count;
+        }
+      }
+    }
+
+    // Open file for writing
+    FILE* plot = fopen(fname.c_str(), "wb");
+
+    // Write vtk metadata
+    fprintf(plot, "# vtk DataFile Version 2.0\n");
+    fprintf(plot, "Dataset File\n");
+    fprintf(plot, "BINARY\n");
+    fprintf(plot, "DATASET STRUCTURED_POINTS\n");
+    fprintf(plot, "DIMENSIONS %d %d %d\n", Nx, Ny, Nz);
+    fprintf(plot, "ORIGIN %lf %lf %lf\n", origin.x - width.x / 2.0,
+      origin.y - width.y / 2.0, origin.z - width.z / 2.0);
+    fprintf(plot, "SPACING %lf %lf %lf\n", x_delta, y_delta, z_delta);
+    fprintf(plot, "POINT_DATA %d\n", Nx * Ny * Nz);
+
+    // Plot multigroup flux data
+    for (int g = 0; g < negroups_; g++) {
+      if (g != 0 && g != negroups_ - 1)
+        continue;
+      fprintf(plot, "SCALARS flux_group_%d float\n", g);
+      fprintf(plot, "LOOKUP_TABLE default\n");
+      float smallest_nonzero = 1.0e35;
+      for (auto fsr : voxel_indices) {
+        float flux;
+        if (simulation::current_batch > settings::n_inactive) {
+          flux = fsr->scalar_flux_final_[g];
+          flux /= (simulation::current_batch - settings::n_inactive);
+        } else {
+          flux = fsr->scalar_flux_new_[g];
+        }
+        if (flux < 0.f || flux == 0.f)
+          flux = std::numeric_limits<double>::quiet_NaN();
+        flux = flip_endianness<float>(flux);
+        fwrite(&flux, sizeof(float), 1, plot);
+      }
+    }
+
+    // Plot Materials
+    fprintf(plot, "SCALARS Materials int\n");
+    fprintf(plot, "LOOKUP_TABLE default\n");
+    for (auto fsr : voxel_indices) {
+      int mat = fsr->material_;
+      mat = flip_endianness<int>(mat);
+      fwrite(&mat, sizeof(int), 1, plot);
+    }
     fclose(plot);
   }
 }
@@ -1419,10 +1612,8 @@ void FlatSourceDomain::apply_meshes()
     const std::unordered_set<int32_t>& domain_ids = rm->domain_ids();
 
     if (rm->domain_type() == RegularMesh::DomainType::MATERIAL) {
-      printf("applying mesh %d to material domain\n", m);
       for (int32_t material_id : domain_ids) {
         for (int i_cell = 0; i_cell < model::cells.size(); i_cell++) {
-          printf("applying material ID %d to cell %d\n", material_id, i_cell);
           if (material_id == C_NONE) {
             apply_mesh_to_cell_and_children(i_cell, m, material_id, true);
           } else {
@@ -1714,7 +1905,8 @@ int64_t FlatSourceDomain::get_largest_neighbor(FlatSourceRegion& fsr)
   vector<FSRKey> neighbors = mesh_hash_grid_get_neighbors(mesh_index, bin);
 
   if (neighbors.size() == 0) {
-    printf("mesh index = %d, bin = %d, Bins ijk = %d %d %d, sr = %ld\n",
+    printf("No Neighbor found when trying to merge FSR. Mesh index = %d, bin = "
+           "%d, Bins ijk = %d %d %d, sr = %ld\n",
       mesh_index, bin, ijk[0], ijk[1], ijk[2], fsr.source_region_);
   }
 
