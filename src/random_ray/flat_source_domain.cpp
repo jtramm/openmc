@@ -454,10 +454,26 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           float sim_avg_estimator = sim_avg_flux_term + sim_avg_source_term;
           float vol_cor_estimator = vol_cor_flux_term + vol_cor_source_term;
 
+
           // fsr.scalar_flux_new_[e] = (naive_estimator + sim_avg_estimator +
           // vol_cor_estimator) / 3.0f;
-          //fsr.scalar_flux_new_[e] = sim_avg_estimator;
-           fsr.scalar_flux_new_[e] = naive_estimator;
+
+          // Note to self: If we are doing the segment correction, I need to
+          // use the simulation averaged quantity. It seems like intuitively
+          // the iteration volume and the total volume should be the same,
+          // as that's what we are enforcing, but that's not quite the case.
+          // We are actually doing our normal bookkeeping with both quantities,
+          // and then the segment correction is modifying the numerator such that
+          // the EFFECTIVE iteration volume is matching the simulation averaged denominoator.
+          // But importantly, we are not actually modifying this iteration's contribution
+          // into the total volume. I.e., we want our actualy volume bookkeeping to be using
+          // the true values, not whatever the values are after correction. If we did the latter,
+          // then our volume would basically get pinned to whatever the value was on the first iteration,
+          // and wouldn't be allowed to move, which would be bad.
+
+
+          fsr.scalar_flux_new_[e] = sim_avg_estimator;
+           //fsr.scalar_flux_new_[e] = naive_estimator;
           // fsr.scalar_flux_new_[e] = vol_cor_estimator;
 
           // fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR

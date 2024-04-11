@@ -292,10 +292,11 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
-    RandomRay::ray_trace_mode_ = false;
+    RandomRay::ray_trace_mode_ = true;
 
     if (RandomRay::ray_trace_mode_) {
 // Transport sweep over all random rays for the iteration
+//printf("Performing ray tracing...\n");
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
       for (int i = 0; i < simulation::work_per_rank; i++) {
@@ -303,7 +304,10 @@ void RandomRaySimulation::simulate()
         total_geometric_intersections_ +=
           rays[i].transport_history_based_single_ray();
       }
+//printf("Ray traced %ld intersections\n", total_geometric_intersections_);
 
+      // Correct Segment Lengths
+//printf("Applying segment length corrections...\n");
 // Correct Segment Lengths
 #pragma omp parallel for schedule(dynamic)
       for (int i = 0; i < simulation::work_per_rank; i++) {
@@ -314,12 +318,13 @@ void RandomRaySimulation::simulate()
           double new_total_volume =
             (seg.fsr->volume_t_ + it_vol) / simulation::current_batch;
           double correction = new_total_volume / it_vol;
-          // printf("correction = %lf\n", correction);
+           //printf("correction = %lf\n", correction);
           seg.correction = correction;
           // seg.s *= correction;
         }
       }
 
+//printf("Performing transport sweep...\n");
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)
       for (int i = 0; i < simulation::work_per_rank; i++) {
@@ -416,12 +421,14 @@ void RandomRaySimulation::simulate()
         }
         fclose(fp);
         */
+       /*
        int start_plot = 0;
        int end_plot = 201;
     if (simulation::current_batch > start_plot &&
         simulation::current_batch <= end_plot) {
       domain_.output_to_vtk_slim(simulation::current_batch);
     }
+    */
     // Set phi_old = phi_new
     domain_.swap_flux();
 
