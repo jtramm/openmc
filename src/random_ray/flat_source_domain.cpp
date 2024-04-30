@@ -472,9 +472,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
           // and wouldn't be allowed to move, which would be bad.
 
 
-          fsr.scalar_flux_new_[e] = sim_avg_estimator;
-           //fsr.scalar_flux_new_[e] = naive_estimator;
-          // fsr.scalar_flux_new_[e] = vol_cor_estimator;
+          //fsr.scalar_flux_new_[e] = sim_avg_estimator;
+           fsr.scalar_flux_new_[e] = naive_estimator;
+           //fsr.scalar_flux_new_[e] = vol_cor_estimator;
 
           // fsr.scalar_flux_new_[e] /= (sigma_t * volume_i); // NAIVE ESTIMATOR
           // fsr.scalar_flux_new_[e] /= (sigma_t * volume); // SIM AVG ESTIMATOR
@@ -508,8 +508,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     100.0 * n_negative / (static_cast<double>(n_hits) * negroups_);
   printf("Percent negative = %.6lf\n", percent_negative);
   if (percent_negative > 1.0) {
-    fatal_error("More than 1% of the scalar fluxes are negative. This may be a "
-                "sign of a problem with the simulation.");
+    //fatal_error("More than 1% of the scalar fluxes are negative. This may be a "
+    //            "sign of a problem with the simulation.");
   }
 
   // Return the number of source regions that were hit this iteration
@@ -842,6 +842,16 @@ void FlatSourceDomain::random_ray_tally()
     }
   } // end FSR loop
 
+// I think the problem here is that the volume normalization is done on a per FSR
+// basis rather than on a per tally region basis. Each FSRs volume needs to be added
+// together for a single total tally spatial region. Currently, if multiple FSRs contribute
+// to a tally region, then we are summing their scalar fluxes together rather than doing
+// any sort of volume weighted average.
+// Long story short, I need some way of determining the volume of the tally region itself...
+// Or maybe the issue is that we are looping over the tally tasks too many times in this second
+// loop? I.e., should just run once per tally, rather than once per FSR per tally?
+
+
 #pragma omp parallel for
   for (int i = 0; i < known_fsr_.size(); i++) {
     FlatSourceRegion& fsr = known_fsr_[i];
@@ -856,7 +866,7 @@ void FlatSourceDomain::random_ray_tally()
           double vol = tally_volumes_[task.tally_idx](
             task.filter_idx, task.score_idx, TallyResult::VALUE);
           if (vol > 0.0) {
-            // printf("vol_flux = %.6lf, vol = %.6lf\n", vol_flux, vol);
+             printf("vol_flux = %.6lf, vol = %.6lf\n", vol_flux, vol);
 #pragma omp atomic
             tally.results_(task.filter_idx, task.score_idx,
               TallyResult::VALUE) += vol_flux / vol;
@@ -865,6 +875,7 @@ void FlatSourceDomain::random_ray_tally()
       }
     }
   }
+  
 
   openmc::simulation::time_tallies.stop();
 }

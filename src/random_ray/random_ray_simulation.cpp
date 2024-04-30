@@ -292,7 +292,7 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
-    RandomRay::ray_trace_mode_ = true;
+    RandomRay::ray_trace_mode_ = false;
 
     if (RandomRay::ray_trace_mode_) {
 // Transport sweep over all random rays for the iteration
