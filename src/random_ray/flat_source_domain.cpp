@@ -866,7 +866,7 @@ void FlatSourceDomain::random_ray_tally()
           double vol = tally_volumes_[task.tally_idx](
             task.filter_idx, task.score_idx, TallyResult::VALUE);
           if (vol > 0.0) {
-             printf("vol_flux = %.6lf, vol = %.6lf\n", vol_flux, vol);
+             //printf("vol_flux = %.6lf, vol = %.6lf\n", vol_flux, vol);
 #pragma omp atomic
             tally.results_(task.filter_idx, task.score_idx,
               TallyResult::VALUE) += vol_flux / vol;
