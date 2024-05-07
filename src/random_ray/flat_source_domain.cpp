@@ -106,6 +106,11 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
   for (int sr = 0; sr < n_source_regions_; sr++) {
     int material = material_[sr];
 
+    // Void only has fixed source contributions, so no need to compute anything
+    if (material == C_NONE) {
+      continue;
+    }
+
     for (int e_out = 0; e_out < negroups_; e_out++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
         MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
@@ -180,29 +185,40 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 
     double volume = volume_[sr];
     int material = material_[sr];
-    for (int g = 0; g < negroups_; g++) {
-      int64_t idx = (sr * negroups_) + g;
 
-      // There are three scenarios we need to consider:
-      if (was_cell_hit) {
-        // 1. If the FSR was hit this iteration, then the new flux is equal to
-        // the flat source from the previous iteration plus the contributions
-        // from rays passing through the source region (computed during the
-        // transport sweep)
-        float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
-        scalar_flux_new_[idx] /= (sigma_t * volume);
-        scalar_flux_new_[idx] += source_[idx];
-      } else if (volume > 0.0) {
-        // 2. If the FSR was not hit this iteration, but has been hit some
-        // previous iteration, then we simply set the new scalar flux to be
-        // equal to the contribution from the flat source alone.
-        scalar_flux_new_[idx] = source_[idx];
-      } else {
-        // If the FSR was not hit this iteration, and it has never been hit in
-        // any iteration (i.e., volume is zero), then we want to set this to 0
-        // to avoid dividing anything by a zero volume.
-        scalar_flux_new_[idx] = 0.0f;
+    // If the material is void, we use the explicit void solution
+    if (material == C_NONE) {
+      for (int g = 0; g < negroups_; g++) {
+        int64_t idx = (sr * negroups_) + g;
+        scalar_flux_new_[idx] /= volume;
+        scalar_flux_new_[idx] += 0.5f * source_[idx] * volume;
+      }
+      // If the material is regular, then we use the standard MOC solution
+    } else {
+      for (int g = 0; g < negroups_; g++) {
+        int64_t idx = (sr * negroups_) + g;
+
+        // There are three scenarios we need to consider:
+        if (was_cell_hit) {
+          // 1. If the FSR was hit this iteration, then the new flux is equal to
+          // the flat source from the previous iteration plus the contributions
+          // from rays passing through the source region (computed during the
+          // transport sweep)
+          float sigma_t = data::mg.macro_xs_[material].get_xs(
+            MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
+          scalar_flux_new_[idx] /= (sigma_t * volume);
+          scalar_flux_new_[idx] += source_[idx];
+        } else if (volume > 0.0) {
+          // 2. If the FSR was not hit this iteration, but has been hit some
+          // previous iteration, then we simply set the new scalar flux to be
+          // equal to the contribution from the flat source alone.
+          scalar_flux_new_[idx] = source_[idx];
+        } else {
+          // If the FSR was not hit this iteration, and it has never been hit in
+          // any iteration (i.e., volume is zero), then we want to set this to 0
+          // to avoid dividing anything by a zero volume.
+          scalar_flux_new_[idx] = 0.0f;
+        }
       }
     }
   }
@@ -235,6 +251,10 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
     }
 
     int material = material_[sr];
+
+    // Void won't contribute to fission rate
+    if (material == C_NONE)
+      continue;
 
     double sr_fission_source_old = 0;
     double sr_fission_source_new = 0;
@@ -403,7 +423,7 @@ void FlatSourceDomain::random_ray_tally() const
       int idx = sr * negroups_ + g;
       double flux = scalar_flux_new_[idx] * volume;
       for (auto& task : tally_task_[idx]) {
-        double score;
+        double score = 0.0;
         switch (task.score_type) {
 
         case SCORE_FLUX:
@@ -411,18 +431,21 @@ void FlatSourceDomain::random_ray_tally() const
           break;
 
         case SCORE_TOTAL:
-          score = flux * data::mg.macro_xs_[material].get_xs(
-                           MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+          if (material != C_NONE)
+            score = flux * data::mg.macro_xs_[material].get_xs(
+                             MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
           break;
 
         case SCORE_FISSION:
-          score = flux * data::mg.macro_xs_[material].get_xs(
-                           MgxsType::FISSION, g, NULL, NULL, NULL, t, a);
+          if (material != C_NONE)
+            score = flux * data::mg.macro_xs_[material].get_xs(
+                             MgxsType::FISSION, g, NULL, NULL, NULL, t, a);
           break;
 
         case SCORE_NU_FISSION:
-          score = flux * data::mg.macro_xs_[material].get_xs(
-                           MgxsType::NU_FISSION, g, NULL, NULL, NULL, t, a);
+          if (material != C_NONE)
+            score = flux * data::mg.macro_xs_[material].get_xs(
+                             MgxsType::NU_FISSION, g, NULL, NULL, NULL, t, a);
           break;
 
         case SCORE_EVENTS:
@@ -667,13 +690,15 @@ void FlatSourceDomain::output_to_vtk() const
     for (int fsr : voxel_indices) {
       float total_fission = 0.0;
       int mat = material_[fsr];
-      for (int g = 0; g < negroups_; g++) {
-        int64_t source_element = fsr * negroups_ + g;
-        float flux = scalar_flux_final_[source_element];
-        flux /= (settings::n_batches - settings::n_inactive);
-        float Sigma_f = data::mg.macro_xs_[mat].get_xs(
-          MgxsType::FISSION, g, nullptr, nullptr, nullptr, 0, 0);
-        total_fission += Sigma_f * flux;
+      if (mat != C_NONE) {
+        for (int g = 0; g < negroups_; g++) {
+          int64_t source_element = fsr * negroups_ + g;
+          float flux = scalar_flux_final_[source_element];
+          flux /= (settings::n_batches - settings::n_inactive);
+          float Sigma_f = data::mg.macro_xs_[mat].get_xs(
+            MgxsType::FISSION, g, nullptr, nullptr, nullptr, 0, 0);
+          total_fission += Sigma_f * flux;
+        }
       }
       total_fission = convert_to_big_endian<float>(total_fission);
       std::fwrite(&total_fission, sizeof(float), 1, plot);

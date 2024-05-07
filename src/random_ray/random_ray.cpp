@@ -188,16 +188,22 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   const int t = 0;
   const int a = 0;
 
-  // MOC incoming flux attenuation + source contribution/attenuation equation
-  for (int g = 0; g < negroups_; g++) {
-    float sigma_t = data::mg.macro_xs_[material].get_xs(
-      MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
-    float tau = sigma_t * distance;
-    float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
-    float new_delta_psi =
-      (angular_flux_[g] - domain_->source_[source_element + g]) * exponential;
-    delta_psi_[g] = new_delta_psi;
-    angular_flux_[g] -= new_delta_psi;
+  // MOC incoming flux attenuation + source contribution/attenuation equation.
+  // If the ray is traveling through void, we can skip this section, as we will
+  // compute any fixed source contribution to the ray's angular flux at the end
+  // of this function.
+  if (material != C_NONE) {
+    for (int g = 0; g < negroups_; g++) {
+      float sigma_t = data::mg.macro_xs_[material].get_xs(
+        MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+      float tau = sigma_t * distance;
+      float exponential =
+        cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+      float new_delta_psi =
+        (angular_flux_[g] - domain_->source_[source_element + g]) * exponential;
+      delta_psi_[g] = new_delta_psi;
+      angular_flux_[g] -= new_delta_psi;
+    }
   }
 
   // If ray is in the active phase (not in dead zone), make contributions to
@@ -207,10 +213,18 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     // Aquire lock for source region
     domain_->lock_[source_region].lock();
 
-    // Accumulate delta psi into new estimate of source region flux for
-    // this iteration
-    for (int g = 0; g < negroups_; g++) {
-      domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+    // Accumulate into estimate of source region flux for this iteration
+    if (material == C_NONE) {
+      // Void material, so we use explicit void solution
+      for (int g = 0; g < negroups_; g++) {
+        domain_->scalar_flux_new_[source_element + g] +=
+          angular_flux_[g] * distance;
+      }
+    } else {
+      // Regular material, so we use standard MOC solution
+      for (int g = 0; g < negroups_; g++) {
+        domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+      }
     }
 
     // If the source region hasn't been hit yet this iteration,
@@ -219,7 +233,7 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
       domain_->was_hit_[source_region] = 1;
     }
 
-    // Accomulate volume (ray distance) into this iteration's estimate
+    // Accumulate volume (ray distance) into this iteration's estimate
     // of the source region's volume
     domain_->volume_[source_region] += distance;
 
@@ -233,6 +247,14 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 
     // Release lock
     domain_->lock_[source_region].unlock();
+  }
+
+  // If the ray is in void material, then we use the explicit void solution
+  // to add any fixed source contributions to the ray's angular flux.
+  if (material == C_NONE) {
+    for (int g = 0; g < negroups_; g++) {
+      angular_flux_[g] += domain_->source_[source_element + g] * distance;
+    }
   }
 }
 
