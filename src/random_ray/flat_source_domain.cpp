@@ -43,7 +43,9 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   position_recorded_.assign(n_source_regions_, 0);
   position_.resize(n_source_regions_);
   volume_.assign(n_source_regions_, 0.0);
+  volume_squared_.assign(n_source_regions_, 0.0);
   volume_t_.assign(n_source_regions_, 0.0);
+  volume_t_squared_.assign(n_source_regions_, 0.0);
   was_hit_.assign(n_source_regions_, 0);
 
   // Initialize element-wise arrays
@@ -76,6 +78,7 @@ void FlatSourceDomain::batch_reset()
   // zero
   parallel_fill<float>(scalar_flux_new_, 0.0f);
   parallel_fill<double>(volume_, 0.0);
+  parallel_fill<double>(volume_squared_, 0.0);
   parallel_fill<int>(was_hit_, 0);
 }
 
@@ -145,6 +148,8 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
   float normalization_factor = 1.0 / total_active_distance_per_iteration;
   double volume_normalization_factor =
     1.0 / (total_active_distance_per_iteration * simulation::current_batch);
+  double volume_normalization_factor_squared =
+    1.0 / (total_active_distance_per_iteration * total_active_distance_per_iteration * simulation::current_batch);
 
 // Normalize scalar flux to total distance travelled by all rays this iteration
 #pragma omp parallel for
@@ -157,7 +162,9 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
 #pragma omp parallel for
   for (int64_t sr = 0; sr < n_source_regions_; sr++) {
     volume_t_[sr] += volume_[sr];
+    volume_t_squared_[sr] += volume_squared_[sr];
     volume_[sr] = volume_t_[sr] * volume_normalization_factor;
+    volume_squared_[sr] = volume_t_squared_[sr] * volume_normalization_factor_squared;
   }
 }
 
@@ -184,6 +191,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
 
     double volume = volume_[sr];
+    double volume_squared = volume_squared_[sr];
     int material = material_[sr];
 
     // If the material is void, we use the explicit void solution
@@ -191,7 +199,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       for (int g = 0; g < negroups_; g++) {
         int64_t idx = (sr * negroups_) + g;
         scalar_flux_new_[idx] /= volume;
-        scalar_flux_new_[idx] += 0.5f * source_[idx] * volume;
+        scalar_flux_new_[idx] += source_[idx] * volume_squared / (2.0 * volume);
       }
       // If the material is regular, then we use the standard MOC solution
     } else {

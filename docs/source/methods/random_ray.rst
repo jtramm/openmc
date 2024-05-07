@@ -576,6 +576,54 @@ and a similar substitution can be made to update Equation
 estimate is used, such that the total fission source from the previous iteration
 (:math:`n-1`) is also recomputed each iteration.
 
+~~~~~~~~~~~~~~~~~~~~~~~
+Explicit Void Treatment
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Alert readers will notice that several of our equations so far are not well defined in the case where :math:`\Sigma_t` is zero, as is the case in regions that a user marks as a true void region. For instance, the simulation averaged estimator in :eq:`phi_sim` features a :math:`\Sigma_t` in the denominators of both of the terms in that equation. At first this seems problematic, but the issue can be dealt with by simply rederiving the characteristic equation under the assumption that :math:`\Sigma_t` is indeed zero and to use this alternative treatment when needed. We begin by taking the general form in Equation :eq:`char` and removing the :math:`\Sigma_t` term, such that it becomes:
+
+.. math::
+    :label: char_void
+
+    \frac{d}{ds} \psi(s,\mathbf{\Omega},E) = Q(s, \mathbf{\Omega},E) .
+
+Equation :eq:`char_void` can be solved for a particular characteristic and energy group as:
+
+.. math::
+    :label: char_void_sol
+
+    \psi_g(s) = Q_{i,g} s +  \psi_g(0) .
+
+Following similar logic as in our derivation of the general material case, we can write:
+
+.. math::
+    :label: avg_psi_void
+
+    \overline{\psi}_{r,i,g} = \frac{Q_{i,g}}{2} \ell_r + \psi_{r,g}^{in} ,
+
+and:
+
+.. math::
+    :label: delta_psi_void
+
+    \Delta \psi_{r,i,g} = Q_{i,g} \ell_r .
+
+Equation :eq:`delta_psi_void` can then be used instead of the general characteristic equation when transporting rays through void regions. Next, we substitute Equation :eq:`avg_psi_void` into :eq:`discretized_2`` to determine the scalar flux estimate in the void source region. While the flux by itself is not particularly useful (as it cannot be measured physically, due to having nothing to interact with), it may still be useful for visualization purposes or for weight window generation. The scalar flux estimate is written as:
+
+.. math::
+    :label: phi_void
+
+    \phi^{void} =  \frac{Q_{i,g} \sum\limits_{r=1}^{N_i} \ell_r^2}{2 \sum\limits_{r=1}^{N_i} \ell_r} + \frac{\sum\limits_{r=1}^{N_i} \ell_r \psi_{r, g}^{in}}{\sum\limits_{r=1}^{N_i} \ell_r} .
+
+Notably, this estimator involves both the sum of ray lengths as well as the sum of squares of ray lengths. A similar "simulation averaged" strategy is used to convert this naive estimator to a simulation averaged one:
+
+.. math::
+    :label: phi_void_simulation
+
+    \phi^{void,simulation} =  \frac{Q_{i,g} \frac{\sum\limits^{B}_{b}\sum\limits^{N_i}_{r} \ell_{b,r}^2 }{B}}{2 \frac{\sum\limits^{B}_{b}\sum\limits^{N_i}_{r} \ell_{b,r} }{B}} + \frac{\sum\limits_{r=1}^{N_i} \ell_r \psi_{r, g}^{in}}{\frac{\sum\limits^{B}_{b}\sum\limits^{N_i}_{r} \ell_{b,r} }{B}} .
+
+Given that only a fixed source term is possible in a void region, the first term will converge to a fixed quantity relatively quickly, leaving only the second term to fluctuate between iterations. The void estimator is used automatically in OpenMC for all void regions, so does not require any user input to utilize.
+
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Ray Starting Conditions and Inactive Length
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
