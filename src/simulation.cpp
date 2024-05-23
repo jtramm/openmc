@@ -52,6 +52,7 @@ int openmc_run()
 {
   openmc::simulation::time_total.start();
   openmc_simulation_init();
+  printf("hello world\n");
 
   int err = 0;
   int status = 0;
