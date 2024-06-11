@@ -1,6 +1,7 @@
 #ifndef OPENMC_RANDOM_RAY_FLAT_SOURCE_DOMAIN_H
 #define OPENMC_RANDOM_RAY_FLAT_SOURCE_DOMAIN_H
 
+#include "openmc/constants.h"
 #include "openmc/openmp_interface.h"
 #include "openmc/position.h"
 #include "openmc/source.h"
@@ -110,6 +111,10 @@ public:
   void count_external_source_regions();
 
   //----------------------------------------------------------------------------
+  // Static data members
+  static RandomRayVolumeEstimator volume_estimator_;
+
+  //----------------------------------------------------------------------------
   // Public Data members
 
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
@@ -126,6 +131,7 @@ public:
   vector<OpenMPMutex> lock_;
   vector<int> was_hit_;
   vector<double> volume_;
+  vector<double> volume_naive_;
   vector<int> position_recorded_;
   vector<Position> position_;
 

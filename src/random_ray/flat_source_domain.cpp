@@ -22,6 +22,9 @@ namespace openmc {
 // FlatSourceDomain implementation
 //==============================================================================
 
+// Static Variable Declarations
+RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {RandomRayVolumeEstimator::SIMULATION_AVERAGE};
+
 FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 {
   // Count the number of source regions, compute the cell offset
@@ -44,6 +47,7 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   position_recorded_.assign(n_source_regions_, 0);
   position_.resize(n_source_regions_);
   volume_.assign(n_source_regions_, 0.0);
+  volume_naive_.assign(n_source_regions_, 0.0);
   volume_t_.assign(n_source_regions_, 0.0);
   was_hit_.assign(n_source_regions_, 0);
 
@@ -205,6 +209,7 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
 #pragma omp parallel for
   for (int64_t sr = 0; sr < n_source_regions_; sr++) {
     volume_t_[sr] += volume_[sr];
+    volume_naive_[sr] = volume_[sr] * normalization_factor;
     volume_[sr] = volume_t_[sr] * volume_normalization_factor;
   }
 }
@@ -231,8 +236,15 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       n_hits++;
     }
 
-    double volume = volume_[sr];
+    double volume;
+    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGE) {
+      volume = volume_[sr];
+    } else {
+      volume = volume_naive_[sr];
+    }
+    
     int material = material_[sr];
+
     for (int g = 0; g < negroups_; g++) {
       int64_t idx = (sr * negroups_) + g;
 
