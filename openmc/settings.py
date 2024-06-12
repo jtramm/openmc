@@ -159,7 +159,7 @@ class Settings:
             specified by a :class:`openmc.SourceBase` object.
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
-            'naive' and 'simulation_average'.
+            'naive' and 'simulation_averaged'.
 
         .. versionadded:: 0.14.1
     resonance_scattering : dict
@@ -1068,7 +1068,7 @@ class Settings:
             elif key == 'ray_source':
                 cv.check_type('random ray source', random_ray[key], SourceBase)
             elif key == 'volume_estimator':
-                cv.check_value('volume estimator', random_ray[key], ('naive', 'simulation_average'))
+                cv.check_value('volume estimator', random_ray[key], ('naive', 'simulation_averaged'))
             else:
                 raise ValueError(f'Unable to set random ray to "{key}" which is '
                                  'unsupported by OpenMC')

@@ -23,7 +23,7 @@ namespace openmc {
 //==============================================================================
 
 // Static Variable Declarations
-RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {RandomRayVolumeEstimator::SIMULATION_AVERAGE};
+RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {RandomRayVolumeEstimator::SIMULATION_AVERAGED};
 
 FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 {
@@ -237,7 +237,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
 
     double volume;
-    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGE) {
+    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED) {
       volume = volume_[sr];
     } else {
       volume = volume_naive_[sr];

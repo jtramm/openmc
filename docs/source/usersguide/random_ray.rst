@@ -477,28 +477,37 @@ Alternative Volume Estimators
 -----------------------------
 
 As discussed in the random ray theory section on :ref:`volume estimators
-<methods_random_ray_vol>`, there are several possible derivations for the scalar flux estimate. These options
-deal with different ways of treating the accumulation over ray lengths crossing each FSR, which can be
-computed using several methods. The following methods are currently available in OpenMC:
+<methods_random_ray_vol>`, there are several possible derivations for the scalar
+flux estimate. These options deal with different ways of treating the
+accumulation over ray lengths crossing each FSR (a quantity directly
+proportional to volume), which can be computed using several methods. The
+following methods are currently available in OpenMC:
 
-- ``simulation_average''' (default): This estimator accumulates the total ray
-  lengths in each FSR over all iterations of the simulation. Thus, the estimate
-  of the volume in each cell improves each iteration, asymptotically approaching
-  the true analytical volume. The benefit of this estimator is that after
-  several iterations, it no longer behaves as a ratio estimator so is virtually
-  unbiased. The downside is that it has higher variance, and in sime
-  pathological cases the mismatch bewtween the source and the transport
-  component can be large, leading to negative fluxes and numerical instability
-  for low ray density simulations.
+.. list-table:: Comparison of Estimators
+   :widths: 25 25 25 25
+   :header-rows: 1
 
-- ``naive'': This estimator treats the volume "as integrated", being composed
-  only of the active ray length through each FSR in that iteration alone. This
-  estimator results in a biased but numerically consistent ratio estimator. In
-  this context, numerical consistency means that the estimator converges to the
-  correct solution as more rays and/or active ray length is used. The benefit of
-  this estimator is that it has low variance and that it is much less likely to
-  result in negative fluxes. Its usage is recommended only in cases where the
-  simulation average estimator is found to be unstable.
+   * - Estimator
+     - Description
+     - Pros
+     - Cons
+   * - ``simulation_averaged`` (default)
+     - Recommended. Accumulates total active ray lengths in each FSR over all iterations, improving
+       the estimate of the volume in each cell each iteration. 
+     - * Virtually unbiased after several iterations
+       * Asymptotically approaches the true analytical volume
+       * Typically most efficient in terms of speed vs. accuracy
+     - * Higher variance
+       * Can lead to negative fluxes and numerical instability in pathological cases
+   * - ``naive``
+     - Treats the volume as composed only of the active ray length through each
+       FSR per iteration, being a biased but numerically consistent ratio
+       estimator.
+     - * Low variance
+       * Less likely to result in negative fluxes
+       * Recommended in cases where ``simulation_averaged`` is unstable
+     - * Biased estimator
+       * Requires more rays or longer active ray length to mitigate bias
 
 These estimators can be selected by setting the ``volume_estimator`` field in the
 :attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
@@ -508,11 +517,11 @@ estimator, the following code would be used:
 
     settings.random_ray['volume_estimator'] = 'naive'
 
-To use the simulation average estimator, the following code would be used:
+To use the simulation averaged estimator, the following code would be used:
 
 ::
 
-    settings.random_ray['volume_estimator'] = 'simulation_average'
+    settings.random_ray['volume_estimator'] = 'simulation_averaged'
 
 ---------------------------------------
 Putting it All Together: Example Inputs

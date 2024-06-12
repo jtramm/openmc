@@ -160,7 +160,7 @@ uniform_dist = openmc.stats.Box(lower_left, upper_right)
 settings.random_ray['ray_source'] = openmc.IndependentSource(space=uniform_dist)
 settings.random_ray['distance_inactive'] = 40.0
 settings.random_ray['distance_active'] = 400.0
-settings.random_ray['volume_estimator'] = 'simulation_average'
+settings.random_ray['volume_estimator'] = 'naive'
 
 settings.export_to_xml()
 

@@ -269,8 +269,8 @@ void get_run_parameters(pugi::xml_node node_base)
     }
     if (check_for_node(random_ray_node, "volume_estimator")) {
       std::string temp_str = get_node_value(random_ray_node, "volume_estimator", true, true);
-      if (temp_str == "simulation_average") {
-        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SIMULATION_AVERAGE;
+      if (temp_str == "simulation_averaged") {
+        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SIMULATION_AVERAGED;
       } else if (temp_str == "naive") {
         FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::NAIVE;
       } else {
