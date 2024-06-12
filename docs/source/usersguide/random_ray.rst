@@ -472,6 +472,34 @@ points of 1.0e-2 and 1.0e1.
     # Add fixed source and ray sampling source to settings file
     settings.source = [neutron_source]
 
+-----------------------------
+Alternative Volume Estimators
+-----------------------------
+
+As discussed in the random ray theory section on :ref:`volume estimators
+<methods_random_ray_vol>`, there are several possible derivations for the scalar flux estimate. These options
+deal with different ways of treating the accumulation over ray lengths crossing each FSR, which can be
+computed using several methods. The following methods are currently available in OpenMC:
+
+- ``simulation_average''' (default): This estimator accumulates the total ray
+  lengths in each FSR over all iterations of the simulation. Thus, the estimate
+  of the volume in each cell improves each iteration, asymptotically approaching
+  the true analytical volume. The benefit of this estimator is that after
+  several iterations, it no longer behaves as a ratio estimator so is virtually
+  unbiased. The downside is that it has higher variance, and in sime
+  pathological cases the mismatch bewtween the source and the transport
+  component can be large, leading to negative fluxes and numerical instability
+  for low ray density simulations.
+
+- ``naive'': This estimator treats the volume "as integrated", being composed
+  only of the active ray length through each FSR in that iteration alone. This
+  estimator results in a biased but numerically consistent ratio estimator. In
+  this context, numerical consistency means that the estimator converges to the
+  correct solution as more rays and/or active ray length is used. The benefit of
+  this estimator is that it has low variance and that it is much less likely to
+  result in negative fluxes. Its usage is recommended only in cases where the
+  simulation average estimator is found to be unstable.
+
 ---------------------------------------
 Putting it All Together: Example Inputs
 ---------------------------------------
