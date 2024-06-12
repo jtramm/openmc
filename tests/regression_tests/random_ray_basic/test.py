@@ -2,9 +2,10 @@ import os
 
 import numpy as np
 import openmc
+from openmc.utility_funcs import change_directory
+import pytest
 
 from tests.testing_harness import TolerantPyAPITestHarness
-
 
 class MGXSTestHarness(TolerantPyAPITestHarness):
     def _cleanup(self):
@@ -13,8 +14,8 @@ class MGXSTestHarness(TolerantPyAPITestHarness):
         if os.path.exists(f):
             os.remove(f)
 
-
-def random_ray_model() -> openmc.Model:
+def random_ray_model(boundary_condition, volume_estimator) -> openmc.Model:
+    openmc.reset_auto_ids()
     ###############################################################################
     # Create multigroup data
 
@@ -164,7 +165,11 @@ def random_ray_model() -> openmc.Model:
 
     ########################################
     # Define cell containing lattice and other stuff
-    box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type='reflective')
+    box = []
+    if boundary_condition == 'reflective':
+        box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type='reflective')
+    elif boundary_condition == 'vacuum':
+        box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type='vacuum')
 
     assembly = openmc.Cell(fill=lattice2x2, region=-box, name='assembly')
 
@@ -190,6 +195,8 @@ def random_ray_model() -> openmc.Model:
     settings.random_ray['distance_active'] = 100.0
     settings.random_ray['distance_inactive'] = 20.0
     settings.random_ray['ray_source'] = rr_source
+    if volume_estimator == 'naive':
+        settings.random_ray['volume_estimator'] = 'naive'
 
     ###############################################################################
     # Define tallies
@@ -226,7 +233,15 @@ def random_ray_model() -> openmc.Model:
     model.tallies = tallies
     return model
 
+@pytest.mark.parametrize("boundary_condition, volume_estimator", [
+    ("reflective", "naive"),
+    ("reflective", "simulation_averaged"),
+    ("vacuum", "simulation_averaged")
+])
+def test_random_ray_basic(boundary_condition, volume_estimator):
+    # Generating a unique directory name from the parameters
+    directory_name = f"{boundary_condition}_{volume_estimator}"
 
-def test_random_ray_basic():
-    harness = MGXSTestHarness('statepoint.10.h5', random_ray_model())
-    harness.main()
+    with change_directory(directory_name):
+        harness = MGXSTestHarness('statepoint.10.h5', random_ray_model(boundary_condition, volume_estimator))
+        harness.main()
