@@ -500,6 +500,20 @@ computed using several methods. The following methods are currently available in
   result in negative fluxes. Its usage is recommended only in cases where the
   simulation average estimator is found to be unstable.
 
+These estimators can be selected by setting the ``volume_estimator`` field in the
+:attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
+estimator, the following code would be used:
+
+::
+
+    settings.random_ray['volume_estimator'] = 'naive'
+
+To use the simulation average estimator, the following code would be used:
+
+::
+
+    settings.random_ray['volume_estimator'] = 'simulation_average'
+
 ---------------------------------------
 Putting it All Together: Example Inputs
 ---------------------------------------
