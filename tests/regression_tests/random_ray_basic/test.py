@@ -165,11 +165,7 @@ def random_ray_model(boundary_condition, volume_estimator) -> openmc.Model:
 
     ########################################
     # Define cell containing lattice and other stuff
-    box = []
-    if boundary_condition == 'reflective':
-        box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type='reflective')
-    elif boundary_condition == 'vacuum':
-        box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type='vacuum')
+    box = openmc.model.RectangularPrism(pitch*2, pitch*2, boundary_type=boundary_condition)
 
     assembly = openmc.Cell(fill=lattice2x2, region=-box, name='assembly')
 
