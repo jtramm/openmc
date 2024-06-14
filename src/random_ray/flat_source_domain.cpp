@@ -23,7 +23,8 @@ namespace openmc {
 //==============================================================================
 
 // Static Variable Declarations
-RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {RandomRayVolumeEstimator::SIMULATION_AVERAGED};
+RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
+  RandomRayVolumeEstimator::SIMULATION_AVERAGED};
 
 FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 {
@@ -242,7 +243,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     } else {
       volume = volume_naive_[sr];
     }
-    
+
     int material = material_[sr];
 
     for (int g = 0; g < negroups_; g++) {
@@ -474,6 +475,36 @@ void FlatSourceDomain::random_ray_tally()
   const int t = 0;
   const int a = 0;
 
+  double normalization_factor = 1.0;
+  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+
+    double simulation_external_source_strength = 0.0;
+#pragma omp parallel for reduction(+ : simulation_external_source_strength)
+    for (int sr = 0; sr < n_source_regions_; sr++) {
+      int material = material_[sr];
+      double volume = volume_[sr] * simulation_volume_;
+      for (int e = 0; e < negroups_; e++) {
+        float sigma_t = data::mg.macro_xs_[material].get_xs(
+          MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
+        simulation_external_source_strength +=
+          external_source_[sr * negroups_ + e] * sigma_t * volume;
+      }
+    }
+
+    double user_external_source_strength = 0.0;
+    for (auto& ext_source : model::external_sources) {
+      user_external_source_strength += ext_source->strength();
+    }
+
+    normalization_factor =
+      user_external_source_strength / simulation_external_source_strength;
+    printf(
+      "User external source strength: %f\n", user_external_source_strength);
+    printf("Simulation external source strength: %f\n",
+      simulation_external_source_strength);
+    printf("Source strength normalization factor: %f\n", normalization_factor);
+  }
+
 // We loop over all source regions and energy groups. For each
 // element, we check if there are any scores needed and apply
 // them.
@@ -492,7 +523,7 @@ void FlatSourceDomain::random_ray_tally()
     double material = material_[sr];
     for (int g = 0; g < negroups_; g++) {
       int idx = sr * negroups_ + g;
-      double flux = scalar_flux_new_[idx];
+      double flux = scalar_flux_new_[idx] * normalization_factor;
 
       // Determine numerical score value
       for (auto& task : tally_task_[idx]) {
@@ -538,7 +569,7 @@ void FlatSourceDomain::random_ray_tally()
         tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
           score;
       } // end tally task loop
-    }   // end energy group loop
+    } // end energy group loop
 
     // For flux tallies, the total volume of the spatial region is needed
     // for normalizing the flux. We store this volume in a separate tensor.
