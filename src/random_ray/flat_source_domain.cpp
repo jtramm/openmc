@@ -240,9 +240,9 @@ int n_neg = 0;
 
     double volume;
     if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED ||
-        volume_estimator_ == RandomRayVolumeEstimator::HYBRID) {
+        volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED) {
       volume = volume_[sr];
-    } else {
+    } else if (volume_estimator_ == RandomRayVolumeEstimator::NAIVE) {
       volume = volume_naive_[sr];
     }
 
@@ -261,14 +261,10 @@ int n_neg = 0;
           MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
         float flux = scalar_flux_new_[idx];
         flux /= (sigma_t * volume);
-        flux += source_[idx];
-        if (volume_estimator_ == RandomRayVolumeEstimator::HYBRID) {
-          if (flux < 0.0) {
-            flux = scalar_flux_new_[idx];
-            flux /= (sigma_t * volume_naive_[sr]);
-            flux += source_[idx];
-            n_hybrid++;
-          }
+        if (volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED) {
+          flux += source_[idx] * volume_naive_[sr] / volume_[sr];
+        } else {
+          flux += source_[idx];
         }
         scalar_flux_new_[idx] = flux;
       } else if (volume > 0.0) {
