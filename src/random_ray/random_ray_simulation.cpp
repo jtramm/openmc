@@ -268,6 +268,35 @@ void RandomRaySimulation::simulate()
     // zero
     domain_.batch_reset();
 
+    // If calculating a segment correction term, need to do all ray tracing up
+    // front
+    if (domain_.volume_estimator_ ==
+        RandomRayVolumeEstimator::SEGMENT_CORRECTED) {
+#pragma omp parallel for schedule(dynamic)
+      for (int i = 0; i < simulation::work_per_rank; i++) {
+        RandomRay ray(i, &domain_);
+        ray.transport_history_based_single_ray();
+      }
+      // Accumulate cell-wise ray length tallies collected this iteration, then
+      // update the simulation-averaged cell-wise volume estimates
+#pragma omp parallel for
+      for (int64_t sr = 0; sr < domain_.n_source_regions_; sr++) {
+        double naive_volume = domain_.volume_[sr];
+        double sim_avg_volume = (domain_.volume_t_[sr] + domain_.volume_[sr]) /
+                                simulation::current_batch;
+        domain_.segment_correction_[sr] = sim_avg_volume / naive_volume;
+        if (domain_.segment_correction_[sr] <= 0.0 || !std::isfinite(domain_.segment_correction_[sr])) {
+          domain_.segment_correction_[sr] = 1.0;
+        }
+        //printf("SR %ld: Naive Volume = %f, Sim Avg Volume = %f, Correction = %f\n",
+        //  sr, naive_volume, sim_avg_volume, domain_.segment_correction_[sr] );
+      }
+       // Reset scalar fluxes, iteration volume tallies, and region hit flags to
+      // zero
+      domain_.batch_reset();
+    }
+    //exit(0);
+
     // Start timer for transport
     simulation::time_transport.start();
 

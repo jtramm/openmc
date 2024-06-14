@@ -192,7 +192,14 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   for (int g = 0; g < negroups_; g++) {
     float sigma_t = data::mg.macro_xs_[material].get_xs(
       MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
-    float tau = sigma_t * distance;
+    float tau;
+    if (domain_->volume_estimator_ ==
+          RandomRayVolumeEstimator::SEGMENT_CORRECTED &&
+        is_active) {
+      tau = sigma_t * distance * domain_->segment_correction_[source_region];
+    } else {
+      tau = sigma_t * distance;
+    }
     float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
     float new_delta_psi =
       (angular_flux_[g] - domain_->source_[source_element + g]) * exponential;

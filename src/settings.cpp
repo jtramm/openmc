@@ -275,6 +275,8 @@ void get_run_parameters(pugi::xml_node node_base)
         FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::NAIVE;
       } else if (temp_str == "source_corrected") {
         FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SOURCE_CORRECTED;
+      } else if (temp_str == "segment_corrected") {
+        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SEGMENT_CORRECTED;
       } else {
         fatal_error("Unrecognized volume estimator: " + temp_str);
       }

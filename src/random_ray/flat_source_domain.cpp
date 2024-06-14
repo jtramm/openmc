@@ -49,6 +49,7 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   position_.resize(n_source_regions_);
   volume_.assign(n_source_regions_, 0.0);
   volume_naive_.assign(n_source_regions_, 0.0);
+  segment_correction_.assign(n_source_regions_, 1.0);
   volume_t_.assign(n_source_regions_, 0.0);
   was_hit_.assign(n_source_regions_, 0);
 
@@ -240,7 +241,8 @@ int n_neg = 0;
 
     double volume;
     if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED ||
-        volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED) {
+        volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED ||
+        volume_estimator_ == RandomRayVolumeEstimator::SEGMENT_CORRECTED) {
       volume = volume_[sr];
     } else if (volume_estimator_ == RandomRayVolumeEstimator::NAIVE) {
       volume = volume_naive_[sr];
