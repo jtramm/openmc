@@ -227,8 +227,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   // angle data.
   const int t = 0;
   const int a = 0;
-
-#pragma omp parallel for reduction(+ : n_hits)
+int n_hybrid = 0;
+int n_neg = 0;
+#pragma omp parallel for reduction(+ : n_hits, n_hybrid)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
     // Check if this cell was hit this iteration
@@ -238,7 +239,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
 
     double volume;
-    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED) {
+    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED ||
+        volume_estimator_ == RandomRayVolumeEstimator::HYBRID) {
       volume = volume_[sr];
     } else {
       volume = volume_naive_[sr];
@@ -257,8 +259,18 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // transport sweep)
         float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
-        scalar_flux_new_[idx] /= (sigma_t * volume);
-        scalar_flux_new_[idx] += source_[idx];
+        float flux = scalar_flux_new_[idx];
+        flux /= (sigma_t * volume);
+        flux += source_[idx];
+        if (volume_estimator_ == RandomRayVolumeEstimator::HYBRID) {
+          if (flux < 0.0) {
+            flux = scalar_flux_new_[idx];
+            flux /= (sigma_t * volume_naive_[sr]);
+            flux += source_[idx];
+            n_hybrid++;
+          }
+        }
+        scalar_flux_new_[idx] = flux;
       } else if (volume > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
@@ -270,9 +282,13 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // to avoid dividing anything by a zero volume.
         scalar_flux_new_[idx] = 0.0f;
       }
+      if ( scalar_flux_new_[idx] < 0.0 ) {
+        n_neg++;
+      }
     }
   }
-
+  printf("number of negative fluxes: %d out of %d (which is a percentage of %.2lf)\n", n_neg, n_source_elements_, (double)n_neg / n_source_elements_ * 100.0);
+  printf("number of hybrid cells: %d out of %d (which is a percentage of %.2lf)\n", n_hybrid, n_source_elements_, (double)n_hybrid / n_source_elements_ * 100.0);
   // Return the number of source regions that were hit this iteration
   return n_hits;
 }
