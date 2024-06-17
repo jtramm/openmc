@@ -262,14 +262,15 @@ void RandomRaySimulation::compute_segment_correction_factors()
     domain_.volume_[sr] = 0.0;
     double sim_avg_volume =
       (domain_.volume_t_[sr] + naive_volume) / simulation::current_batch;
-    
-    domain_.segment_correction_[sr] = sim_avg_volume / naive_volume;
+
+    double correction = sim_avg_volume / naive_volume;
 
     // Check for NaNs or negative values
-    if (domain_.segment_correction_[sr] <= 0.0 ||
-        !std::isfinite(domain_.segment_correction_[sr])) {
-      domain_.segment_correction_[sr] = 1.0;
+    if (correction <= 0.0 || !std::isfinite(correction)) {
+      correction = 1.0;
     }
+
+    domain_.segment_correction_[sr] = correction;
   }
 }
 
