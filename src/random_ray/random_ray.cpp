@@ -179,7 +179,6 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 
   // The source element is the energy-specific region index
   int64_t source_element = source_region * negroups_;
-  int material = this->material();
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -188,58 +187,70 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
   const int t = 0;
   const int a = 0;
 
-  // MOC incoming flux attenuation + source contribution/attenuation equation
-  for (int g = 0; g < negroups_; g++) {
-    float sigma_t = data::mg.macro_xs_[material].get_xs(
-      MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
-    float tau;
-    if (domain_->volume_estimator_ ==
-          RandomRayVolumeEstimator::SEGMENT_CORRECTED &&
-        is_active) {
-      tau = sigma_t * distance * domain_->segment_correction_[source_region];
-    } else {
-      tau = sigma_t * distance;
+  if (!ray_trace_only_) {
+
+    // MOC incoming flux attenuation + source contribution/attenuation equation
+    for (int g = 0; g < negroups_; g++) {
+      float sigma_t = data::mg.macro_xs_[this->material()].get_xs(
+        MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+      float tau;
+      if (domain_->volume_estimator_ ==
+            RandomRayVolumeEstimator::SEGMENT_CORRECTED &&
+          is_active) {
+        tau = sigma_t * distance * domain_->segment_correction_[source_region];
+      } else {
+        tau = sigma_t * distance;
+      }
+      float exponential =
+        cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+      float new_delta_psi =
+        (angular_flux_[g] - domain_->source_[source_element + g]) * exponential;
+      delta_psi_[g] = new_delta_psi;
+      angular_flux_[g] -= new_delta_psi;
     }
-    float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
-    float new_delta_psi =
-      (angular_flux_[g] - domain_->source_[source_element + g]) * exponential;
-    delta_psi_[g] = new_delta_psi;
-    angular_flux_[g] -= new_delta_psi;
   }
 
   // If ray is in the active phase (not in dead zone), make contributions to
   // source region bookkeeping
   if (is_active) {
 
-    // Aquire lock for source region
-    domain_->lock_[source_region].lock();
+    if (ray_trace_only_) {
+      // Accomulate volume (ray distance) into this iteration's estimate
+      // of the source region's volume
+#pragma omp atomic
+      domain_->volume_[source_region] += distance;
+    } else {
 
-    // Accumulate delta psi into new estimate of source region flux for
-    // this iteration
-    for (int g = 0; g < negroups_; g++) {
-      domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+      // Aquire lock for source region
+      domain_->lock_[source_region].lock();
+
+      // Accumulate delta psi into new estimate of source region flux for
+      // this iteration
+      for (int g = 0; g < negroups_; g++) {
+        domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+      }
+
+      // If the source region hasn't been hit yet this iteration,
+      // indicate that it now has
+      if (domain_->was_hit_[source_region] == 0) {
+        domain_->was_hit_[source_region] = 1;
+      }
+
+      // Accomulate volume (ray distance) into this iteration's estimate
+      // of the source region's volume
+      domain_->volume_[source_region] += distance;
+
+      // Tally valid position inside the source region (e.g., midpoint of
+      // the ray) if not done already
+      if (!domain_->position_recorded_[source_region]) {
+        Position midpoint = r() + u() * (distance / 2.0);
+        domain_->position_[source_region] = midpoint;
+        domain_->position_recorded_[source_region] = 1;
+      }
+
+      // Release lock
+      domain_->lock_[source_region].unlock();
     }
-
-    // If the source region hasn't been hit yet this iteration,
-    // indicate that it now has
-    if (domain_->was_hit_[source_region] == 0) {
-      domain_->was_hit_[source_region] = 1;
-    }
-
-    // Accomulate volume (ray distance) into this iteration's estimate
-    // of the source region's volume
-    domain_->volume_[source_region] += distance;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!domain_->position_recorded_[source_region]) {
-      Position midpoint = r() + u() * (distance / 2.0);
-      domain_->position_[source_region] = midpoint;
-      domain_->position_recorded_[source_region] = 1;
-    }
-
-    // Release lock
-    domain_->lock_[source_region].unlock();
   }
 }
 

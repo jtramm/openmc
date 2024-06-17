@@ -275,6 +275,7 @@ void RandomRaySimulation::simulate()
 #pragma omp parallel for schedule(dynamic)
       for (int i = 0; i < simulation::work_per_rank; i++) {
         RandomRay ray(i, &domain_);
+        ray.ray_trace_only_ = true;
         ray.transport_history_based_single_ray();
       }
       // Accumulate cell-wise ray length tallies collected this iteration, then
