@@ -99,7 +99,7 @@ public:
   double compute_k_eff(double k_eff_old) const;
   void normalize_scalar_flux_and_volumes(
     double total_active_distance_per_iteration);
-  int64_t add_source_to_scalar_flux();
+  std::pair<int64_t, int64_t> dd_source_to_scalar_flux();
   void batch_reset();
   void convert_source_regions_to_tallies();
   void reset_tally_volumes();
@@ -122,6 +122,8 @@ public:
   int64_t n_source_regions_ {0}; // Total number of source regions in the model
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms
+  int64_t n_source_elements_ {0}; // Total number of source regions in the model
+                                  // times the number of energy groups
 
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells
@@ -131,7 +133,7 @@ public:
   vector<OpenMPMutex> lock_;
   vector<int> was_hit_;
   vector<double> volume_;
-    vector<double> volume_t_;
+  vector<double> volume_t_;
   vector<double> volume_naive_;
   vector<double> segment_correction_;
   vector<int> position_recorded_;
@@ -157,9 +159,7 @@ private:
 
   //----------------------------------------------------------------------------
   // Private data members
-  int negroups_;                  // Number of energy groups in simulation
-  int64_t n_source_elements_ {0}; // Total number of source regions in the model
-                                  // times the number of energy groups
+  int negroups_; // Number of energy groups in simulation
 
   double
     simulation_volume_; // Total physical volume of the simulation domain, as

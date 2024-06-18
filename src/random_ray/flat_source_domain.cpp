@@ -218,9 +218,10 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
 
 // Combine transport flux contributions and flat source contributions from the
 // previous iteration to generate this iteration's estimate of scalar flux.
-int64_t FlatSourceDomain::add_source_to_scalar_flux()
+std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
 {
   int64_t n_hits = 0;
+  int64_t n_neg = 0;
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -228,9 +229,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   // angle data.
   const int t = 0;
   const int a = 0;
-int n_hybrid = 0;
-int n_neg = 0;
-#pragma omp parallel for reduction(+ : n_hits, n_hybrid)
+
+#pragma omp parallel for reduction(+ : n_hits, n_neg)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
     // Check if this cell was hit this iteration
@@ -239,19 +239,36 @@ int n_neg = 0;
       n_hits++;
     }
 
+    // The volume of the source region is dependent on the type of
+    // flux estimator being used.
     double volume;
-    if (volume_estimator_ == RandomRayVolumeEstimator::SIMULATION_AVERAGED ||
-        volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED ||
-        volume_estimator_ == RandomRayVolumeEstimator::SEGMENT_CORRECTED) {
+    double volume_correction = 1.0;
+
+    switch (volume_estimator_) {
+    case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
+    case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
       volume = volume_[sr];
-    } else if (volume_estimator_ == RandomRayVolumeEstimator::NAIVE) {
+      break;
+
+    case RandomRayVolumeEstimator::SOURCE_CORRECTED:
+      volume = volume_[sr];
+      volume_correction = volume_naive_[sr] / volume_[sr];
+      break;
+
+    case RandomRayVolumeEstimator::NAIVE:
       volume = volume_naive_[sr];
+      break;
+
+    default:
+      fatal_error("Invalid volume estimator specified.");
+      break;
     }
 
     int material = material_[sr];
 
     for (int g = 0; g < negroups_; g++) {
       int64_t idx = (sr * negroups_) + g;
+      float flux;
 
       // There are three scenarios we need to consider:
       if (was_cell_hit) {
@@ -261,34 +278,32 @@ int n_neg = 0;
         // transport sweep)
         float sigma_t = data::mg.macro_xs_[material].get_xs(
           MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
-        float flux = scalar_flux_new_[idx];
+        flux = scalar_flux_new_[idx];
         flux /= (sigma_t * volume);
-        if (volume_estimator_ == RandomRayVolumeEstimator::SOURCE_CORRECTED) {
-          flux += source_[idx] * volume_naive_[sr] / volume_[sr];
-        } else {
-          flux += source_[idx];
-        }
-        scalar_flux_new_[idx] = flux;
+        flux += source_[idx] * volume_correction;
       } else if (volume > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
         // equal to the contribution from the flat source alone.
-        scalar_flux_new_[idx] = source_[idx];
+        flux = source_[idx];
       } else {
         // If the FSR was not hit this iteration, and it has never been hit in
         // any iteration (i.e., volume is zero), then we want to set this to 0
         // to avoid dividing anything by a zero volume.
-        scalar_flux_new_[idx] = 0.0f;
+        flux = 0.0f;
       }
-      if ( scalar_flux_new_[idx] < 0.0 ) {
+
+      // Count the number of negative fluxes
+      if (flux < 0.0f) {
         n_neg++;
       }
+
+      // Write the new scalar flux to the array
+      scalar_flux_new_[idx] = flux;
     }
   }
-  printf("number of negative fluxes: %d out of %d (which is a percentage of %.2lf)\n", n_neg, n_source_elements_, (double)n_neg / n_source_elements_ * 100.0);
-  printf("number of hybrid cells: %d out of %d (which is a percentage of %.2lf)\n", n_hybrid, n_source_elements_, (double)n_hybrid / n_source_elements_ * 100.0);
   // Return the number of source regions that were hit this iteration
-  return n_hits;
+  return {n_hits, n_neg};
 }
 
 // Generates new estimate of k_eff based on the differences between this

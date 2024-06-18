@@ -302,7 +302,8 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
-    // If specified, compute segment correction factors
+    // If segment corrected flux estimator is in use, compute segment correction
+    // factors
     if (domain_.volume_estimator_ ==
         RandomRayVolumeEstimator::SEGMENT_CORRECTED) {
       compute_segment_correction_factors();
@@ -327,8 +328,8 @@ void RandomRaySimulation::simulate()
     domain_.normalize_scalar_flux_and_volumes(
       settings::n_particles * RandomRay::distance_active_);
 
-    // Add source to scalar flux, compute number of FSR hits
-    int64_t n_hits = domain_.add_source_to_scalar_flux();
+    // Add source to scalar flux, compute number of FSR hits and negative fluxes
+    auto [n_hits, n_neg] = domain_.add_source_to_scalar_flux();
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
       // Compute random ray k-eff
@@ -358,7 +359,7 @@ void RandomRaySimulation::simulate()
     domain_.scalar_flux_old_.swap(domain_.scalar_flux_new_);
 
     // Check for any obvious insabilities/nans/infs
-    instability_check(n_hits, k_eff_, avg_miss_rate_);
+    instability_check(n_hits, n_ng, k_eff_, avg_miss_rate_);
 
     // Finalize the current batch
     finalize_generation();
@@ -396,7 +397,7 @@ void RandomRaySimulation::output_simulation_results() const
 // Apply a few sanity checks to catch obvious cases of numerical instability.
 // Instability typically only occurs if ray density is extremely low.
 void RandomRaySimulation::instability_check(
-  int64_t n_hits, double k_eff, double& avg_miss_rate) const
+  int64_t n_hits, int64_t n_neg, double k_eff, double& avg_miss_rate) const
 {
   double percent_missed = ((domain_.n_source_regions_ - n_hits) /
                             static_cast<double>(domain_.n_source_regions_)) *
@@ -417,6 +418,21 @@ void RandomRaySimulation::instability_check(
 
   if (k_eff > 10.0 || k_eff < 0.01 || !(std::isfinite(k_eff))) {
     fatal_error("Instability detected");
+  }
+
+  double percent_neg =
+    (n_neg / static_cast<double>(domain_.n_source_elements_)) * 100.0;
+
+  if (percent_neg > 5.0) {
+    fatal_error(fmt::format(
+      "Instability detected. Very high negative flux rate ({:.3f}%). "
+      "Select alternative random ray flux estimator.",
+      percent_neg));
+  } else if (percent_neg > 1.0) {
+    warning(fmt::format(
+      "Elevated negative flux rate detected ({:.3f}%). Instability may occur. "
+      "Consider selecting alternative random ray flux estimator.",
+      percent_neg));
   }
 }
 
