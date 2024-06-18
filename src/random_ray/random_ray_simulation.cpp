@@ -359,7 +359,7 @@ void RandomRaySimulation::simulate()
     domain_.scalar_flux_old_.swap(domain_.scalar_flux_new_);
 
     // Check for any obvious insabilities/nans/infs
-    instability_check(n_hits, n_ng, k_eff_, avg_miss_rate_);
+    instability_check(n_hits, n_neg, k_eff_, avg_miss_rate_);
 
     // Finalize the current batch
     finalize_generation();

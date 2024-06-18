@@ -99,7 +99,7 @@ public:
   double compute_k_eff(double k_eff_old) const;
   void normalize_scalar_flux_and_volumes(
     double total_active_distance_per_iteration);
-  std::pair<int64_t, int64_t> dd_source_to_scalar_flux();
+  std::pair<int64_t, int64_t> add_source_to_scalar_flux();
   void batch_reset();
   void convert_source_regions_to_tallies();
   void reset_tally_volumes();
