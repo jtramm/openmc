@@ -160,6 +160,7 @@ class Settings:
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
             'naive', 'simulation_averaged', 'source_corrected', 'segment_corrected'.
+            The default is 'simulation_averaged'.
 
         .. versionadded:: 0.14.1
     resonance_scattering : dict
