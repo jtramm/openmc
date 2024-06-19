@@ -161,6 +161,11 @@ class Settings:
             Choice of volume estimator for the random ray solver. Options are
             'naive', 'simulation_averaged', 'source_corrected', 'segment_corrected'.
             The default is 'simulation_averaged'.
+        :volume_normalized_flux_tallies:
+            Whether to normalize flux tallies by volume (bool). The default
+            is 'true'. When enabled, flux tallies will be reported in units of
+            cm/cm^3. When disabled, flux tallies will be reported in units
+            of cm (i.e., total tracklength in the spatial tally region).
 
         .. versionadded:: 0.14.1
     resonance_scattering : dict
@@ -1070,6 +1075,8 @@ class Settings:
                 cv.check_type('random ray source', random_ray[key], SourceBase)
             elif key == 'volume_estimator':
                 cv.check_value('volume estimator', random_ray[key], ('naive', 'simulation_averaged', 'segment_corrected', 'source_corrected'))
+            elif key == 'volume_normalized_flux_tallies':
+                cv.check_type('volume normalized flux tallies', random_ray[key], bool)
             else:
                 raise ValueError(f'Unable to set random ray to "{key}" which is '
                                  'unsupported by OpenMC')
@@ -1859,6 +1866,8 @@ class Settings:
                     self.random_ray[child.tag] = float(child.text)
                 elif child.tag == 'volume_estimator':
                     self.random_ray['volume_estimator'] = child.text
+                elif child.tag == 'volume_normalized_flux_tallies':
+                    self.random_ray['volume_normalized_flux_tallies'] = child.text in ('true', '1')
                 elif child.tag == 'source':
                     source = SourceBase.from_xml_element(child)
                     self.random_ray['ray_source'] = source

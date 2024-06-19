@@ -99,7 +99,7 @@ public:
   double compute_k_eff(double k_eff_old) const;
   void normalize_scalar_flux_and_volumes(
     double total_active_distance_per_iteration);
-  std::pair<int64_t, int64_t> add_source_to_scalar_flux();
+  std::pair<double, double> add_source_to_scalar_flux();
   void batch_reset();
   void convert_source_regions_to_tallies();
   void reset_tally_volumes();
@@ -113,6 +113,7 @@ public:
   //----------------------------------------------------------------------------
   // Static data members
   static RandomRayVolumeEstimator volume_estimator_;
+  static bool volume_normalized_flux_tallies_;
 
   //----------------------------------------------------------------------------
   // Public Data members
@@ -125,13 +126,14 @@ public:
   int64_t n_source_elements_ {0}; // Total number of source regions in the model
                                   // times the number of energy groups
 
+  int64_t n_source_regions_visited_; // Number of source regions actually hit
+
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells
   vector<int64_t> source_region_offsets_;
 
   // 1D arrays representing values for all source regions
   vector<OpenMPMutex> lock_;
-  vector<int> was_hit_;
   vector<double> volume_;
   vector<double> volume_t_;
   vector<double> volume_naive_;

@@ -23,8 +23,9 @@ namespace openmc {
 //==============================================================================
 
 // Static Variable Declarations
-RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
-  RandomRayVolumeEstimator::SIMULATION_AVERAGED};
+RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_;
+
+bool FlatSourceDomain::volume_normalized_flux_tallies_ {true};
 
 FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 {
@@ -51,7 +52,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   volume_naive_.assign(n_source_regions_, 0.0);
   segment_correction_.assign(n_source_regions_, 1.0);
   volume_t_.assign(n_source_regions_, 0.0);
-  was_hit_.assign(n_source_regions_, 0);
 
   // Initialize element-wise arrays
   scalar_flux_new_.assign(n_source_elements_, 0.0);
@@ -86,15 +86,17 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   }
 
   // Initialize tally volumes
-  tally_volumes_.resize(model::tallies.size());
-  for (int i = 0; i < model::tallies.size(); i++) {
-    //  Get the shape of the 3D result tensor
-    auto shape = model::tallies[i]->results().shape();
+  if (volume_normalized_flux_tallies_) {
+    tally_volumes_.resize(model::tallies.size());
+    for (int i = 0; i < model::tallies.size(); i++) {
+      //  Get the shape of the 3D result tensor
+      auto shape = model::tallies[i]->results().shape();
 
-    // Create a new 2D tensor with the same size as the first
-    // two dimensions of the 3D tensor
-    tally_volumes_[i] =
-      xt::xtensor<double, 2>::from_shape({shape[0], shape[1]});
+      // Create a new 2D tensor with the same size as the first
+      // two dimensions of the 3D tensor
+      tally_volumes_[i] =
+        xt::xtensor<double, 2>::from_shape({shape[0], shape[1]});
+    }
   }
 
   // Compute simulation domain volume based on ray source
@@ -111,7 +113,6 @@ void FlatSourceDomain::batch_reset()
   // zero
   parallel_fill<float>(scalar_flux_new_, 0.0f);
   parallel_fill<double>(volume_, 0.0);
-  parallel_fill<int>(was_hit_, 0);
 }
 
 void FlatSourceDomain::accumulate_iteration_flux()
@@ -218,10 +219,15 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
 
 // Combine transport flux contributions and flat source contributions from the
 // previous iteration to generate this iteration's estimate of scalar flux.
-std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
+std::pair<double, double> FlatSourceDomain::add_source_to_scalar_flux()
 {
+  // Keep track of how many SRs were hit this iteration, how many
+  // SRs have ever been hit, and how many SRs have a negative flux estimate.
+  // Negative fluxes are unphysical, but possible to compute with certain
+  // estimator types.
   int64_t n_hits = 0;
-  int64_t n_neg = 0;
+  int64_t n_physical_srs = 0;
+  int64_t n_negs = 0;
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -230,33 +236,39 @@ std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
   const int t = 0;
   const int a = 0;
 
-#pragma omp parallel for reduction(+ : n_hits, n_neg)
+#pragma omp parallel for reduction(+ : n_hits, n_negs, n_physical_srs)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
-    // Check if this cell was hit this iteration
-    int was_cell_hit = was_hit_[sr];
-    if (was_cell_hit) {
+    // Count the number of physical source regions
+    double volume_simulation_avg = volume_[sr];
+    double volume_iteration = volume_naive_[sr];
+    if (volume_simulation_avg > 0.0) {
+      n_physical_srs++;
+    }
+
+    if (volume_iteration > 0.0) {
       n_hits++;
     }
 
-    // The volume of the source region is dependent on the type of
-    // flux estimator being used.
+    // The volume of the source region and the correction term are dependent on
+    // the type of flux estimator being used.
     double volume;
     double volume_correction = 1.0;
-
     switch (volume_estimator_) {
     case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
+      volume = volume_simulation_avg;
+      break;
     case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
-      volume = volume_[sr];
+      volume = volume_simulation_avg;
       break;
 
     case RandomRayVolumeEstimator::SOURCE_CORRECTED:
-      volume = volume_[sr];
-      volume_correction = volume_naive_[sr] / volume_[sr];
+      volume = volume_simulation_avg;
+      volume_correction = volume_iteration / volume_simulation_avg;
       break;
 
     case RandomRayVolumeEstimator::NAIVE:
-      volume = volume_naive_[sr];
+      volume = volume_iteration;
       break;
 
     default:
@@ -271,7 +283,7 @@ std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
       float flux;
 
       // There are three scenarios we need to consider:
-      if (was_cell_hit) {
+      if (volume_iteration > 0.0) {
         // 1. If the FSR was hit this iteration, then the new flux is equal to
         // the flat source from the previous iteration plus the contributions
         // from rays passing through the source region (computed during the
@@ -281,11 +293,22 @@ std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
         flux = scalar_flux_new_[idx];
         flux /= (sigma_t * volume);
         flux += source_[idx] * volume_correction;
-      } else if (volume > 0.0) {
+      } else if (volume_simulation_avg > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we simply set the new scalar flux to be
-        // equal to the contribution from the flat source alone.
-        flux = source_[idx];
+        // equal to the previous iteration's scalar flux. This introduces
+        // additional correlation into the simulation, but will only become
+        // significant for very high miss rates. Alternative options are
+        // to set the flux to zero (which is innacurate as it ignores
+        // contributions from the source term) or to set the new flux to the
+        // source term. While the latter option is most faithful to the
+        // mathematics, the downside is that it will wildly overestimate the
+        // flux in regions where the source term is is large but Sigma t is low.
+        // This is of particular concern in fixed source simulations where a
+        // fixed source term exists in a near void region (which is actually a
+        // fairly common use case). Thus, it is safer to use the previous
+        // iteration's flux.
+        flux = scalar_flux_old_[idx];
       } else {
         // If the FSR was not hit this iteration, and it has never been hit in
         // any iteration (i.e., volume is zero), then we want to set this to 0
@@ -295,15 +318,23 @@ std::pair<int64_t, int64_t> FlatSourceDomain::add_source_to_scalar_flux()
 
       // Count the number of negative fluxes
       if (flux < 0.0f) {
-        n_neg++;
+        n_negs++;
       }
 
       // Write the new scalar flux to the array
       scalar_flux_new_[idx] = flux;
     }
   }
-  // Return the number of source regions that were hit this iteration
-  return {n_hits, n_neg};
+
+  n_source_regions_visited_ = n_physical_srs;
+
+  // Compute and return the source region hit rate percentage and the
+  // percentange of source elements with negative fluxes
+  double hit_rate_percent = (100.0 * n_hits) / n_physical_srs;
+  double negative_rate_percent =
+    (100.0 * n_negs) / (n_physical_srs * negroups_);
+
+  return {hit_rate_percent, negative_rate_percent};
 }
 
 // Generates new estimate of k_eff based on the differences between this
@@ -474,10 +505,12 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
 // Set the volume accumulators to zero for all tallies
 void FlatSourceDomain::reset_tally_volumes()
 {
+  if (volume_normalized_flux_tallies_) {
 #pragma omp parallel for
-  for (int i = 0; i < tally_volumes_.size(); i++) {
-    auto& tensor = tally_volumes_[i];
-    tensor.fill(0.0); // Set all elements of the tensor to 0.0
+    for (int i = 0; i < tally_volumes_.size(); i++) {
+      auto& tensor = tally_volumes_[i];
+      tensor.fill(0.0); // Set all elements of the tensor to 0.0
+    }
   }
 }
 
@@ -504,9 +537,17 @@ void FlatSourceDomain::random_ray_tally()
   const int t = 0;
   const int a = 0;
 
+  // In fixed source mode, due to the way that volumetric fixed sources are
+  // converted and applied as volumetric sources in one or more source regions,
+  // we need to perform an additional normalization step to ensure that the
+  // reported scalar fluxes are in units of cm per cm^3 per source neutron.
+  // This allows for direct comparison of reported tallies to Monte Carlo
+  // flux results (provided the MC results are divided by volume).
   double normalization_factor = 1.0;
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
 
+    // Step 1 is to sum over all source regions and energy groups to get the
+    // total external source strength in the simulation.
     double simulation_external_source_strength = 0.0;
 #pragma omp parallel for reduction(+ : simulation_external_source_strength)
     for (int sr = 0; sr < n_source_regions_; sr++) {
@@ -520,18 +561,16 @@ void FlatSourceDomain::random_ray_tally()
       }
     }
 
+    // Step 2 is to determine the total user-specified external source strength
     double user_external_source_strength = 0.0;
     for (auto& ext_source : model::external_sources) {
       user_external_source_strength += ext_source->strength();
     }
 
+    // The correction factor is the ratio of the user-specified external source
+    // strength to the simulation external source strength.
     normalization_factor =
       user_external_source_strength / simulation_external_source_strength;
-    printf(
-      "User external source strength: %f\n", user_external_source_strength);
-    printf("Simulation external source strength: %f\n",
-      simulation_external_source_strength);
-    printf("Source strength normalization factor: %f\n", normalization_factor);
   }
 
 // We loop over all source regions and energy groups. For each
@@ -603,11 +642,13 @@ void FlatSourceDomain::random_ray_tally()
     // For flux tallies, the total volume of the spatial region is needed
     // for normalizing the flux. We store this volume in a separate tensor.
     // We only contribute to each volume tally bin once per FSR.
-    for (const auto& task : volume_task_[sr]) {
-      if (task.score_type == SCORE_FLUX) {
+    if (volume_normalized_flux_tallies_) {
+      for (const auto& task : volume_task_[sr]) {
+        if (task.score_type == SCORE_FLUX) {
 #pragma omp atomic
-        tally_volumes_[task.tally_idx](task.filter_idx, task.score_idx) +=
-          volume;
+          tally_volumes_[task.tally_idx](task.filter_idx, task.score_idx) +=
+            volume;
+        }
       }
     }
   } // end FSR loop
@@ -617,16 +658,18 @@ void FlatSourceDomain::random_ray_tally()
   // and then scores. For each score, we check the tally data structure to
   // see what index that score corresponds to. If that score is a flux score,
   // then we divide it by volume.
-  for (int i = 0; i < model::tallies.size(); i++) {
-    Tally& tally {*model::tallies[i]};
+  if (volume_normalized_flux_tallies_) {
+    for (int i = 0; i < model::tallies.size(); i++) {
+      Tally& tally {*model::tallies[i]};
 #pragma omp parallel for
-    for (int bin = 0; bin < tally.n_filter_bins(); bin++) {
-      for (int score_idx = 0; score_idx < tally.n_scores(); score_idx++) {
-        auto score_type = tally.scores_[score_idx];
-        if (score_type == SCORE_FLUX) {
-          double vol = tally_volumes_[i](bin, score_idx);
-          if (vol > 0.0) {
-            tally.results_(bin, score_idx, TallyResult::VALUE) /= vol;
+      for (int bin = 0; bin < tally.n_filter_bins(); bin++) {
+        for (int score_idx = 0; score_idx < tally.n_scores(); score_idx++) {
+          auto score_type = tally.scores_[score_idx];
+          if (score_type == SCORE_FLUX) {
+            double vol = tally_volumes_[i](bin, score_idx);
+            if (vol > 0.0) {
+              tally.results_(bin, score_idx, TallyResult::VALUE) /= vol;
+            }
           }
         }
       }
@@ -717,9 +760,6 @@ void FlatSourceDomain::all_reduce_replicated_source_regions()
   // as these values will be needed on all ranks for transport during the
   // next iteration.
   MPI_Allreduce(MPI_IN_PLACE, volume_.data(), n_source_regions_, MPI_DOUBLE,
-    MPI_SUM, mpi::intracomm);
-
-  MPI_Allreduce(MPI_IN_PLACE, was_hit_.data(), n_source_regions_, MPI_INT,
     MPI_SUM, mpi::intracomm);
 
   MPI_Allreduce(MPI_IN_PLACE, scalar_flux_new_.data(), n_source_elements_,

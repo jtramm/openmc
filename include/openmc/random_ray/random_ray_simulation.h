@@ -22,11 +22,10 @@ public:
   void simulate();
   void reduce_simulation_statistics();
   void output_simulation_results() const;
-  void instability_check(
-    int64_t n_hits, int64_t n_neg, double k_eff, double& avg_miss_rate) const;
+  void instability_check(double hit_rate, double negative_rate);
   void print_results_random_ray(uint64_t total_geometric_intersections,
-    double avg_miss_rate, int negroups, int64_t n_source_regions,
-    int64_t n_external_source_regions) const;
+    double avg_miss_rate, double avg_negative_rate, int64_t n_source_regions,
+    int64_t n_external_source_regions, int64_t n_source_regions_visisted) const;
 
   //----------------------------------------------------------------------------
   // Data members
@@ -37,8 +36,11 @@ private:
   // Random ray eigenvalue
   double k_eff_ {1.0};
 
-  // Tracks the average FSR miss rate for analysis and reporting
+  // Tracks the average SR miss rate for analysis and reporting
   double avg_miss_rate_ {0.0};
+
+  // Tracks the average SR negative rate for analysis and reporting
+  double avg_negative_rate_ {0.0};
 
   // Tracks the total number of geometric intersections by all rays for
   // reporting

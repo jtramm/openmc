@@ -343,6 +343,8 @@ enum class RunMode {
 enum class SolverType { MONTE_CARLO, RANDOM_RAY };
 
 enum class RandomRayVolumeEstimator { NAIVE, SIMULATION_AVERAGED, SOURCE_CORRECTED, SEGMENT_CORRECTED };
+enum class RandomRayMissFluxMethod { OLD_FLUX, SOURCE, ZERO };
+
 
 //==============================================================================
 // Geometry Constants

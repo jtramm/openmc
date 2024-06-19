@@ -329,7 +329,7 @@ void RandomRaySimulation::simulate()
       settings::n_particles * RandomRay::distance_active_);
 
     // Add source to scalar flux, compute number of FSR hits and negative fluxes
-    auto [n_hits, n_neg] = domain_.add_source_to_scalar_flux();
+    auto [hit_rate, negative_rate] = domain_.add_source_to_scalar_flux();
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
       // Compute random ray k-eff
@@ -359,7 +359,7 @@ void RandomRaySimulation::simulate()
     domain_.scalar_flux_old_.swap(domain_.scalar_flux_new_);
 
     // Check for any obvious insabilities/nans/infs
-    instability_check(n_hits, n_neg, k_eff_, avg_miss_rate_);
+    instability_check(hit_rate, negative_rate);
 
     // Finalize the current batch
     finalize_generation();
@@ -386,8 +386,9 @@ void RandomRaySimulation::output_simulation_results() const
   // Print random ray results
   if (mpi::master) {
     print_results_random_ray(total_geometric_intersections_,
-      avg_miss_rate_ / settings::n_batches, negroups_,
-      domain_.n_source_regions_, domain_.n_external_source_regions_);
+      avg_miss_rate_ / settings::n_batches,
+      avg_negative_rate_ / settings::n_batches, domain_.n_source_regions_,
+      domain_.n_external_source_regions_, domain_.n_source_regions_visited_);
     if (model::plots.size() > 0) {
       domain_.output_to_vtk();
     }
@@ -397,54 +398,42 @@ void RandomRaySimulation::output_simulation_results() const
 // Apply a few sanity checks to catch obvious cases of numerical instability.
 // Instability typically only occurs if ray density is extremely low.
 void RandomRaySimulation::instability_check(
-  int64_t n_hits, int64_t n_neg, double k_eff, double& avg_miss_rate) const
+  double hit_rate, double negative_rate)
 {
-  double percent_missed = ((domain_.n_source_regions_ - n_hits) /
-                            static_cast<double>(domain_.n_source_regions_)) *
-                          100.0;
-  avg_miss_rate += percent_missed;
+  // Accumulate average miss rate
+  double miss_rate = 100.0 - hit_rate;
+  avg_miss_rate_ += miss_rate;
 
-  if (percent_missed > 10.0) {
+  // Accumulate average negative flux rate
+  avg_negative_rate_ += negative_rate;
+
+  if (miss_rate > 10.0) {
     warning(fmt::format(
       "Very high FSR miss rate detected ({:.3f}%). Instability may occur. "
       "Increase ray density by adding more rays and/or active distance.",
-      percent_missed));
-  } else if (percent_missed > 0.01) {
+      miss_rate));
+  } else if (miss_rate > 0.01) {
     warning(fmt::format("Elevated FSR miss rate detected ({:.3f}%). Increasing "
                         "ray density by adding more rays and/or active "
                         "distance may improve simulation efficiency.",
-      percent_missed));
+      miss_rate));
   }
 
-  if (k_eff > 10.0 || k_eff < 0.01 || !(std::isfinite(k_eff))) {
+  if (k_eff_ > 10.0 || k_eff_ < 0.01 || !(std::isfinite(k_eff_))) {
     fatal_error("Instability detected");
-  }
-
-  double percent_neg =
-    (n_neg / static_cast<double>(domain_.n_source_elements_)) * 100.0;
-
-  if (percent_neg > 5.0) {
-    fatal_error(fmt::format(
-      "Instability detected. Very high negative flux rate ({:.3f}%). "
-      "Select alternative random ray flux estimator.",
-      percent_neg));
-  } else if (percent_neg > 1.0) {
-    warning(fmt::format(
-      "Elevated negative flux rate detected ({:.3f}%). Instability may occur. "
-      "Consider selecting alternative random ray flux estimator.",
-      percent_neg));
   }
 }
 
 // Print random ray simulation results
 void RandomRaySimulation::print_results_random_ray(
-  uint64_t total_geometric_intersections, double avg_miss_rate, int negroups,
-  int64_t n_source_regions, int64_t n_external_source_regions) const
+  uint64_t total_geometric_intersections, double avg_miss_rate,
+  double avg_negative_rate, int64_t n_source_regions,
+  int64_t n_external_source_regions, int64_t n_source_regions_visisted) const
 {
   using namespace simulation;
 
   if (settings::verbosity >= 6) {
-    double total_integrations = total_geometric_intersections * negroups;
+    double total_integrations = total_geometric_intersections * negroups_;
     double time_per_integration =
       simulation::time_transport.elapsed() / total_integrations;
     double misc_time = time_total.elapsed() - time_update_src.elapsed() -
@@ -456,6 +445,8 @@ void RandomRaySimulation::print_results_random_ray(
       " Total Iterations                  = {}\n", settings::n_batches);
     fmt::print(" Flat Source Regions (FSRs)        = {}\n", n_source_regions);
     fmt::print(
+      " FSRs Visited                      = {}\n", n_source_regions_visisted);
+    fmt::print(
       " FSRs Containing External Sources  = {}\n", n_external_source_regions);
     fmt::print(" Total Geometric Intersections     = {:.4e}\n",
       static_cast<double>(total_geometric_intersections));
@@ -465,11 +456,31 @@ void RandomRaySimulation::print_results_random_ray(
       static_cast<double>(total_geometric_intersections) /
         static_cast<double>(settings::n_batches) / n_source_regions);
     fmt::print(" Avg FSR Miss Rate per Iteration   = {:.4f}%\n", avg_miss_rate);
-    fmt::print(" Energy Groups                     = {}\n", negroups);
+    fmt::print(
+      " Avg % Negative FSRs per Iteration = {:.4f}%\n", avg_negative_rate);
+    fmt::print(" Energy Groups                     = {}\n", negroups_);
     fmt::print(
       " Total Integrations                = {:.4e}\n", total_integrations);
     fmt::print("   Avg per Iteration               = {:.4e}\n",
       total_integrations / settings::n_batches);
+    std::string estimator;
+    switch (domain_.volume_estimator_) {
+    case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
+      estimator = "Simulation Averaged";
+      break;
+    case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
+      estimator = "Segment Corrected";
+      break;
+    case RandomRayVolumeEstimator::SOURCE_CORRECTED:
+      estimator = "Source Corrected";
+      break;
+    case RandomRayVolumeEstimator::NAIVE:
+      estimator = "Naive";
+      break;
+    default:
+      UNREACHABLE();
+    }
+    fmt::print(" Volume Estimator Type             = {}\n", estimator);
 
     header("Timing Statistics", 4);
     show_time("Total time for initialization", time_initialize.elapsed());
