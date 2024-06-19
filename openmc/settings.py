@@ -160,7 +160,8 @@ class Settings:
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
             'naive', 'simulation_averaged', 'source_corrected', 'segment_corrected'.
-            The default is 'simulation_averaged'.
+            The default is 'simulation_averaged' for eigenvalue mode and
+            'naive' for fixed source mode.
         :volume_normalized_flux_tallies:
             Whether to normalize flux tallies by volume (bool). The default
             is 'true'. When enabled, flux tallies will be reported in units of

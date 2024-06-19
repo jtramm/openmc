@@ -494,23 +494,36 @@ following methods are currently available in OpenMC:
      - Description
      - Pros
      - Cons
-   * - ``simulation_averaged`` (default)
-     - Recommended. Accumulates total active ray lengths in each FSR over all iterations, improving
+   * - ``simulation_averaged`` (default for eigenvalue mode)
+     - Accumulates total active ray lengths in each FSR over all iterations, improving
        the estimate of the volume in each cell each iteration. 
      - * Virtually unbiased after several iterations
        * Asymptotically approaches the true analytical volume
        * Typically most efficient in terms of speed vs. accuracy
      - * Higher variance
        * Can lead to negative fluxes and numerical instability in pathological cases
-   * - ``naive``
+   * - ``naive`` (default for fixed source mode)
      - Treats the volume as composed only of the active ray length through each
        FSR per iteration, being a biased but numerically consistent ratio
        estimator.
      - * Low variance
-       * Less likely to result in negative fluxes
+       * Unlikely to result in negative fluxes
        * Recommended in cases where ``simulation_averaged`` is unstable
      - * Biased estimator
        * Requires more rays or longer active ray length to mitigate bias
+   * - ``segment_corrected``
+     - Similar to the ``simulation_averaged`` estimator, but also adjusts segment lengths such that
+       the total tracklength through an FSR each iteration is
+       equal to the expected value derived from the simulation-averaged quantity.
+     - * Similar numerical performance to ``simulation_averaged``
+       * Unlikely to result in negative fluxes
+       * Recommended in cases where ``simulation_averaged`` is unstable
+     - * More expensive due to need to ray trace through the geometry twice
+   * - ``source_corrected``
+     - Similar to the ``simulation_averaged`` estimator, but also adjusts source term
+       by the same amount as the streaming term so as to reduce negative flux occurence.
+     - * Unlikely to result in negative fluxes
+     - * Less stable than the ``segment_corrected`` estimator
 
 These estimators can be selected by setting the ``volume_estimator`` field in the
 :attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
@@ -519,12 +532,6 @@ estimator, the following code would be used:
 ::
 
     settings.random_ray['volume_estimator'] = 'naive'
-
-To use the simulation averaged estimator, the following code would be used:
-
-::
-
-    settings.random_ray['volume_estimator'] = 'simulation_averaged'
 
 ---------------------------------------
 Putting it All Together: Example Inputs
