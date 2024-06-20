@@ -319,6 +319,8 @@ of a two-dimensional 2x2 reflective pincell lattice:
 
 In the future, automated subdivision of FSRs via mesh overlay may be supported.
 
+.. _usersguide_flux_norm:
+
 -------
 Tallies
 -------
@@ -355,6 +357,23 @@ Supported Filters:
 Note that there is no difference between the analog, tracklength, and collision
 estimators in random ray mode as individual particles are not being simulated.
 Tracklength-style tally estimation is inherent to the random ray method.
+
+As discussed in the random ray theory section on :ref:`Random Ray
+Tallies<methods_random_tallies>`, by default flux tallies in the random ray mode
+are normalized by the spatial tally volumes such that flux tallies are in units
+of cm\ :sup:`-2`\. If the user wants to compare apples to apples with the
+default flux tallies from the Monte Carlo solver (reported as tracklength in
+units of cm), the user can set the ``volume_normalized_flux_tallies`` field in
+the :attr:`openmc.Settings.random_ray` dictionary to ``False``. An example is
+given below:
+
+::
+
+    settings.random_ray['volume_normalized_flux_tallies'] = False
+
+.. note::
+    If intending to compare flux tallies from the random ray solver to default
+    flux tallies from the Monte Carlo solver, set this field to ``False``.
 
 --------
 Plotting
@@ -530,22 +549,7 @@ estimator, the following code would be used:
 
     settings.random_ray['volume_estimator'] = 'naive'
 
-------------------------
-Flux Tally Normalization
-------------------------
 
-As discussed in the random ray theory section on :ref:`Random Ray
-Tallies<methods_random_tallies>`, by default flux tallies in the random ray mode
-are normalized by the spatial tally volumes such that flux tallies are in units
-of cm^-2. If the user wants to compare apples to apples with the default flux
-tallies from the Monte Carlo solver (reported as tracklength in units of cm),
-the user can set the ``volume_normalized_flux_tallies`` field in the
-:attr:`openmc.Settings.random_ray` dictionary to ``False``. An example is given
-below:
-
-::
-
-    settings.random_ray['volume_normalized_flux_tallies'] = False
 
 ---------------------------------------
 Putting it All Together: Example Inputs
