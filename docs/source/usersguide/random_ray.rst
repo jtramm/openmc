@@ -515,7 +515,7 @@ following methods are currently available in OpenMC:
      - Description
      - Pros
      - Cons
-   * - ``simulation_averaged`` (default for eigenvalue mode)
+   * - ``simulation_averaged``
      - Accumulates total active ray lengths in each FSR over all iterations, improving
        the estimate of the volume in each cell each iteration. 
      - * Virtually unbiased after several iterations
@@ -523,7 +523,7 @@ following methods are currently available in OpenMC:
        * Typically most efficient in terms of speed vs. accuracy
      - * Higher variance
        * Can lead to negative fluxes and numerical instability in pathological cases
-   * - ``naive`` (default for fixed source mode)
+   * - ``naive``
      - Treats the volume as composed only of the active ray length through each
        FSR per iteration, being a biased but numerically consistent ratio
        estimator.
@@ -532,6 +532,13 @@ following methods are currently available in OpenMC:
        * Recommended in cases where ``simulation_averaged`` is unstable
      - * Biased estimator
        * Requires more rays or longer active ray length to mitigate bias
+   * - ``hybrid`` (default)
+     - Applies the ``naive`` estimator to all cells that contain an external (fixed) source
+       contribution. Applies the ``simulation_avearged`` estimator to all other cells.
+     - * Best of both worlds, with the high accuracy/low bias of ``simulation_averaged`` in most
+         cells and the stability of ``naive`` in cells with fixed sources
+     - * Can lead to slightly negative fluxes in cells where the ``simulation_averaged`` estimator
+         is used
    * - ``segment_corrected``
      - Similar to the ``simulation_averaged`` estimator, but also adjusts segment lengths such that
        the total tracklength through an FSR each iteration is
@@ -548,8 +555,6 @@ estimator, the following code would be used:
 ::
 
     settings.random_ray['volume_estimator'] = 'naive'
-
-
 
 ---------------------------------------
 Putting it All Together: Example Inputs

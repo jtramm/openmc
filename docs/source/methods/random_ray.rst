@@ -550,14 +550,15 @@ different iterations, within the same iteration the random number generation
 stream is controlled such that identical rays are generated and ray traced for
 both stages.
 
-In general, it is recommended to use the "naive" estimator for fixed source
-calculations as this is the simplest approach and does not appear to
-significantly bias localized tally quantities in fixed source simulations. It is
-recommended to use the "simulation averaged" estimator as the default for
-eigenvalue solves as this estimator eliminates bias in k-eff that is observed
-when using the naive estimator. In eigenvalue solves, if there is a low ray
-density and/or significant negative fluxes are being observed, then it is
-recommended to use the segment corrected volume estimator.
+OpenMC also features a "hybrid" volume estimator that uses the naive estimator
+for all regions containing an external (fixed) source term. For all other
+source regions, the "simulation averaged" estimator is used. This typically achieves
+a best of both worlds result, with the benefits of the low bias simulation averaged
+estimator in most regions, while preventing instability and/or large biases in regions
+with external source terms via use of the naive estimator. In general, it is
+recommended to use the "hybrid" estimator, which is the default method used
+in OpenMC. If instability is encountered despite high ray densities, then
+the segment corrected volume estimator or naive estimators may be preferable.
 
 A table that summarizes the pros and cons, as well as recommendations for
 different use cases, is given in the :ref:`volume
@@ -607,7 +608,7 @@ in that cell, as:
 While this introduces some small degree of correlation to the simulation, for
 miss rates on the order of a few percent the correlations are trivial and the
 bias is eliminated. Thus, in OpenMC the previous iteration's scalar flux estimate
-is applied to cells that are missed where there is an external source present
+is applied to cells that are missed where there is an external source term present
 within the cell.
 
 ~~~~~~~~~~~~~~~
