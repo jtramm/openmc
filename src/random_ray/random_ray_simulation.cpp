@@ -474,6 +474,9 @@ void RandomRaySimulation::print_results_random_ray(
     case RandomRayVolumeEstimator::NAIVE:
       estimator = "Naive";
       break;
+    case RandomRayVolumeEstimator::HYBRID:
+      estimator = "Hybrid";
+      break;
     default:
       UNREACHABLE();
     }

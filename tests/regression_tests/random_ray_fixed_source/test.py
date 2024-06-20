@@ -28,7 +28,7 @@ class MGXSTestHarness(TolerantPyAPITestHarness):
         if os.path.exists(f):
             os.remove(f)
 
-def create_random_ray_model(domain_type):
+def create_random_ray_model(domain_type, volume_normalization):
     openmc.reset_auto_ids()
     ###############################################################################
     # Create multigroup data
@@ -272,6 +272,9 @@ def create_random_ray_model(domain_type):
         energy=energy_distribution,
         constraints={'domains': [domain]}
     )
+
+    settings.random_ray['volume_normalized_flux_tallies'] = volume_normalization
+
     settings.source = [source]
 
     ###############################################################################
@@ -330,10 +333,18 @@ def create_random_ray_model(domain_type):
 
     return model
 
-@pytest.mark.parametrize("domain_type", ["cell", "material", "universe"])
-def test_random_ray_fixed_source(domain_type):
-    with change_directory(domain_type):
-        model = create_random_ray_model(domain_type)
+@pytest.mark.parametrize("domain_type, volume_normalization", [
+    ("cell", True),
+    ("material", True),
+    ("universe", True),
+    ("universe", False)
+])
+def test_random_ray_fixed_source(domain_type, volume_normalization):
+    # Generating a unique directory name from the parameters
+    directory_name = f"{domain_type}_{volume_normalization}"
+
+    with change_directory(directory_name):
+        model = create_random_ray_model(domain_type, volume_normalization)
 
         harness = MGXSTestHarness('statepoint.10.h5', model)
         harness.main()

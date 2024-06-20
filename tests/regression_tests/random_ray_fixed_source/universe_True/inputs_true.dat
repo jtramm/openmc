@@ -158,6 +158,7 @@
           <parameters>0.0 0.0 0.0 60.0 100.0 60.0</parameters>
         </space>
       </source>
+      <volume_normalized_flux_tallies>True</volume_normalized_flux_tallies>
     </random_ray>
   </settings>
   <tallies>

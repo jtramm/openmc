@@ -145,8 +145,8 @@
         <parameters>100.0 1.0</parameters>
       </energy>
       <constraints>
-        <domain_type>cell</domain_type>
-        <domain_ids>4</domain_ids>
+        <domain_type>material</domain_type>
+        <domain_ids>1</domain_ids>
       </constraints>
     </source>
     <energy_mode>multi-group</energy_mode>
@@ -158,6 +158,7 @@
           <parameters>0.0 0.0 0.0 60.0 100.0 60.0</parameters>
         </space>
       </source>
+      <volume_normalized_flux_tallies>True</volume_normalized_flux_tallies>
     </random_ray>
   </settings>
   <tallies>
