@@ -530,6 +530,23 @@ estimator, the following code would be used:
 
     settings.random_ray['volume_estimator'] = 'naive'
 
+------------------------
+Flux Tally Normalization
+------------------------
+
+As discussed in the random ray theory section on :ref:`Random Ray
+Tallies<methods_random_tallies>`, by default flux tallies in the random ray mode
+are normalized by the spatial tally volumes such that flux tallies are in units
+of cm^-2. If the user wants to compare apples to apples with the default flux
+tallies from the Monte Carlo solver (reported as tracklength in units of cm),
+the user can set the ``volume_normalized_flux_tallies`` field in the
+:attr:`openmc.Settings.random_ray` dictionary to ``False``. An example is given
+below:
+
+::
+
+    settings.random_ray['volume_normalized_flux_tallies'] = False
+
 ---------------------------------------
 Putting it All Together: Example Inputs
 ---------------------------------------
