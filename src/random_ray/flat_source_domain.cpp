@@ -23,7 +23,8 @@ namespace openmc {
 //==============================================================================
 
 // Static Variable Declarations
-RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_;
+RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
+  RandomRayVolumeEstimator::HYBRID};
 
 bool FlatSourceDomain::volume_normalized_flux_tallies_ {true};
 
@@ -57,7 +58,6 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   scalar_flux_new_.assign(n_source_elements_, 0.0);
   scalar_flux_final_.assign(n_source_elements_, 0.0);
   source_.resize(n_source_elements_);
-  external_source_.assign(n_source_elements_, 0.0);
   tally_task_.resize(n_source_elements_);
   volume_task_.resize(n_source_regions_);
 
@@ -66,7 +66,10 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
     scalar_flux_old_.assign(n_source_elements_, 1.0);
   } else {
     // If in fixed source mode, set starting flux to guess of zero
+    // and initialize external source arrays
     scalar_flux_old_.assign(n_source_elements_, 0.0);
+    external_source_.assign(n_source_elements_, 0.0);
+    external_source_present_.assign(n_source_regions_, false);
   }
 
   // Initialize material array
@@ -250,19 +253,37 @@ std::pair<double, double> FlatSourceDomain::add_source_to_scalar_flux()
       n_hits++;
     }
 
-    // The volume of the source region is dependent on
-    // the type of flux estimator being used.
+    // Check if an external source is present in this source region
+    bool external_source_present =
+      external_source_present_.size() && external_source_present_[sr];
+
+    // The volume treatment depends on the volume estimator type
+    // and whether or not an external source is present in the cell.
     double volume;
-    if (volume_estimator_ == RandomRayVolumeEstimator::NAIVE) {
+    switch (volume_estimator_) {
+    case RandomRayVolumeEstimator::NAIVE:
       volume = volume_iteration;
-    } else {
+      break;
+    case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
+    case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
       volume = volume_simulation_avg;
+      break;
+    case RandomRayVolumeEstimator::HYBRID:
+      if (external_source_present) {
+        volume = volume_iteration;
+      } else {
+        volume = volume_simulation_avg;
+      }
+      break;
+    default:
+      fatal_error("Invalid volume estimator type");
     }
 
     int material = material_[sr];
 
     for (int g = 0; g < negroups_; g++) {
       int64_t idx = (sr * negroups_) + g;
+
       float flux;
 
       // There are three scenarios we need to consider:
@@ -285,11 +306,11 @@ std::pair<double, double> FlatSourceDomain::add_source_to_scalar_flux()
         // the cell has a very low cross section, this approximation will
         // cause a huge upward bias in the flux estimate of the cell (in these
         // conditions, the flux estimate can be orders of magnitude too large).
-        // Thus, to avoid this bias, if these conditions are met we will 
-        // use the previous iteration's flux estimate. This inject a small
-        // degree of correlation into the simulation, but this is going to
-        // be trivial when the miss rate is a few percent or less.
-        if (external_source_.size() && external_source_[idx]) {
+        // Thus, to avoid this bias, if any external source is present
+        // in the cell we will use the previous iteration's flux estimate. This
+        // injects a small degree of correlation into the simulation, but this
+        // is going to be trivial when the miss rate is a few percent or less.
+        if (external_source_present) {
           flux = scalar_flux_old_[idx];
         } else {
           flux = source_[idx];
@@ -903,6 +924,8 @@ void FlatSourceDomain::output_to_vtk() const
 void FlatSourceDomain::apply_external_source_to_source_region(
   Discrete* discrete, double strength_factor, int64_t source_region)
 {
+  external_source_present_[source_region] = true;
+
   const auto& discrete_energies = discrete->x();
   const auto& discrete_probs = discrete->prob();
 
@@ -960,12 +983,7 @@ void FlatSourceDomain::count_external_source_regions()
 {
 #pragma omp parallel for reduction(+ : n_external_source_regions_)
   for (int sr = 0; sr < n_source_regions_; sr++) {
-    float total = 0.f;
-    for (int e = 0; e < negroups_; e++) {
-      int64_t se = sr * negroups_ + e;
-      total += external_source_[se];
-    }
-    if (total != 0.f) {
+    if (external_source_present_[sr]) {
       n_external_source_regions_++;
     }
   }

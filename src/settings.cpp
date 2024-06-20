@@ -268,23 +268,25 @@ void get_run_parameters(pugi::xml_node node_base)
       fatal_error("Specify random ray source in settings XML");
     }
     if (check_for_node(random_ray_node, "volume_estimator")) {
-      std::string temp_str = get_node_value(random_ray_node, "volume_estimator", true, true);
+      std::string temp_str =
+        get_node_value(random_ray_node, "volume_estimator", true, true);
       if (temp_str == "simulation_averaged") {
-        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SIMULATION_AVERAGED;
+        FlatSourceDomain::volume_estimator_ =
+          RandomRayVolumeEstimator::SIMULATION_AVERAGED;
       } else if (temp_str == "naive") {
         FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::NAIVE;
       } else if (temp_str == "segment_corrected") {
-        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SEGMENT_CORRECTED;
+        FlatSourceDomain::volume_estimator_ =
+          RandomRayVolumeEstimator::SEGMENT_CORRECTED;
+      } else if (temp_str == "hybrid") {
+        FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::HYBRID;
       } else {
         fatal_error("Unrecognized volume estimator: " + temp_str);
       }
-    } else if (settings::run_mode == RunMode::EIGENVALUE) {
-      FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::SIMULATION_AVERAGED;
-    } else {
-      FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::NAIVE;
     }
     if (check_for_node(random_ray_node, "volume_normalized_flux_tallies")) {
-      FlatSourceDomain::volume_normalized_flux_tallies_ = get_node_value_bool(random_ray_node, "volume_normalized_flux_tallies");
+      FlatSourceDomain::volume_normalized_flux_tallies_ =
+        get_node_value_bool(random_ray_node, "volume_normalized_flux_tallies");
     }
   }
 }

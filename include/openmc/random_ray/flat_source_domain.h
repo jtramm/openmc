@@ -147,6 +147,7 @@ public:
   vector<float> scalar_flux_new_;
   vector<float> source_;
   vector<float> external_source_;
+  vector<bool> external_source_present_;
 
 private:
   //----------------------------------------------------------------------------
