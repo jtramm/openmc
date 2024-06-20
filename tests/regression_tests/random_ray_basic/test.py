@@ -232,6 +232,8 @@ def random_ray_model(boundary_condition, volume_estimator) -> openmc.Model:
 @pytest.mark.parametrize("boundary_condition, volume_estimator", [
     ("reflective", "naive"),
     ("reflective", "simulation_averaged"),
+    ("reflective", "segment_corrected"),
+    ("reflective", "hybrid"),
     ("vacuum", "simulation_averaged")
 ])
 def test_random_ray_basic(boundary_condition, volume_estimator):
