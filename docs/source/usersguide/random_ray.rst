@@ -475,6 +475,8 @@ points of 1.0e-2 and 1.0e1.
     # Add fixed source and ray sampling source to settings file
     settings.source = [neutron_source]
 
+.. _usersguide_vol_estimators:
+
 -----------------------------
 Alternative Volume Estimators
 -----------------------------
@@ -519,11 +521,6 @@ following methods are currently available in OpenMC:
        * Unlikely to result in negative fluxes
        * Recommended in cases where ``simulation_averaged`` is unstable
      - * More expensive due to need to ray trace through the geometry twice
-   * - ``source_corrected``
-     - Similar to the ``simulation_averaged`` estimator, but also adjusts source term
-       by the same amount as the streaming term so as to reduce negative flux occurence.
-     - * Unlikely to result in negative fluxes
-     - * Less stable than the ``segment_corrected`` estimator
 
 These estimators can be selected by setting the ``volume_estimator`` field in the
 :attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
