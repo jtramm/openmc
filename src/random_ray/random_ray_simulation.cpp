@@ -471,9 +471,6 @@ void RandomRaySimulation::print_results_random_ray(
     case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
       estimator = "Segment Corrected";
       break;
-    case RandomRayVolumeEstimator::SOURCE_CORRECTED:
-      estimator = "Source Corrected";
-      break;
     case RandomRayVolumeEstimator::NAIVE:
       estimator = "Naive";
       break;

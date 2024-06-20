@@ -250,30 +250,13 @@ std::pair<double, double> FlatSourceDomain::add_source_to_scalar_flux()
       n_hits++;
     }
 
-    // The volume of the source region and the correction term are dependent on
+    // The volume of the source region is dependent on
     // the type of flux estimator being used.
     double volume;
-    double volume_correction = 1.0;
-    switch (volume_estimator_) {
-    case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
-      volume = volume_simulation_avg;
-      break;
-    case RandomRayVolumeEstimator::SEGMENT_CORRECTED:
-      volume = volume_simulation_avg;
-      break;
-
-    case RandomRayVolumeEstimator::SOURCE_CORRECTED:
-      volume = volume_simulation_avg;
-      volume_correction = volume_iteration / volume_simulation_avg;
-      break;
-
-    case RandomRayVolumeEstimator::NAIVE:
+    if (volume_estimator_ == RandomRayVolumeEstimator::NAIVE) {
       volume = volume_iteration;
-      break;
-
-    default:
-      fatal_error("Invalid volume estimator specified.");
-      break;
+    } else {
+      volume = volume_simulation_avg;
     }
 
     int material = material_[sr];
@@ -292,23 +275,25 @@ std::pair<double, double> FlatSourceDomain::add_source_to_scalar_flux()
           MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
         flux = scalar_flux_new_[idx];
         flux /= (sigma_t * volume);
-        flux += source_[idx] * volume_correction;
+        flux += source_[idx];
       } else if (volume_simulation_avg > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
-        // previous iteration, then we simply set the new scalar flux to be
-        // equal to the previous iteration's scalar flux. This introduces
-        // additional correlation into the simulation, but will only become
-        // significant for very high miss rates. Alternative options are
-        // to set the flux to zero (which is innacurate as it ignores
-        // contributions from the source term) or to set the new flux to the
-        // source term. While the latter option is most faithful to the
-        // mathematics, the downside is that it will wildly overestimate the
-        // flux in regions where the source term is is large but Sigma t is low.
-        // This is of particular concern in fixed source simulations where a
-        // fixed source term exists in a near void region (which is actually a
-        // fairly common use case). Thus, it is safer to use the previous
-        // iteration's flux.
-        flux = scalar_flux_old_[idx];
+        // previous iteration, then we need to make a choice about what
+        // to do. Naively we will usually want to set the flux to be equal
+        // to the reduced source. However, in fixed source problems where
+        // there is a strong external source present in the cell, and where
+        // the cell has a very low cross section, this approximation will
+        // cause a huge upward bias in the flux estimate of the cell (in these
+        // conditions, the flux estimate can be orders of magnitude too large).
+        // Thus, to avoid this bias, if these conditions are met we will 
+        // use the previous iteration's flux estimate. This inject a small
+        // degree of correlation into the simulation, but this is going to
+        // be trivial when the miss rate is a few percent or less.
+        if (external_source_.size() && external_source_[idx]) {
+          flux = scalar_flux_old_[idx];
+        } else {
+          flux = source_[idx];
+        }
       } else {
         // If the FSR was not hit this iteration, and it has never been hit in
         // any iteration (i.e., volume is zero), then we want to set this to 0

@@ -159,7 +159,7 @@ class Settings:
             specified by a :class:`openmc.SourceBase` object.
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
-            'naive', 'simulation_averaged', 'source_corrected', 'segment_corrected'.
+            'naive', 'simulation_averaged', 'segment_corrected'.
             The default is 'simulation_averaged' for eigenvalue mode and
             'naive' for fixed source mode.
         :volume_normalized_flux_tallies:
@@ -1075,7 +1075,7 @@ class Settings:
             elif key == 'ray_source':
                 cv.check_type('random ray source', random_ray[key], SourceBase)
             elif key == 'volume_estimator':
-                cv.check_value('volume estimator', random_ray[key], ('naive', 'simulation_averaged', 'segment_corrected', 'source_corrected'))
+                cv.check_value('volume estimator', random_ray[key], ('naive', 'simulation_averaged', 'segment_corrected'))
             elif key == 'volume_normalized_flux_tallies':
                 cv.check_type('volume normalized flux tallies', random_ray[key], bool)
             else:
