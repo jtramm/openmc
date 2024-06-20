@@ -58,6 +58,7 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   scalar_flux_new_.assign(n_source_elements_, 0.0);
   scalar_flux_final_.assign(n_source_elements_, 0.0);
   source_.resize(n_source_elements_);
+  external_source_.assign(n_source_elements_, 0.0);
   tally_task_.resize(n_source_elements_);
   volume_task_.resize(n_source_regions_);
 
@@ -643,7 +644,7 @@ void FlatSourceDomain::random_ray_tally()
         tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
           score;
       } // end tally task loop
-    } // end energy group loop
+    }   // end energy group loop
 
     // For flux tallies, the total volume of the spatial region is needed
     // for normalizing the flux. We store this volume in a separate tensor.
