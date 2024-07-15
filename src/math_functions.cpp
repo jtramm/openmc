@@ -821,13 +821,32 @@ double spline_integrate(int n, const double x[], const double y[],
 #pragma omp declare target
 std::complex<double> zpf8h(std::complex<double> z)
 {
-  z += std::complex<double>(0.9j);
-  const auto zz = z * z;
-  constexpr std::array<std::complex<double>, 8> aa8 = {+11.7559071436993,
-    -32.310199761603j, -21.9357456686406, 31.490536152863j, 6.75847413957232,
-	-8.07354660639634j, -0.507771291744591, 0.564189504758109j};
-  constexpr std::array<std::complex<double>, 5> bb8 = {6.5625,
-    -52.5, 52.5, -14.0, 1.0};
+    // Correct the addition of a complex number
+    z += std::complex<double>(0, 0.9);
+
+    const auto zz = z * z;
+
+    // Correct initialization of complex numbers in the array
+    const std::array<std::complex<double>, 8> aa8 = {
+        std::complex<double>(+11.7559071436993, 0),
+        std::complex<double>(0, -32.310199761603),
+        std::complex<double>(-21.9357456686406, 0),
+        std::complex<double>(0, 31.490536152863),
+        std::complex<double>(6.75847413957232, 0),
+        std::complex<double>(0, -8.07354660639634),
+        std::complex<double>(-0.507771291744591, 0),
+        std::complex<double>(0, 0.564189504758109)
+    };
+
+    const std::array<std::complex<double>, 5> bb8 = {
+        std::complex<double>(6.5625, 0),
+        std::complex<double>(-52.5, 0),
+        std::complex<double>(52.5, 0),
+        std::complex<double>(-14.0, 0),
+        std::complex<double>(1.0, 0)
+    };
+
+    // Compute the polynomial ratios with clearer division
   return (((((((aa8[7]*z+aa8[6])*z+aa8[5])*z+aa8[4])*z+aa8[3])*z+aa8[2])*z+aa8[1])*z+aa8[0]) \
           / ((((bb8[4]*zz+bb8[3])*zz+bb8[2])*zz+bb8[1])*zz+bb8[0]);
 }
