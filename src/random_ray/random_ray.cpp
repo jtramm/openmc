@@ -527,7 +527,13 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 
 void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 {
+  clear();
+
   domain_ = domain;
+
+  distance_travelled_ = 0.0;
+  is_active_ = false;
+  is_alive_ = true;
 
   // Reset particle event counter
   n_event_ = 0;

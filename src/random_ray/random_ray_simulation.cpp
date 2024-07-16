@@ -279,6 +279,8 @@ void RandomRaySimulation::simulate()
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
 
+
+
     // Initialize the current batch
     initialize_batch();
     initialize_generation();
