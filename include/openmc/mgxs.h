@@ -45,7 +45,6 @@ class Mgxs {
     int num_delayed_groups; // number of delayed neutron groups
     std::vector<XsData> xs; // Cross section data
     // MGXS Incoming Flux Angular grid information
-    bool is_isotropic; // used to skip search for angle indices if isotropic
     int n_pol;
     int n_azi;
     std::vector<double> polar;
@@ -104,6 +103,7 @@ class Mgxs {
     std::string name;   // name of dataset, e.g., UO2
     double awr;         // atomic weight ratio
     bool fissionable;   // Is this fissionable
+    bool is_isotropic; // used to skip search for angle indices if isotropic
     std::vector<CacheData> cache; // index and data cache
 
     Mgxs() = default;

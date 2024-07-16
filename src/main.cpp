@@ -3,16 +3,17 @@
 #endif
 
 #include "openmc/capi.h"
+#include "openmc/cell.h"
 #include "openmc/constants.h"
 #include "openmc/error.h"
 #include "openmc/message_passing.h"
 #include "openmc/particle_restart.h"
+#include "openmc/random_ray/random_ray_simulation.h"
 #include "openmc/settings.h"
-#include "openmc/cell.h"
 #include <stdio.h>
 
-
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
 
   using namespace openmc;
   int err;
@@ -33,30 +34,41 @@ int main(int argc, char* argv[]) {
 
   // start problem based on mode
   switch (settings::run_mode) {
-    case RunMode::FIXED_SOURCE:
-    case RunMode::EIGENVALUE:
+  case RunMode::FIXED_SOURCE:
+  case RunMode::EIGENVALUE:
+    switch (settings::solver_type) {
+    case SolverType::MONTE_CARLO:
       err = openmc_run();
       break;
-    case RunMode::PLOTTING:
-      err = openmc_plot_geometry();
-      break;
-    case RunMode::PARTICLE:
-      if (mpi::master) run_particle_restart();
+    case SolverType::RANDOM_RAY:
+      openmc_run_random_ray();
       err = 0;
       break;
-    case RunMode::VOLUME:
-      err = openmc_calculate_volumes();
-      break;
-    default:
-      break;
+    }
+    break;
+  case RunMode::PLOTTING:
+    err = openmc_plot_geometry();
+    break;
+  case RunMode::PARTICLE:
+    if (mpi::master)
+      run_particle_restart();
+    err = 0;
+    break;
+  case RunMode::VOLUME:
+    err = openmc_calculate_volumes();
+    break;
+  default:
+    break;
   }
-  if (err) fatal_error(openmc_err_msg);
+  if (err)
+    fatal_error(openmc_err_msg);
 
   // Finalize and free up memory
   err = openmc_finalize();
-  if (err) fatal_error(openmc_err_msg);
+  if (err)
+    fatal_error(openmc_err_msg);
 
-  // If MPI is in use and enabled, terminate it
+    // If MPI is in use and enabled, terminate it
 #ifdef OPENMC_MPI
   MPI_Finalize();
 #endif

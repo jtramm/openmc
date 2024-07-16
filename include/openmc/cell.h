@@ -182,6 +182,24 @@ public:
   std::unordered_map<int32_t, std::vector<int32_t>>
   get_contained_cells() const;
 
+    //! Determine the material index corresponding to a specific cell instance,
+  //! taking into account presence of distribcell material
+  //! \param[in] instance of the cell
+  //! \return material index
+  int32_t material(int32_t instance) const
+  {
+    // If distributed materials are used, then each instance has its own
+    // material definition. If distributed materials are not used, then
+    // all instances used the same material stored at material_[0]. The
+    // presence of distributed materials is inferred from the size of
+    // the material_ vector being greater than one.
+    if (material_.size() > 1) {
+      return material_[instance];
+    } else {
+      return material_[0];
+    }
+  }
+
 protected:
   void
   get_contained_cells_inner(std::unordered_map<int32_t, std::vector<int32_t>>& contained_cells,

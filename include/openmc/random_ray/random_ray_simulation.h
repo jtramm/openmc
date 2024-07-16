@@ -3,6 +3,7 @@
 
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/linear_source_domain.h"
+#include "openmc/memory.h"
 
 namespace openmc {
 

@@ -31,6 +31,7 @@ Timer time_event_collision;
 Timer time_event_death;
 Timer time_event_revival;
 Timer time_event_sort;
+Timer time_update_src;
 
 } // namespace simulation
 
@@ -94,6 +95,7 @@ void reset_timers()
   simulation::time_event_death.reset();
   simulation::time_event_revival.reset();
   simulation::time_event_sort.reset();
+  simulation::time_update_src.reset();
 }
 
 } // namespace openmc

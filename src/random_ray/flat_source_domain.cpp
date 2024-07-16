@@ -33,44 +33,44 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   // some cell types may not have material fills, and therefore do not
   // produce FSRs. Thus, we cannot index into the global arrays directly
   for (const auto& c : model::cells) {
-    if (c->type_ != Fill::MATERIAL) {
+    if (c.type_ != Fill::MATERIAL) {
       source_region_offsets_.push_back(-1);
     } else {
       source_region_offsets_.push_back(n_source_regions_);
-      n_source_regions_ += c->n_instances_;
-      n_source_elements_ += c->n_instances_ * negroups_;
+      n_source_regions_ += c.n_instances_;
+      n_source_elements_ += c.n_instances_ * negroups_;
     }
   }
 
   // Initialize cell-wise arrays
   lock_.resize(n_source_regions_);
   material_.resize(n_source_regions_);
-  position_recorded_.assign(n_source_regions_, 0);
+  position_recorded_.resize(n_source_regions_, 0);
   position_.resize(n_source_regions_);
-  volume_.assign(n_source_regions_, 0.0);
-  volume_t_.assign(n_source_regions_, 0.0);
-  was_hit_.assign(n_source_regions_, 0);
+  volume_.resize(n_source_regions_, 0.0);
+  volume_t_.resize(n_source_regions_, 0.0);
+  was_hit_.resize(n_source_regions_, 0);
 
   // Initialize element-wise arrays
-  scalar_flux_new_.assign(n_source_elements_, 0.0);
-  scalar_flux_final_.assign(n_source_elements_, 0.0);
+  scalar_flux_new_.resize(n_source_elements_, 0.0);
+  scalar_flux_final_.resize(n_source_elements_, 0.0);
   source_.resize(n_source_elements_);
-  external_source_.assign(n_source_elements_, 0.0);
+  external_source_.resize(n_source_elements_, 0.0);
   tally_task_.resize(n_source_elements_);
   volume_task_.resize(n_source_regions_);
 
   if (settings::run_mode == RunMode::EIGENVALUE) {
     // If in eigenvalue mode, set starting flux to guess of unity
-    scalar_flux_old_.assign(n_source_elements_, 1.0);
+    scalar_flux_old_.resize(n_source_elements_, 1.0);
   } else {
     // If in fixed source mode, set starting flux to guess of zero
-    scalar_flux_old_.assign(n_source_elements_, 0.0);
+    scalar_flux_old_.resize(n_source_elements_, 0.0);
   }
 
   // Initialize material array
   int64_t source_region_id = 0;
   for (int i = 0; i < model::cells.size(); i++) {
-    Cell& cell = *model::cells[i];
+    Cell& cell = model::cells[i];
     if (cell.type_ == Fill::MATERIAL) {
       for (int j = 0; j < cell.n_instances_; j++) {
         material_[source_region_id++] = cell.material(j);
@@ -85,10 +85,10 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 
   // Initialize tally volumes
   if (volume_normalized_flux_tallies_) {
-    tally_volumes_.resize(model::tallies.size());
-    for (int i = 0; i < model::tallies.size(); i++) {
+    tally_volumes_.resize(model::tallies_size);
+    for (int i = 0; i < model::tallies_size; i++) {
       //  Get the shape of the 3D result tensor
-      auto shape = model::tallies[i]->results().shape();
+      auto shape = model::tallies[i].results_shape();
 
       // Create a new 2D tensor with the same size as the first
       // two dimensions of the 3D tensor
@@ -143,14 +143,14 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
+        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
       float scatter_source = 0.0f;
 
       for (int e_in = 0; e_in < negroups_; e_in++) {
         float scalar_flux = scalar_flux_old_[sr * negroups_ + e_in];
 
         float sigma_s = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr, t, a);
+          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr);
         scatter_source += sigma_s * scalar_flux;
       }
 
@@ -166,15 +166,15 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
       for (int e_out = 0; e_out < negroups_; e_out++) {
         float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
+          MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
         float fission_source = 0.0f;
 
         for (int e_in = 0; e_in < negroups_; e_in++) {
           float scalar_flux = scalar_flux_old_[sr * negroups_ + e_in];
           float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-            MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr, t, a);
+            MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr);
           float chi = data::mg.macro_xs_[material].get_xs(
-            MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr, t, a);
+            MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr);
           fission_source += nu_sigma_f * scalar_flux * chi;
         }
         source_[sr * negroups_ + e_out] +=
@@ -249,7 +249,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // from rays passing through the source region (computed during the
         // transport sweep)
         float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, g, nullptr, nullptr, nullptr, t, a);
+          MgxsType::TOTAL, g, nullptr, nullptr, nullptr);
         scalar_flux_new_[idx] /= (sigma_t * volume);
         scalar_flux_new_[idx] += source_[idx];
       } else if (volume > 0.0) {
@@ -285,7 +285,8 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
   const int a = 0;
 
   // Vector for gathering fission source terms for Shannon entropy calculation
-  vector<float> p(n_source_regions_, 0.0f);
+  vector<float> p;
+  p.resize(n_source_regions_, 0.0f);
 
 #pragma omp parallel for reduction(+ : fission_rate_old, fission_rate_new)
   for (int sr = 0; sr < n_source_regions_; sr++) {
@@ -304,7 +305,7 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
     for (int g = 0; g < negroups_; g++) {
       int64_t idx = (sr * negroups_) + g;
       double nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-        MgxsType::NU_FISSION, g, nullptr, nullptr, nullptr, t, a);
+        MgxsType::NU_FISSION, g, nullptr, nullptr, nullptr);
       sr_fission_source_old += nu_sigma_f * scalar_flux_old_[idx];
       sr_fission_source_new += nu_sigma_f * scalar_flux_new_[idx];
     }
@@ -379,10 +380,15 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
 
 void FlatSourceDomain::convert_source_regions_to_tallies()
 {
-  openmc::simulation::time_tallies.start();
+  openmc::simulation::time_accumulate_tallies.start();
 
   // Tracks if we've generated a mapping yet for all source regions.
   bool all_source_regions_mapped = true;
+
+  // Initialize Filter Matches Object
+  vector<BigFilterMatch> filter_matches;
+  // Allocate space for tally filter matches
+  filter_matches.resize(model::n_tally_filters);
 
 // Attempt to generate mapping for all source regions
 #pragma omp parallel for
@@ -400,17 +406,18 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
     // the spatial location of the source region
     Particle p;
     p.r() = position_[sr];
-    p.r_last() = position_[sr];
+    p.r_last_ = position_[sr];
     bool found = exhaustive_find_cell(p);
+    filter_matches.resize(model::n_tally_filters);
 
     // Loop over energy groups (so as to support energy filters)
     for (int g = 0; g < negroups_; g++) {
 
       // Set particle to the current energy
-      p.g() = g;
-      p.g_last() = g;
-      p.E() = data::mg.energy_bin_avg_[p.g()];
-      p.E_last() = p.E();
+      p.g_ = g;
+      p.g_last_ = g;
+      p.E_ = data::mg.energy_bin_avg_[p.g_];
+      p.E_last_ = p.E_;
 
       int64_t source_element = sr * negroups_ + g;
 
@@ -424,16 +431,27 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
       // to what happens when scanning for applicable tallies during
       // MC transport.
       for (auto i_tally : model::active_tallies) {
-        Tally& tally {*model::tallies[i_tally]};
+        Tally& tally {model::tallies[i_tally]};
 
         // Initialize an iterator over valid filter bin combinations.
         // If there are no valid combinations, use a continue statement
         // to ensure we skip the assume_separate break below.
+        // Allocate particle FilterMatch array on the stack
+        FilterMatch filter_matches[FILTER_MATCHES_SIZE];
+        p.filter_matches_ = filter_matches;
+        if( model::n_tally_filters > FILTER_MATCHES_SIZE ) {
+          fatal_error("Number of tally filters exceeds maximum number of "
+                      "filter matches. Increase FILTER_MATCHES_SIZE in "
+                      "tallies.h.");
+        }
         auto filter_iter = FilterBinIter(tally, p);
-        auto end = FilterBinIter(tally, true, &p.filter_matches());
+        auto end = FilterBinIter(tally, true, p.filter_matches_);
+
+        // Big Filter Match
+        // auto filter_iter = FilterBinIter(tally, false, &filter_matches);
+        // auto end = FilterBinIter(tally, true, &filter_matches);
         if (filter_iter == end)
           continue;
-
         // Loop over filter bins.
         for (; filter_iter != end; ++filter_iter) {
           auto filter_index = filter_iter.index_;
@@ -454,12 +472,15 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
           }
         }
       }
-      // Reset all the filter matches for the next tally event.
-      for (auto& match : p.filter_matches())
-        match.bins_present_ = false;
+    }
+    // Reset all the filter matches for the next tally event.
+    for (auto& match : filter_matches)
+      match.bins_present_ = false;
+    for (int i = 0; i < model::n_tally_filters; i++) {
+      p.filter_matches_[i].bins_present_ = false;
     }
   }
-  openmc::simulation::time_tallies.stop();
+  openmc::simulation::time_accumulate_tallies.stop();
 
   mapped_all_tallies_ = all_source_regions_mapped;
 }
@@ -482,7 +503,8 @@ void FlatSourceDomain::reset_tally_volumes()
 // reported scalar fluxes are in units per source neutron. This allows for
 // direct comparison of reported tallies to Monte Carlo flux results.
 // This factor needs to be computed at each iteration, as it is based on the
-// volume estimate of each FSR, which improves over the course of the simulation
+// volume estimate of each FSR, which improves over the course of the
+// simulation
 double FlatSourceDomain::compute_fixed_source_normalization_factor() const
 {
   // If we are not in fixed source mode, then there are no external sources
@@ -506,7 +528,7 @@ double FlatSourceDomain::compute_fixed_source_normalization_factor() const
       const int t = 0;
       const int a = 0;
       float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
+        MgxsType::TOTAL, e, nullptr, nullptr, nullptr);
       simulation_external_source_strength +=
         external_source_[sr * negroups_ + e] * sigma_t * volume;
     }
@@ -537,7 +559,7 @@ double FlatSourceDomain::compute_fixed_source_normalization_factor() const
 
 void FlatSourceDomain::random_ray_tally()
 {
-  openmc::simulation::time_tallies.start();
+  openmc::simulation::time_accumulate_tallies.start();
 
   // Reset our tally volumes to zero
   reset_tally_volumes();
@@ -559,12 +581,13 @@ void FlatSourceDomain::random_ray_tally()
   for (int sr = 0; sr < n_source_regions_; sr++) {
     // The fsr.volume_ is the unitless fractional simulation averaged volume
     // (i.e., it is the FSR's fraction of the overall simulation volume). The
-    // simulation_volume_ is the total 3D physical volume in cm^3 of the entire
-    // global simulation domain (as defined by the ray source box). Thus, the
-    // FSR's true 3D spatial volume in cm^3 is found by multiplying its fraction
-    // of the total volume by the total volume. Not important in eigenvalue
-    // solves, but useful in fixed source solves for returning the flux shape
-    // with a magnitude that makes sense relative to the fixed source strength.
+    // simulation_volume_ is the total 3D physical volume in cm^3 of the
+    // entire global simulation domain (as defined by the ray source box).
+    // Thus, the FSR's true 3D spatial volume in cm^3 is found by multiplying
+    // its fraction of the total volume by the total volume. Not important in
+    // eigenvalue solves, but useful in fixed source solves for returning the
+    // flux shape with a magnitude that makes sense relative to the fixed
+    // source strength.
     double volume = volume_[sr] * simulation_volume_;
 
     double material = material_[sr];
@@ -584,19 +607,19 @@ void FlatSourceDomain::random_ray_tally()
         case SCORE_TOTAL:
           score = flux * volume *
                   data::mg.macro_xs_[material].get_xs(
-                    MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+                    MgxsType::TOTAL, g, NULL, NULL, NULL);
           break;
 
         case SCORE_FISSION:
           score = flux * volume *
                   data::mg.macro_xs_[material].get_xs(
-                    MgxsType::FISSION, g, NULL, NULL, NULL, t, a);
+                    MgxsType::FISSION, g, NULL, NULL, NULL);
           break;
 
         case SCORE_NU_FISSION:
           score = flux * volume *
                   data::mg.macro_xs_[material].get_xs(
-                    MgxsType::NU_FISSION, g, NULL, NULL, NULL, t, a);
+                    MgxsType::NU_FISSION, g, NULL, NULL, NULL);
           break;
 
         case SCORE_EVENTS:
@@ -611,9 +634,9 @@ void FlatSourceDomain::random_ray_tally()
         }
 
         // Apply score to the appropriate tally bin
-        Tally& tally {*model::tallies[task.tally_idx]};
+        Tally& tally {model::tallies[task.tally_idx]};
 #pragma omp atomic
-        tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
+        *tally.results(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
           score;
       }
     }
@@ -638,16 +661,16 @@ void FlatSourceDomain::random_ray_tally()
   // see what index that score corresponds to. If that score is a flux score,
   // then we divide it by volume.
   if (volume_normalized_flux_tallies_) {
-    for (int i = 0; i < model::tallies.size(); i++) {
-      Tally& tally {*model::tallies[i]};
+    for (int i = 0; i < model::tallies_size; i++) {
+      Tally& tally {model::tallies[i]};
 #pragma omp parallel for
       for (int bin = 0; bin < tally.n_filter_bins(); bin++) {
-        for (int score_idx = 0; score_idx < tally.n_scores(); score_idx++) {
+        for (int score_idx = 0; score_idx < tally.n_scores_; score_idx++) {
           auto score_type = tally.scores_[score_idx];
           if (score_type == SCORE_FLUX) {
             double vol = tally_volumes_[i](bin, score_idx);
             if (vol > 0.0) {
-              tally.results_(bin, score_idx, TallyResult::VALUE) /= vol;
+              *tally.results(bin, score_idx, TallyResult::VALUE) /= vol;
             }
           }
         }
@@ -655,7 +678,7 @@ void FlatSourceDomain::random_ray_tally()
     }
   }
 
-  openmc::simulation::time_tallies.stop();
+  openmc::simulation::time_accumulate_tallies.stop();
 }
 
 void FlatSourceDomain::all_reduce_replicated_source_regions()
@@ -767,9 +790,9 @@ void FlatSourceDomain::output_to_vtk() const
 {
   // Rename .h5 plot filename(s) to .vtk filenames
   for (int p = 0; p < model::plots.size(); p++) {
-    PlottableInterface* plot = model::plots[p].get();
-    plot->path_plot() =
-      plot->path_plot().substr(0, plot->path_plot().find_last_of('.')) + ".vtk";
+    Plot& plot = model::plots[p];
+    plot.path_plot_ =
+      plot.path_plot_.substr(0, plot.path_plot_.find_last_of('.')) + ".vtk";
   }
 
   // Print header information
@@ -779,7 +802,7 @@ void FlatSourceDomain::output_to_vtk() const
   for (int p = 0; p < model::plots.size(); p++) {
 
     // Get handle to OpenMC plot object and extract params
-    Plot* openmc_plot = dynamic_cast<Plot*>(model::plots[p].get());
+    Plot* openmc_plot = &model::plots[p];
 
     // Random ray plots only support voxel plots
     if (!openmc_plot) {
@@ -787,7 +810,7 @@ void FlatSourceDomain::output_to_vtk() const
                           "is allowed in random ray mode.",
         p));
       continue;
-    } else if (openmc_plot->type_ != Plot::PlotType::voxel) {
+    } else if (openmc_plot->type_ != PlotType::voxel) {
       warning(fmt::format("Plot {} is invalid plot type -- only voxel plotting "
                           "is allowed in random ray mode.",
         p));
@@ -803,12 +826,12 @@ void FlatSourceDomain::output_to_vtk() const
     double x_delta = width.x / Nx;
     double y_delta = width.y / Ny;
     double z_delta = width.z / Nz;
-    std::string filename = openmc_plot->path_plot();
+    std::string filename = openmc_plot->path_plot_;
 
     // Perform sanity checks on file size
     uint64_t bytes = Nx * Ny * Nz * (negroups_ + 1 + 1 + 1) * sizeof(float);
     write_message(5, "Processing plot {}: {}... (Estimated size is {} MB)",
-      openmc_plot->id(), filename, bytes / 1.0e6);
+      openmc_plot->id_, filename, bytes / 1.0e6);
     if (bytes / 1.0e9 > 1.0) {
       warning("Voxel plot specification is very large (>1 GB). Plotting may be "
               "slow.");
@@ -833,7 +856,7 @@ void FlatSourceDomain::output_to_vtk() const
           bool found = exhaustive_find_cell(p);
           int i_cell = p.lowest_coord().cell;
           int64_t source_region_idx =
-            source_region_offsets_[i_cell] + p.cell_instance();
+            source_region_offsets_[i_cell] + p.cell_instance_;
           voxel_indices[z * Ny * Nx + y * Nx + x] = source_region_idx;
           voxel_positions[z * Ny * Nx + y * Nx + x] = sample;
         }
@@ -899,7 +922,7 @@ void FlatSourceDomain::output_to_vtk() const
         int64_t source_element = fsr * negroups_ + g;
         float flux = evaluate_flux_at_point(voxel_positions[i], fsr, g);
         float Sigma_f = data::mg.macro_xs_[mat].get_xs(
-          MgxsType::FISSION, g, nullptr, nullptr, nullptr, 0, 0);
+          MgxsType::FISSION, g, nullptr, nullptr, nullptr);
         total_fission += Sigma_f * flux;
       }
       total_fission = convert_to_big_endian<float>(total_fission);
@@ -914,7 +937,7 @@ void FlatSourceDomain::apply_external_source_to_source_region(
   Discrete* discrete, double strength_factor, int64_t source_region)
 {
   const auto& discrete_energies = discrete->x();
-  const auto& discrete_probs = discrete->prob();
+  const auto& discrete_probs = discrete->p();
 
   for (int e = 0; e < discrete_energies.size(); e++) {
     int g = data::mg.get_group_index(discrete_energies[e]);
@@ -925,16 +948,16 @@ void FlatSourceDomain::apply_external_source_to_source_region(
 
 void FlatSourceDomain::apply_external_source_to_cell_instances(int32_t i_cell,
   Discrete* discrete, double strength_factor, int target_material_id,
-  const vector<int32_t>& instances)
+  const std::vector<int32_t>& instances)
 {
-  Cell& cell = *model::cells[i_cell];
+  Cell& cell = model::cells[i_cell];
 
   if (cell.type_ != Fill::MATERIAL)
     return;
 
   for (int j : instances) {
-    int cell_material_idx = cell.material(j);
-    int cell_material_id = model::materials[cell_material_idx]->id();
+    int cell_material_idx = cell.material_[j];
+    int cell_material_id = model::materials[cell_material_idx].id();
     if (target_material_id == C_NONE ||
         cell_material_id == target_material_id) {
       int64_t source_region = source_region_offsets_[i_cell] + j;
@@ -948,16 +971,17 @@ void FlatSourceDomain::apply_external_source_to_cell_and_children(
   int32_t i_cell, Discrete* discrete, double strength_factor,
   int32_t target_material_id)
 {
-  Cell& cell = *model::cells[i_cell];
+  Cell& cell = model::cells[i_cell];
 
   if (cell.type_ == Fill::MATERIAL) {
-    vector<int> instances(cell.n_instances_);
+    std::vector<int> instances(cell.n_instances_);
     std::iota(instances.begin(), instances.end(), 0);
     apply_external_source_to_cell_instances(
       i_cell, discrete, strength_factor, target_material_id, instances);
   } else if (target_material_id == C_NONE) {
-    std::unordered_map<int32_t, vector<int32_t>> cell_instance_list =
-      cell.get_contained_cells(0, nullptr);
+    std::unordered_map<int32_t, std::vector<int32_t>> cell_instance_list =
+      cell.get_contained_cells();
+    //    cell.get_contained_cells(0, nullptr);
     for (const auto& pair : cell_instance_list) {
       int32_t i_child_cell = pair.first;
       apply_external_source_to_cell_instances(i_child_cell, discrete,
@@ -983,6 +1007,9 @@ void FlatSourceDomain::count_external_source_regions()
 
 void FlatSourceDomain::convert_external_sources()
 {
+  fatal_error("Fixed source mode not yet supported in random ray");
+  // TODO: Backport
+  /*
   // Loop over external sources
   for (int es = 0; es < model::external_sources.size(); es++) {
     Source* s = model::external_sources[es].get();
@@ -1030,10 +1057,11 @@ void FlatSourceDomain::convert_external_sources()
     int material = material_[sr];
     for (int e = 0; e < negroups_; e++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e, nullptr, nullptr, nullptr, t, a);
+        MgxsType::TOTAL, e, nullptr, nullptr, nullptr);
       external_source_[sr * negroups_ + e] /= sigma_t;
     }
   }
+  */
 }
 void FlatSourceDomain::flux_swap()
 {

@@ -369,6 +369,10 @@ public:
   Direction& u_local() { return coord_[n_coord_ - 1].u; }
   const Direction& u_local() const { return coord_[n_coord_ - 1].u; }
 
+  // Innermost universe nesting coordinates
+  LocalCoord& lowest_coord() { return coord_[n_coord_ - 1]; }
+  const LocalCoord& lowest_coord() const { return coord_[n_coord_ - 1]; }
+
   //! Whether particle is alive
   bool alive() const { return wgt_ != 0.0; }
 

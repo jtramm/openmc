@@ -130,7 +130,7 @@ Particle::from_source(const Bank& src)
     E_ = src.E;
     g_ = 0;
   } else {
-    printf("Error - MG mode not supported yet on device.\n");
+    //printf("Error - MG mode not supported yet on device.\n");
     /*
     g_ = static_cast<int>(src.E);
     g_last_ = static_cast<int>(src.E);

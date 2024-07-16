@@ -25,17 +25,17 @@ namespace openmc {
 LinearSourceDomain::LinearSourceDomain() : FlatSourceDomain()
 {
   // First order spatial moment of the scalar flux
-  flux_moments_old_.assign(n_source_elements_, {0.0, 0.0, 0.0});
-  flux_moments_new_.assign(n_source_elements_, {0.0, 0.0, 0.0});
-  flux_moments_t_.assign(n_source_elements_, {0.0, 0.0, 0.0});
+  flux_moments_old_.resize(n_source_elements_, {0.0, 0.0, 0.0});
+  flux_moments_new_.resize(n_source_elements_, {0.0, 0.0, 0.0});
+  flux_moments_t_.resize(n_source_elements_, {0.0, 0.0, 0.0});
   // Source gradients given by M inverse multiplied by source moments
-  source_gradients_.assign(n_source_elements_, {0.0, 0.0, 0.0});
+  source_gradients_.resize(n_source_elements_, {0.0, 0.0, 0.0});
 
-  centroid_.assign(n_source_regions_, {0.0, 0.0, 0.0});
-  centroid_iteration_.assign(n_source_regions_, {0.0, 0.0, 0.0});
-  centroid_t_.assign(n_source_regions_, {0.0, 0.0, 0.0});
-  mom_matrix_.assign(n_source_regions_, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
-  mom_matrix_t_.assign(n_source_regions_, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  centroid_.resize(n_source_regions_, {0.0, 0.0, 0.0});
+  centroid_iteration_.resize(n_source_regions_, {0.0, 0.0, 0.0});
+  centroid_t_.resize(n_source_regions_, {0.0, 0.0, 0.0});
+  mom_matrix_.resize(n_source_regions_, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  mom_matrix_t_.resize(n_source_regions_, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
 }
 
 void LinearSourceDomain::batch_reset()
@@ -73,7 +73,7 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
       float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr, t, a);
+        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
 
       float scatter_flat = 0.0f;
       float fission_flat = 0.0f;
@@ -87,11 +87,11 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
 
         // Handles for cross sections
         float sigma_s = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr, t, a);
+          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr);
         float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr, t, a);
+          MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr);
         float chi = data::mg.macro_xs_[material].get_xs(
-          MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr, t, a);
+          MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr);
 
         // Compute source terms for flat and linear components of the flux
         scatter_flat += sigma_s * flux_flat;

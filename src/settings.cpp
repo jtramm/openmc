@@ -22,6 +22,7 @@
 #include "openmc/message_passing.h"
 #include "openmc/output.h"
 #include "openmc/random_lcg.h"
+#include "openmc/random_ray/random_ray.h"
 #include "openmc/simulation.h"
 #include "openmc/source.h"
 #include "openmc/string_utils.h"
@@ -108,6 +109,7 @@ double res_scat_energy_min {0.01};
 double res_scat_energy_max {1000.0};
 std::vector<std::string> res_scat_nuclides;
 RunMode run_mode {RunMode::UNSET};
+SolverType solver_type {SolverType::MONTE_CARLO};
 std::unordered_set<int> sourcepoint_batch;
 std::unordered_set<int> statepoint_batch;
 std::unordered_set<int> source_write_surf_id;
@@ -176,7 +178,8 @@ void get_run_parameters(pugi::xml_node node_base)
   }
 
   // Get number of inactive batches
-  if (run_mode == RunMode::EIGENVALUE) {
+  if (run_mode == RunMode::EIGENVALUE ||
+        solver_type == SolverType::RANDOM_RAY) {
     if (check_for_node(node_base, "inactive")) {
       n_inactive = std::stoi(get_node_value(node_base, "inactive"));
     }
@@ -219,6 +222,56 @@ void get_run_parameters(pugi::xml_node node_base)
       }
     }
   }
+
+  // Random ray variables
+  if (solver_type == SolverType::RANDOM_RAY) {
+    xml_node random_ray_node = node_base.child("random_ray");
+    if (check_for_node(random_ray_node, "distance_active")) {
+      RandomRay::distance_active_ =
+        std::stod(get_node_value(random_ray_node, "distance_active"));
+      if (RandomRay::distance_active_ <= 0.0) {
+        fatal_error("Random ray active distance must be greater than 0");
+      }
+    } else {
+      fatal_error("Specify random ray active distance in settings XML");
+    }
+    if (check_for_node(random_ray_node, "distance_inactive")) {
+      RandomRay::distance_inactive_ =
+        std::stod(get_node_value(random_ray_node, "distance_inactive"));
+      if (RandomRay::distance_inactive_ < 0) {
+        fatal_error(
+          "Random ray inactive distance must be greater than or equal to 0");
+      }
+    } else {
+      fatal_error("Specify random ray inactive distance in settings XML");
+    }
+    if (check_for_node(random_ray_node, "source")) {
+      xml_node source_node = random_ray_node.child("source");
+      // Get point to list of <source> elements and make sure there is at least
+      // one
+      RandomRay::ray_source_ = make_unique<IndependentSource>(source_node);
+    } else {
+      fatal_error("Specify random ray source in settings XML");
+    }
+    if (check_for_node(random_ray_node, "source_shape")) {
+      std::string temp_str =
+        get_node_value(random_ray_node, "source_shape", true, true);
+      if (temp_str == "flat") {
+        RandomRay::source_shape_ = RandomRaySourceShape::FLAT;
+      } else if (temp_str == "linear") {
+        RandomRay::source_shape_ = RandomRaySourceShape::LINEAR;
+      } else if (temp_str == "linear_xy") {
+        RandomRay::source_shape_ = RandomRaySourceShape::LINEAR_XY;
+      } else {
+        fatal_error("Unrecognized source shape: " + temp_str);
+      }
+    }
+    if (check_for_node(random_ray_node, "volume_normalized_flux_tallies")) {
+      FlatSourceDomain::volume_normalized_flux_tallies_ =
+        get_node_value_bool(random_ray_node, "volume_normalized_flux_tallies");
+    }
+  }
+
 }
 
 void read_settings_xml()
@@ -372,6 +425,14 @@ void read_settings_xml()
         }
       }
     }
+  }
+
+    // Check solver type
+  if (check_for_node(root, "random_ray")) {
+    solver_type = SolverType::RANDOM_RAY;
+    if (run_CE)
+      fatal_error("multi-group energy mode must be specified in settings XML "
+                  "when using the random ray solver.");
   }
 
   if (run_mode == RunMode::EIGENVALUE || run_mode == RunMode::FIXED_SOURCE) {

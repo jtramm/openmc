@@ -36,6 +36,7 @@ extern Timer time_event_collision;
 extern Timer time_event_death;
 extern Timer time_event_revival;
 extern Timer time_event_sort;
+extern Timer time_update_src;
 
 } // namespace simulation
 

@@ -385,7 +385,7 @@ void print_generation()
 
 //==============================================================================
 
-void show_time(const char* label, double secs, int indent_level=0)
+void show_time(const char* label, double secs, int indent_level)
 {
   int width = 33 - indent_level*2;
   fmt::print("{0:{1}} {2:<{3}} = {4:>10.4e} seconds\n",

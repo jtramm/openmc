@@ -2,6 +2,7 @@
 
 #include "openmc/eigenvalue.h"
 #include "openmc/geometry.h"
+#include "openmc/material.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
 #include "openmc/output.h"
@@ -60,7 +61,8 @@ void validate_random_ray_inputs()
 {
   // Validate tallies
   ///////////////////////////////////////////////////////////////////
-  for (auto& tally : model::tallies) {
+  for (int t = 0; t < model::tallies_size; t++) {
+    Tally* tally = &model::tallies[t];
 
     // Validate score types
     for (auto score_bin : tally->scores_) {
@@ -79,17 +81,17 @@ void validate_random_ray_inputs()
     }
 
     // Validate filter types
-    for (auto f : tally->filters()) {
-      auto& filter = *model::tally_filters[f];
+    for (int f = 0; f < model::n_tally_filters; f++) {
+      Filter& filter = model::tally_filters[f];
 
-      switch (filter.type()) {
-      case FilterType::CELL:
-      case FilterType::CELL_INSTANCE:
-      case FilterType::DISTRIBCELL:
-      case FilterType::ENERGY:
-      case FilterType::MATERIAL:
-      case FilterType::MESH:
-      case FilterType::UNIVERSE:
+      switch (filter.get_type()) {
+      case Filter::FilterType::CellFilter:
+      case Filter::FilterType::CellInstanceFilter:
+      case Filter::FilterType::DistribcellFilter:
+      case Filter::FilterType::EnergyFilter:
+      case Filter::FilterType::MaterialFilter:
+      case Filter::FilterType::MeshFilter:
+      case Filter::FilterType::UniverseFilter:
         break;
       default:
         fatal_error("Invalid filter specified. Only cell, cell_instance, "
@@ -102,10 +104,12 @@ void validate_random_ray_inputs()
   // Validate MGXS data
   ///////////////////////////////////////////////////////////////////
   for (auto& material : data::mg.macro_xs_) {
+    /*
     if (!material.is_isotropic) {
       fatal_error("Anisotropic MGXS detected. Only isotropic XS data sets "
                   "supported in random ray mode.");
     }
+    */
     if (material.get_xsdata().size() > 1) {
       fatal_error("Non-isothermal MGXS detected. Only isothermal XS data sets "
                   "supported in random ray mode.");
@@ -149,6 +153,9 @@ void validate_random_ray_inputs()
   // Validate external sources
   ///////////////////////////////////////////////////////////////////
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
+    fatal_error("Fixed source mode not yet supported");
+    // TODO: Add domain constraints to external sources
+    /*
     if (model::external_sources.size() < 1) {
       fatal_error("Must provide a particle source (in addition to ray source) "
                   "in fixed source random ray mode.");
@@ -190,6 +197,7 @@ void validate_random_ray_inputs()
           "external sources in random ray mode.");
       }
     }
+    */
   }
 
   // Validate plotting files
@@ -197,7 +205,7 @@ void validate_random_ray_inputs()
   for (int p = 0; p < model::plots.size(); p++) {
 
     // Get handle to OpenMC plot object
-    Plot* openmc_plot = dynamic_cast<Plot*>(model::plots[p].get());
+    Plot* openmc_plot = &model::plots[p];
 
     // Random ray plots only support voxel plots
     if (!openmc_plot) {
@@ -206,7 +214,7 @@ void validate_random_ray_inputs()
         "voxel plotting is allowed in random ray mode.",
         p));
       continue;
-    } else if (openmc_plot->type_ != Plot::PlotType::voxel) {
+    } else if (openmc_plot->type_ != PlotType::voxel) {
       warning(fmt::format(
         "Plot {} will not be used for end of simulation data plotting -- only "
         "voxel plotting is allowed in random ray mode.",
@@ -409,7 +417,7 @@ void RandomRaySimulation::print_results_random_ray(
     double time_per_integration =
       simulation::time_transport.elapsed() / total_integrations;
     double misc_time = time_total.elapsed() - time_update_src.elapsed() -
-                       time_transport.elapsed() - time_tallies.elapsed() -
+                       time_transport.elapsed() - time_accumulate_tallies.elapsed() -
                        time_bank_sendrecv.elapsed();
 
     header("Simulation Statistics", 4);
@@ -438,7 +446,7 @@ void RandomRaySimulation::print_results_random_ray(
     show_time("Total simulation time", time_total.elapsed());
     show_time("Transport sweep only", time_transport.elapsed(), 1);
     show_time("Source update only", time_update_src.elapsed(), 1);
-    show_time("Tally conversion only", time_tallies.elapsed(), 1);
+    show_time("Tally conversion only", time_accumulate_tallies.elapsed(), 1);
     show_time("MPI source reductions only", time_bank_sendrecv.elapsed(), 1);
     show_time("Other iteration routines", misc_time, 1);
     if (settings::run_mode == RunMode::EIGENVALUE) {

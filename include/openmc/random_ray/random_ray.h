@@ -6,6 +6,7 @@
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/moment_matrix.h"
 #include "openmc/source.h"
+#include "openmc/vector.h"
 
 namespace openmc {
 
@@ -36,7 +37,7 @@ public:
   // Static data members
   static double distance_inactive_;          // Inactive (dead zone) ray length
   static double distance_active_;            // Active ray length
-  static unique_ptr<Source> ray_source_;     // Starting source for ray sampling
+  static unique_ptr<IndependentSource> ray_source_;     // Starting source for ray sampling
   static RandomRaySourceShape source_shape_; // Flag for linear source
 
   //----------------------------------------------------------------------------

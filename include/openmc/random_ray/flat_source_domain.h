@@ -4,6 +4,7 @@
 #include "openmc/openmp_interface.h"
 #include "openmc/position.h"
 #include "openmc/source.h"
+#include "openmc/vector.h"
 
 namespace openmc {
 
@@ -153,7 +154,7 @@ protected:
     Discrete* discrete, double strength_factor, int64_t source_region);
   void apply_external_source_to_cell_instances(int32_t i_cell,
     Discrete* discrete, double strength_factor, int target_material_id,
-    const vector<int32_t>& instances);
+    const std::vector<int32_t>& instances);
   void apply_external_source_to_cell_and_children(int32_t i_cell,
     Discrete* discrete, double strength_factor, int32_t target_material_id);
 

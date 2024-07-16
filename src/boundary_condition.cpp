@@ -6,6 +6,7 @@
 
 #include "openmc/constants.h"
 #include "openmc/error.h"
+#include "openmc/random_ray/random_ray.h"
 #include "openmc/surface.h"
 
 
@@ -72,7 +73,17 @@ BoundaryCondition::VacuumBC_handle_particle(Particle& p, const Surface& surf) co
   // TODO: This does not work for some reason.
   //#pragma omp target update to(p, surf)
   //#pragma omp target
-  {
+    // Random ray and Monte Carlo need different treatments at vacuum BCs
+  if (settings::solver_type == SolverType::RANDOM_RAY) {
+    // Reflect ray off of the surface
+    ReflectiveBC_handle_particle(p, surf);
+
+    // Set ray's angular flux spectrum to vacuum conditions (zero)
+    RandomRay* r = static_cast<RandomRay*>(&p);
+    for (int e = 0; e < r->angular_flux_.size(); e++) {
+      r->angular_flux_[e] = 0.0;
+    }
+  } else {
     p.cross_vacuum_bc(surf);
   }
  // #pragma omp target update from(p, surf)

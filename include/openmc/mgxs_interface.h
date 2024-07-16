@@ -48,6 +48,9 @@ public:
   // Get the kT values which are used in the OpenMC model
   std::vector<std::vector<double>> get_mat_kTs();
 
+  // Get the group index corresponding to a continuous energy
+  int get_group_index(double E);
+
   int num_energy_groups_;
   int num_delayed_groups_;
   std::vector<std::string> xs_names_; // available names in HDF5 file

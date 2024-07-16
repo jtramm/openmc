@@ -43,6 +43,17 @@
             }
         },
         {
+            "name": "llvm_host",
+            "inherits": ["base"],
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            },
+            "environment": {
+                "LLVM_CXX_FLAGS": "-fopenmp -fopenmp-cuda-mode -fno-relaxed-template-template-args -g"
+            }
+        },
+        {
             "name": "spirv",
             "inherits": ["intel"],
             "displayName": "Intel GPUs",

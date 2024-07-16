@@ -111,6 +111,7 @@ extern double res_scat_energy_max;   //!< Max energy in [eV] for res. upscatteri
 extern std::vector<std::string> res_scat_nuclides;  //!< Nuclides using res. upscattering treatment
 #pragma omp declare target
 extern RunMode run_mode;                 //!< Run mode (eigenvalue, fixed src, etc.)
+extern SolverType solver_type; //!< Solver Type (Monte Carlo or Random Ray)
 #pragma omp end declare target
 extern std::unordered_set<int> sourcepoint_batch; //!< Batches when source should be written
 extern std::unordered_set<int> statepoint_batch; //!< Batches when state should be written

@@ -181,7 +181,7 @@ float exponentialG2(float tau)
 // Static Variable Declarations
 double RandomRay::distance_inactive_;
 double RandomRay::distance_active_;
-unique_ptr<Source> RandomRay::ray_source_;
+unique_ptr<IndependentSource> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 
 RandomRay::RandomRay()
@@ -211,19 +211,19 @@ uint64_t RandomRay::transport_history_based_single_ray()
     event_cross_surface();
   }
 
-  return n_event();
+  return n_event_;
 }
 
 // Transports ray across a single source region
 void RandomRay::event_advance_ray()
 {
   // Find the distance to the nearest boundary
-  boundary() = distance_to_boundary(*this);
-  double distance = boundary().distance;
+  boundary_ = distance_to_boundary(*this);
+  double distance = boundary_.distance;
 
   if (distance <= 0.0) {
     mark_as_lost("Negative transport distance detected for particle " +
-                 std::to_string(id()));
+                 std::to_string(id_));
     return;
   }
 
@@ -234,7 +234,7 @@ void RandomRay::event_advance_ray()
     // maximum numerical length (so as to avoid numerical bias).
     if (distance_travelled_ + distance >= distance_active_) {
       distance = distance_active_ - distance_travelled_;
-      wgt() = 0.0;
+      wgt_ = 0.0;
     }
 
     distance_travelled_ += distance;
@@ -255,7 +255,7 @@ void RandomRay::event_advance_ray()
       // Ensure we haven't travelled past the active phase as well
       if (distance_alive > distance_active_) {
         distance_alive = distance_active_;
-        wgt() = 0.0;
+        wgt_ = 0.0;
       }
 
       attenuate_flux(distance_alive, true);
@@ -267,8 +267,8 @@ void RandomRay::event_advance_ray()
   }
 
   // Advance particle
-  for (int j = 0; j < n_coord(); ++j) {
-    coord(j).r += distance * coord(j).u;
+  for (int j = 0; j < n_coord_; ++j) {
+    coord_[j].r += distance * coord_[j].u;
   }
 }
 
@@ -303,18 +303,18 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
 void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
 {
   // The number of geometric intersections is counted for reporting purposes
-  n_event()++;
+  n_event_++;
 
   // Determine source region index etc.
   int i_cell = lowest_coord().cell;
 
   // The source region is the spatial region index
   int64_t source_region =
-    domain_->source_region_offsets_[i_cell] + cell_instance();
+    domain_->source_region_offsets_[i_cell] + cell_instance_;
 
   // The source element is the energy-specific region index
   int64_t source_element = source_region * negroups_;
-  int material = this->material();
+  int material = this->material_;
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -326,7 +326,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   // MOC incoming flux attenuation + source contribution/attenuation equation
   for (int g = 0; g < negroups_; g++) {
     float sigma_t = data::mg.macro_xs_[material].get_xs(
-      MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+      MgxsType::TOTAL, g, NULL, NULL, NULL);
     float tau = sigma_t * distance;
     float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
     float new_delta_psi =
@@ -381,18 +381,18 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
   }
 
   // The number of geometric intersections is counted for reporting purposes
-  n_event()++;
+  n_event_++;
 
   // Determine source region index etc.
   int i_cell = lowest_coord().cell;
 
   // The source region is the spatial region index
   int64_t source_region =
-    domain_->source_region_offsets_[i_cell] + cell_instance();
+    domain_->source_region_offsets_[i_cell] + cell_instance_;
 
   // The source element is the energy-specific region index
   int64_t source_element = source_region * negroups_;
-  int material = this->material();
+  int material = this->material_;
 
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
@@ -429,7 +429,7 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 
     // Compute tau, the optical thickness of the ray segment
     float sigma_t = data::mg.macro_xs_[material].get_xs(
-      MgxsType::TOTAL, g, NULL, NULL, NULL, t, a);
+      MgxsType::TOTAL, g, NULL, NULL, NULL);
     float tau = sigma_t * distance;
 
     // If tau is very small, set it to zero to avoid numerical issues.
@@ -528,45 +528,45 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   domain_ = domain;
 
   // Reset particle event counter
-  n_event() = 0;
+  n_event_ = 0;
 
   is_active_ = (distance_inactive_ <= 0.0);
 
-  wgt() = 1.0;
+  wgt_ = 1.0;
 
   // set identifier for particle
-  id() = simulation::work_index[mpi::rank] + ray_id;
+  id_ = simulation::work_index[mpi::rank] + ray_id;
 
   // set random number seed
   int64_t particle_seed =
-    (simulation::current_batch - 1) * settings::n_particles + id();
-  init_particle_seeds(particle_seed, seeds());
-  stream() = STREAM_TRACKING;
+    (simulation::current_batch - 1) * settings::n_particles + id_;
+  init_particle_seeds(particle_seed, seeds_);
+  stream_ = STREAM_TRACKING;
 
   // Sample from ray source distribution
-  SourceSite site {ray_source_->sample(current_seed())};
+  Bank site {ray_source_->sample(current_seed())};
   site.E = lower_bound_index(
     data::mg.rev_energy_bins_.begin(), data::mg.rev_energy_bins_.end(), site.E);
   site.E = negroups_ - site.E - 1.;
-  this->from_source(&site);
+  this->from_source(site);
 
   // Locate ray
   if (lowest_coord().cell == C_NONE) {
     if (!exhaustive_find_cell(*this)) {
       this->mark_as_lost(
-        "Could not find the cell containing particle " + std::to_string(id()));
+        "Could not find the cell containing particle " + std::to_string(id_));
     }
 
     // Set birth cell attribute
-    if (cell_born() == C_NONE)
-      cell_born() = lowest_coord().cell;
+    if (cell_born_ == C_NONE)
+      cell_born_ = lowest_coord().cell;
   }
 
   // Initialize ray's starting angular flux to starting location's isotropic
   // source
   int i_cell = lowest_coord().cell;
   int64_t source_region_idx =
-    domain_->source_region_offsets_[i_cell] + cell_instance();
+    domain_->source_region_offsets_[i_cell] + cell_instance_;
 
   for (int g = 0; g < negroups_; g++) {
     angular_flux_[g] = domain_->source_[source_region_idx * negroups_ + g];
