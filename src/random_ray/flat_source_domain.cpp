@@ -110,6 +110,22 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
  
 }
 
+void FlatSourceDomain::device_alloc()
+{
+  was_hit_.copy_to_device();
+  volume_.copy_to_device();
+  volume_t_.copy_to_device();
+  position_recorded_.copy_to_device();
+  position_.copy_to_device();
+  scalar_flux_old_.copy_to_device();
+  scalar_flux_new_.copy_to_device();
+  source_.copy_to_device();
+  external_source_.copy_to_device();
+  source_region_offsets_.copy_to_device();
+  material_.copy_to_device();
+  scalar_flux_final_.copy_to_device();
+}
+
 void FlatSourceDomain::batch_reset()
 {
   // Reset scalar fluxes, iteration volume tallies, and region hit flags to

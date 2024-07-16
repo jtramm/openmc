@@ -272,9 +272,14 @@ void RandomRaySimulation::simulate()
     domain_->count_external_source_regions();
   }
 
+  // Move domain data to device
+  domain_->device_alloc();
+
   // Allocate ray
   vector<RandomRay> rays;
   rays.resize(simulation::work_per_rank);
+
+  rays.copy_to_device();
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
@@ -286,8 +291,12 @@ void RandomRaySimulation::simulate()
     // Reset total starting particle weight used for normalizing tallies
     simulation::total_weight = 1.0;
 
+    domain_->scalar_flux_old_.update_to_device();
+
     // Update source term (scattering + fission)
     domain_->update_neutron_source(k_eff_);
+
+    domain_->source_.update_from_device();
 
     // Reset scalar fluxes, iteration volume tallies, and region hit flags to
     // zero
