@@ -115,6 +115,7 @@ public:
     const Position r, const int64_t sr, const int g) const;
   double compute_fixed_source_normalization_factor() const;
   void flatten_xs();
+  void device_alloc();
 
   //----------------------------------------------------------------------------
   // Static Data members
