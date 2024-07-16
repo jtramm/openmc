@@ -124,6 +124,11 @@ void FlatSourceDomain::device_alloc()
   source_region_offsets_.copy_to_device();
   material_.copy_to_device();
   scalar_flux_final_.copy_to_device();
+  sigma_t_.copy_to_device();
+  nu_sigma_f_.copy_to_device();
+  sigma_f_.copy_to_device();
+  chi_.copy_to_device();
+  sigma_s_.copy_to_device();
 }
 
 void FlatSourceDomain::batch_reset()
@@ -158,7 +163,8 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
   const int a = 0;
 
   // Add scattering source
-#pragma omp parallel for
+//#pragma omp parallel for
+#pragma omp target teams distribute parallel for
   for (int sr = 0; sr < n_source_regions_; sr++) {
     int material = material_[sr];
 
@@ -183,7 +189,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
   if (settings::run_mode == RunMode::EIGENVALUE) {
     // Add fission source if in eigenvalue mode
-#pragma omp parallel for
+#pragma omp target teams distribute parallel for
     for (int sr = 0; sr < n_source_regions_; sr++) {
       int material = material_[sr];
 
@@ -210,7 +216,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
     }
   } else {
 // Add external source if in fixed source mode
-#pragma omp parallel for
+#pragma omp target teams distribute parallel for
     for (int se = 0; se < n_source_elements_; se++) {
       source_[se] += external_source_[se];
     }

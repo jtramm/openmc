@@ -273,6 +273,7 @@ void RandomRaySimulation::simulate()
   }
 
   // Move domain data to device
+  #pragma omp target enter data map(to: domain_[0:1])
   domain_->device_alloc();
 
   // Allocate ray
