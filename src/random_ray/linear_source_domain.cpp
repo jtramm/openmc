@@ -72,8 +72,9 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
     MomentMatrix invM = mom_matrix_[sr].inverse();
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
-      float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+      //float sigma_t = data::mg.macro_xs_[material].get_xs(
+      //  MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+      float sigma_t = sigma_t_[material * negroups_ + e_out];
 
       float scatter_flat = 0.0f;
       float fission_flat = 0.0f;

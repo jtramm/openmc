@@ -103,6 +103,11 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   SpatialBox* sb = dynamic_cast<SpatialBox*>(space_dist);
   Position dims = sb->upper_right() - sb->lower_left();
   simulation_volume_ = dims.x * dims.y * dims.z;
+
+  // Convert MGXS data that is native to OpenMC into a faster-to-access format
+  // for the random ray solver
+ flatten_xs();
+ 
 }
 
 void FlatSourceDomain::batch_reset()
@@ -142,15 +147,17 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
     int material = material_[sr];
 
     for (int e_out = 0; e_out < negroups_; e_out++) {
-      float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+      //float sigma_t = data::mg.macro_xs_[material].get_xs(
+       // MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+        float sigma_t = sigma_t_[material * negroups_ + e_out];
       float scatter_source = 0.0f;
 
       for (int e_in = 0; e_in < negroups_; e_in++) {
         float scalar_flux = scalar_flux_old_[sr * negroups_ + e_in];
 
-        float sigma_s = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr);
+        //float sigma_s = data::mg.macro_xs_[material].get_xs(
+        //  MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr);
+        float sigma_s = sigma_s_[material * negroups_ * negroups_ + e_out * negroups_ + e_in];
         scatter_source += sigma_s * scalar_flux;
       }
 
@@ -165,16 +172,20 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
       int material = material_[sr];
 
       for (int e_out = 0; e_out < negroups_; e_out++) {
-        float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+        //float sigma_t = data::mg.macro_xs_[material].get_xs(
+        //  MgxsType::TOTAL, e_out, nullptr, nullptr, nullptr);
+        float sigma_t = sigma_t_[material * negroups_ + e_out];
+
         float fission_source = 0.0f;
 
         for (int e_in = 0; e_in < negroups_; e_in++) {
           float scalar_flux = scalar_flux_old_[sr * negroups_ + e_in];
-          float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-            MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr);
-          float chi = data::mg.macro_xs_[material].get_xs(
-            MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr);
+          //float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
+          //  MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr);
+          float nu_sigma_f = nu_sigma_f_[material * negroups_ + e_in];
+          //float chi = data::mg.macro_xs_[material].get_xs(
+          // MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr);
+          float chi = chi_[material * negroups_ * negroups_ + e_out * negroups_ + e_in];
           fission_source += nu_sigma_f * scalar_flux * chi;
         }
         source_[sr * negroups_ + e_out] +=
@@ -248,8 +259,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // the flat source from the previous iteration plus the contributions
         // from rays passing through the source region (computed during the
         // transport sweep)
-        float sigma_t = data::mg.macro_xs_[material].get_xs(
-          MgxsType::TOTAL, g, nullptr, nullptr, nullptr);
+        //float sigma_t = data::mg.macro_xs_[material].get_xs(
+         // MgxsType::TOTAL, g, nullptr, nullptr, nullptr);
+        float sigma_t = sigma_t_[material * negroups_ + g];
         scalar_flux_new_[idx] /= (sigma_t * volume);
         scalar_flux_new_[idx] += source_[idx];
       } else if (volume > 0.0) {
@@ -527,8 +539,9 @@ double FlatSourceDomain::compute_fixed_source_normalization_factor() const
       // angle data.
       const int t = 0;
       const int a = 0;
-      float sigma_t = data::mg.macro_xs_[material].get_xs(
-        MgxsType::TOTAL, e, nullptr, nullptr, nullptr);
+      //float sigma_t = data::mg.macro_xs_[material].get_xs(
+       // MgxsType::TOTAL, e, nullptr, nullptr, nullptr);
+      float sigma_t = sigma_t_[material * negroups_ + e];
       simulation_external_source_strength +=
         external_source_[sr * negroups_ + e] * sigma_t * volume;
     }
@@ -606,20 +619,24 @@ void FlatSourceDomain::random_ray_tally()
 
         case SCORE_TOTAL:
           score = flux * volume *
-                  data::mg.macro_xs_[material].get_xs(
-                    MgxsType::TOTAL, g, NULL, NULL, NULL);
+                  sigma_t_[material * negroups_ + g];
+                  //data::mg.macro_xs_[material].get_xs(
+                  //  MgxsType::TOTAL, g, NULL, NULL, NULL);
           break;
 
         case SCORE_FISSION:
           score = flux * volume *
-                  data::mg.macro_xs_[material].get_xs(
-                    MgxsType::FISSION, g, NULL, NULL, NULL);
+                  sigma_f_[material * negroups_ + g];
+                  //data::mg.macro_xs_[material].get_xs(
+                   // MgxsType::FISSION, g, NULL, NULL, NULL);
+
           break;
 
         case SCORE_NU_FISSION:
           score = flux * volume *
-                  data::mg.macro_xs_[material].get_xs(
-                    MgxsType::NU_FISSION, g, NULL, NULL, NULL);
+                  nu_sigma_f_[material * negroups_ + g];
+                  //data::mg.macro_xs_[material].get_xs(
+                  //  MgxsType::NU_FISSION, g, NULL, NULL, NULL);
           break;
 
         case SCORE_EVENTS:

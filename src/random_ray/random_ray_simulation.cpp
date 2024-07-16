@@ -266,15 +266,15 @@ RandomRaySimulation::RandomRaySimulation()
 
 void RandomRaySimulation::simulate()
 {
-  // Convert OpenMC native MGXS data into more efficient format
-  // for random ray
-  domain_->flatten_xs();
-
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     // Transfer external source user inputs onto random ray source regions
     domain_->convert_external_sources();
     domain_->count_external_source_regions();
   }
+
+  // Allocate ray
+  vector<RandomRay> rays;
+  rays.resize(simulation::work_per_rank);
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
@@ -300,9 +300,10 @@ void RandomRaySimulation::simulate()
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < simulation::work_per_rank; i++) {
-      RandomRay ray(i, domain_.get());
+      //RandomRay ray(i, domain_.get());
+      rays[i].initialize_ray(i, domain_.get());
       total_geometric_intersections_ +=
-        ray.transport_history_based_single_ray();
+        rays[i].transport_history_based_single_ray();
     }
 
     simulation::time_transport.stop();
