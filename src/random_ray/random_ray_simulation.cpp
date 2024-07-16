@@ -266,6 +266,10 @@ RandomRaySimulation::RandomRaySimulation()
 
 void RandomRaySimulation::simulate()
 {
+  // Convert OpenMC native MGXS data into more efficient format
+  // for random ray
+  domain_->flatten_xs();
+
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     // Transfer external source user inputs onto random ray source regions
     domain_->convert_external_sources();

@@ -114,6 +114,7 @@ public:
   virtual double evaluate_flux_at_point(
     const Position r, const int64_t sr, const int g) const;
   double compute_fixed_source_normalization_factor() const;
+  void flatten_xs();
 
   //----------------------------------------------------------------------------
   // Static Data members
@@ -146,6 +147,17 @@ public:
   vector<float> scalar_flux_new_;
   vector<float> source_;
   vector<float> external_source_;
+
+  // 2D arrays stored in 1D representing values for all materials x energy
+  // groups
+  vector<float> sigma_t_;
+  vector<float> nu_sigma_f_;
+  vector<float> sigma_f_;
+
+  // 3D arrays stored in 1D representing values for all materials x energy
+  // groups x energy groups
+  vector<float> chi_;
+  vector<float> sigma_s_;
 
 protected:
   //----------------------------------------------------------------------------

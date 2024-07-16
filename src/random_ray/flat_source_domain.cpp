@@ -1068,4 +1068,39 @@ void FlatSourceDomain::flux_swap()
   scalar_flux_old_.swap(scalar_flux_new_);
 }
 
+void FlatSourceDomain::flatten_xs()
+{
+  for (int mat = 0; mat < model::materials_size; mat++) {
+    auto& m = data::mg.macro_xs_[mat];
+    for (int e = 0; e < negroups_; e++) {
+      if (m.exists_in_model) {
+        float Sigma_t = m.get_xs(MgxsType::TOTAL,       e, NULL, NULL, NULL);
+        sigma_t_.push_back(Sigma_t);
+
+        float nu_Sigma_f = m.get_xs(MgxsType::NU_FISSION, e, NULL,             NULL, NULL);
+        nu_sigma_f_.push_back(nu_Sigma_f);
+        
+        float Sigma_f = m.get_xs(MgxsType::FISSION, e, NULL,             NULL, NULL);
+        sigma_f_.push_back(Sigma_f);
+
+        for (int ee = 0; ee < negroups_; ee++) {
+          float Sigma_s    = m.get_xs(MgxsType::NU_SCATTER, ee, &e, NULL, NULL);
+          sigma_s_.push_back(Sigma_s);
+          float Chi =     m.get_xs(MgxsType::CHI_PROMPT, ee, &e, NULL, NULL);
+          chi_.push_back(Chi);
+        }
+      } else {
+        sigma_t_.push_back(0);
+        nu_sigma_f_.push_back(0);
+        sigma_f_.push_back(0);
+        for (int ee = 0; ee < negroups_; ee++) {
+          sigma_s_.push_back(0);
+          chi_.push_back(0);
+        }
+      }
+
+    }
+  }
+}
+
 } // namespace openmc

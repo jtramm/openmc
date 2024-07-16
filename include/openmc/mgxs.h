@@ -105,8 +105,11 @@ class Mgxs {
     bool fissionable;   // Is this fissionable
     bool is_isotropic; // used to skip search for angle indices if isotropic
     std::vector<CacheData> cache; // index and data cache
+    bool exists_in_model = true;
 
     Mgxs() = default;
+    Mgxs(bool exists) : exists_in_model(exists) {;}
+
 
     //! \brief Constructor that loads the Mgxs object from the HDF5 file
     //!
