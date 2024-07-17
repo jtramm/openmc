@@ -321,6 +321,9 @@ void RandomRaySimulation::simulate()
     // If using multiple MPI ranks, perform all reduce on all transport results
     domain_->all_reduce_replicated_source_regions();
 
+
+
+
     domain_->scalar_flux_new_.update_to_device();
     domain_->volume_.update_to_device();
     domain_->volume_t_.update_to_device();
@@ -333,8 +336,18 @@ void RandomRaySimulation::simulate()
     domain_->volume_.update_from_device();
     domain_->volume_t_.update_from_device();
 
+
+    domain_->was_hit_.update_to_device();
+    domain_->volume_.update_to_device();
+    domain_->scalar_flux_new_.update_to_device();
+
     // Add source to scalar flux, compute number of FSR hits
     int64_t n_hits = domain_->add_source_to_scalar_flux();
+
+    domain_->scalar_flux_new_.update_from_device();
+
+
+
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
       // Compute random ray k-eff

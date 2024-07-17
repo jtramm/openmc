@@ -261,7 +261,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   const int t = 0;
   const int a = 0;
 
-#pragma omp parallel for reduction(+ : n_hits)
+#pragma omp target teams distribute parallel for reduction(+ : n_hits)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
     // Check if this cell was hit this iteration
