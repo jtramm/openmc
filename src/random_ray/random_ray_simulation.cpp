@@ -431,6 +431,8 @@ void RandomRaySimulation::simulate()
       // troublesome
       domain_->scalar_flux_new_.update_from_device();
       domain_->volume_.update_from_device();
+      domain_->position_recorded_.update_from_device();
+      domain_->position_.update_from_device();
 
       // Generate mapping between source regions and tallies
       if (!domain_->mapped_all_tallies_) {
