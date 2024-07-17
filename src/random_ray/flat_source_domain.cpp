@@ -318,11 +318,16 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
   const int t = 0;
   const int a = 0;
 
-  // Vector for gathering fission source terms for Shannon entropy calculation
-  vector<float> p;
-  p.resize(n_source_regions_, 0.0f);
+  // static vector for gathering fission source terms for Shannon entropy
+  static vector<float> p;
 
-#pragma omp parallel for reduction(+ : fission_rate_old, fission_rate_new)
+  if (p.size() == 0)
+  {
+    p.resize(n_source_regions_, 0.0f);
+    p.copy_to_device();
+  }
+
+#pragma omp target teams distribute parallel for reduction(+ : fission_rate_old, fission_rate_new)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
     // If simulation averaged volume is zero, don't include this cell
@@ -338,8 +343,9 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
 
     for (int g = 0; g < negroups_; g++) {
       int64_t idx = (sr * negroups_) + g;
-      double nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-        MgxsType::NU_FISSION, g, nullptr, nullptr, nullptr);
+      //double nu_sigma_f = data::mg.macro_xs_[material].get_xs(
+      //  MgxsType::NU_FISSION, g, nullptr, nullptr, nullptr);
+      double nu_sigma_f = nu_sigma_f_[material * negroups_ + g];
       sr_fission_source_old += nu_sigma_f * scalar_flux_old_[idx];
       sr_fission_source_new += nu_sigma_f * scalar_flux_new_[idx];
     }
@@ -362,7 +368,7 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
   // defining an inverse sum for better performance
   double inverse_sum = 1 / fission_rate_new;
 
-#pragma omp parallel for reduction(+ : H)
+#pragma omp target teams distribute parallel for reduction(+ : H)
   for (int sr = 0; sr < n_source_regions_; sr++) {
     // Only if FSR has non-negative and non-zero fission source
     if (p[sr] > 0.0f) {

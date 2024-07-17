@@ -350,8 +350,14 @@ void RandomRaySimulation::simulate()
 
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
+
+      domain_->volume_.update_to_device();
+      domain_->scalar_flux_new_.update_to_device();
+      domain_->scalar_flux_old_.update_to_device();
+
       // Compute random ray k-eff
       k_eff_ = domain_->compute_k_eff(k_eff_);
+
 
       // Store random ray k-eff into OpenMC's native k-eff variable
       global_tally_tracklength = k_eff_;
