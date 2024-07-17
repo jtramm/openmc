@@ -234,14 +234,14 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
     1.0 / (total_active_distance_per_iteration * simulation::current_batch);
 
 // Normalize scalar flux to total distance travelled by all rays this iteration
-#pragma omp parallel for
+#pragma omp target teams distribute parallel for
   for (int64_t e = 0; e < scalar_flux_new_.size(); e++) {
     scalar_flux_new_[e] *= normalization_factor;
   }
 
 // Accumulate cell-wise ray length tallies collected this iteration, then
 // update the simulation-averaged cell-wise volume estimates
-#pragma omp parallel for
+#pragma omp target teams distribute parallel for
   for (int64_t sr = 0; sr < n_source_regions_; sr++) {
     volume_t_[sr] += volume_[sr];
     volume_[sr] = volume_t_[sr] * volume_normalization_factor;
