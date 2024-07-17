@@ -21,18 +21,19 @@ public:
   //----------------------------------------------------------------------------
   // Constructors
   RandomRay();
-  //RandomRay(uint64_t ray_id, FlatSourceDomain* domain);
+// RandomRay(uint64_t ray_id, FlatSourceDomain* domain);
 
-  //----------------------------------------------------------------------------
-  // Methods
+//----------------------------------------------------------------------------
+// Methods
   #pragma omp declare target
-  void initialize_ray(uint64_t ray_id, Particle::Bank& site, uint64_t work_index);
-  #pragma omp end declare target
+  void initialize_ray(
+    uint64_t ray_id, Particle::Bank& site, uint64_t work_index);
   void event_advance_ray();
   void attenuate_flux(double distance, bool is_active);
   void attenuate_flux_flat_source(double distance, bool is_active);
   void attenuate_flux_linear_source(double distance, bool is_active);
   uint64_t transport_history_based_single_ray();
+  #pragma omp end declare target
 
   void copy_ray_to_device();
   void update_from_device();
@@ -40,10 +41,14 @@ public:
 
   //----------------------------------------------------------------------------
   // Static data members
+  #pragma omp declare target
   static double distance_inactive_;          // Inactive (dead zone) ray length
   static double distance_active_;            // Active ray length
-  static unique_ptr<IndependentSource> ray_source_;     // Starting source for ray sampling
   static RandomRaySourceShape source_shape_; // Flag for linear source
+  #pragma omp end declare target
+
+  static unique_ptr<IndependentSource>
+    ray_source_; // Starting source for ray sampling
 
   //----------------------------------------------------------------------------
   // Public data members

@@ -279,6 +279,11 @@ void RandomRaySimulation::simulate()
 #pragma omp target enter data map(to : domain_[0 : 1])
   domain_->device_alloc();
 
+#pragma omp target update to(RandomRay::distance_inactive_)
+#pragma omp target update to(RandomRay::distance_active_)
+#pragma omp target update to(RandomRay::source_shape_)
+#pragma omp target update to(settings::solver_type)
+
   // Allocate ray
   vector<RandomRay> rays;
   rays.resize(simulation::work_per_rank);
@@ -355,15 +360,28 @@ void RandomRaySimulation::simulate()
       rays[r].update_from_device();
     }
 
-    // The problem is almost 100% something to do with the domain_ pointer.
+// Move all needed data to device
+domain_->scalar_flux_new_.update_to_device();
+domain_->volume_.update_to_device();
+domain_->source_.update_to_device();
+domain_->was_hit_.update_to_device();
+domain_->position_recorded_.update_to_device();
+domain_->position_.update_to_device();
 
 // Transport sweep over all random rays for the iteration
-#pragma omp parallel for schedule(dynamic)                                     \
-  reduction(+ : total_geometric_intersections_)
+#pragma omp target teams distribute parallel for reduction(+ : total_geometric_intersections_)
+//#pragma omp parallel for reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
+
+domain_->scalar_flux_new_.update_from_device();
+domain_->volume_.update_from_device();
+//domain_->source_.update_from_device();
+domain_->was_hit_.update_from_device();
+domain_->position_recorded_.update_from_device();
+domain_->position_.update_from_device();
 
     simulation::time_transport.stop();
 

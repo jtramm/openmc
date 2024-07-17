@@ -241,7 +241,9 @@ uint64_t RandomRay::transport_history_based_single_ray()
       break;
     event_cross_surface();
   }
-
+  //if( id_ == 0 ) {
+   // printf("Ray 0 termindated after %d events, distance = %.3f\n", n_event_, distance_travelled_);
+  //}
   return n_event_;
 }
 
@@ -253,8 +255,10 @@ void RandomRay::event_advance_ray()
   double distance = boundary_.distance;
 
   if (distance <= 0.0) {
-    mark_as_lost("Negative transport distance detected for particle " +
-                 std::to_string(id_));
+    //mark_as_lost("Negative transport distance detected for particle " +
+    //             std::to_string(id_));
+    printf("Negative transport distance detected for particle %d\n", id_);
+    mark_as_lost_short();
     return;
   }
 
@@ -305,6 +309,7 @@ void RandomRay::event_advance_ray()
 
 void RandomRay::attenuate_flux(double distance, bool is_active)
 {
+
   switch (source_shape_) {
   case RandomRaySourceShape::FLAT:
     attenuate_flux_flat_source(distance, is_active);
@@ -314,7 +319,8 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     attenuate_flux_linear_source(distance, is_active);
     break;
   default:
-    fatal_error("Unknown source shape for random ray transport.");
+    //fatal_error("Unknown source shape for random ray transport.");
+    printf("Bad source shape\n");
   }
 }
 
@@ -347,6 +353,11 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   int64_t source_element = source_region * negroups_;
   int material = this->material_;
 
+    //if( id_ == 0 ) {
+   // printf("Event: %d Active: %d, distance = %f, source_region = %d, material = %d\n", n_event_, is_active, distance, source_region, material);
+    //printf("psi start = %.3e, %.3e, %.3e, %.3e, %.3e, %.3e, %.3e\n", angular_flux_[0], angular_flux_[1], angular_flux_[2], angular_flux_[3], angular_flux_[4], angular_flux_[5], angular_flux_[6]);
+   // }
+
   // Temperature and angle indices, if using multiple temperature
   // data sets and/or anisotropic data sets.
   // TODO: Currently assumes we are only using single temp/single
@@ -372,44 +383,55 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   if (is_active) {
 
     // Aquire lock for source region
-    RandomRaySimulation::domain_->lock_[source_region].lock();
+    //RandomRaySimulation::domain_->lock_[source_region].lock();
 
     // Accumulate delta psi into new estimate of source region flux for
     // this iteration
     for (int g = 0; g < negroups_; g++) {
+      #pragma omp atomic
       RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
     }
 
     // If the source region hasn't been hit yet this iteration,
     // indicate that it now has
-    if (RandomRaySimulation::domain_->was_hit_[source_region] == 0) {
-      RandomRaySimulation::domain_->was_hit_[source_region] = 1;
-    }
+    //if (RandomRaySimulation::domain_->was_hit_[source_region] == 0) {
+    //  RandomRaySimulation::domain_->was_hit_[source_region] = 1;
+    //}
+    #pragma omp atomic write
+    RandomRaySimulation::domain_->was_hit_[source_region] = 1;
 
     // Accomulate volume (ray distance) into this iteration's estimate
     // of the source region's volume
+    #pragma omp atomic
     RandomRaySimulation::domain_->volume_[source_region] += distance;
 
     // Tally valid position inside the source region (e.g., midpoint of
     // the ray) if not done already
     if (!RandomRaySimulation::domain_->position_recorded_[source_region]) {
       Position midpoint = r() + u() * (distance / 2.0);
-      RandomRaySimulation::domain_->position_[source_region] = midpoint;
+      #pragma omp atomic write
+      RandomRaySimulation::domain_->position_[source_region].x = midpoint.x;
+      #pragma omp atomic write
+      RandomRaySimulation::domain_->position_[source_region].y = midpoint.y;
+      #pragma omp atomic write
+      RandomRaySimulation::domain_->position_[source_region].z = midpoint.z;
+
       RandomRaySimulation::domain_->position_recorded_[source_region] = 1;
     }
 
     // Release lock
-    RandomRaySimulation::domain_->lock_[source_region].unlock();
+    //RandomRaySimulation::domain_->lock_[source_region].unlock();
   }
 }
 
 void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 {
   // Cast domain to LinearSourceDomain
-  LinearSourceDomain* domain = dynamic_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
+  LinearSourceDomain* domain = static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
   if (!domain) {
-    fatal_error("RandomRay::attenuate_flux_linear_source() called with "
-                "non-LinearSourceDomain domain.");
+    //fatal_error("RandomRay::attenuate_flux_linear_source() called with "
+     //           "non-LinearSourceDomain domain.");
+    printf("bad domain\n");
   }
 
   // The number of geometric intersections is counted for reporting purposes
