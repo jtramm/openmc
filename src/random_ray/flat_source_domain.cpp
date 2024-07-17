@@ -1104,7 +1104,11 @@ void FlatSourceDomain::convert_external_sources()
 }
 void FlatSourceDomain::flux_swap()
 {
-  scalar_flux_old_.swap(scalar_flux_new_);
+  //scalar_flux_old_.swap(scalar_flux_new_);
+  #pragma omp parallel for
+  for (uint64_t se = 0; se < n_source_elements_; se++) {
+    scalar_flux_old_[se] = scalar_flux_new_[se];
+  }
 }
 
 void FlatSourceDomain::flatten_xs()
