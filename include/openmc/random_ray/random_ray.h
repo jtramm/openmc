@@ -25,14 +25,18 @@ public:
 
   //----------------------------------------------------------------------------
   // Methods
+  #pragma omp declare target
+  void initialize_ray(uint64_t ray_id, Particle::Bank& site, uint64_t work_index);
+  #pragma omp end declare target
   void event_advance_ray();
   void attenuate_flux(double distance, bool is_active);
   void attenuate_flux_flat_source(double distance, bool is_active);
   void attenuate_flux_linear_source(double distance, bool is_active);
-  void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain, Particle::Bank& site);
   uint64_t transport_history_based_single_ray();
 
   void copy_ray_to_device();
+  void update_from_device();
+  void update_to_device();
 
   //----------------------------------------------------------------------------
   // Static data members
@@ -52,8 +56,7 @@ private:
   vector<MomentArray> delta_moments_;
 
   int negroups_;
-  FlatSourceDomain* domain_ {nullptr}; // pointer to domain that has flat source
-                                       // data needed for ray transport
+
   double distance_travelled_ {0};
   bool is_active_ {false};
   bool is_alive_ {true};

@@ -9,6 +9,7 @@
 #include "openmc/plot.h"
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/random_ray.h"
+#include "openmc/search.h"
 #include "openmc/simulation.h"
 #include "openmc/source.h"
 #include "openmc/tallies/filter.h"
@@ -240,6 +241,8 @@ void validate_random_ray_inputs()
 // RandomRaySimulation implementation
 //==============================================================================
 
+FlatSourceDomain* RandomRaySimulation::domain_ {nullptr};
+
 RandomRaySimulation::RandomRaySimulation()
   : negroups_(data::mg.num_energy_groups_)
 {
@@ -313,9 +316,10 @@ void RandomRaySimulation::simulate()
 
     // Start timer for transport
     simulation::time_transport.start();
+    printf("Begiinning Ray sampling\n");
 
-    // Sample rays
-    #pragma omp parallel for
+// Sample rays on host
+#pragma omp parallel for
     for (int i = 0; i < simulation::work_per_rank; i++) {
       // set identifier for particle
       uint64_t id = simulation::work_index[mpi::rank] + i;
@@ -327,22 +331,74 @@ void RandomRaySimulation::simulate()
       init_particle_seeds(particle_seed, seeds);
 
       // Sample from ray source distribution
-      Particle::Bank site {RandomRay::ray_source_->sample(&seeds[STREAM_TRACKING])};
+      Particle::Bank site {
+        RandomRay::ray_source_->sample(&seeds[STREAM_TRACKING])};
+      site.E = lower_bound_index(data::mg.rev_energy_bins_.begin(),
+        data::mg.rev_energy_bins_.end(), site.E);
+      site.E = negroups_ - site.E - 1.;
       ray_source[i] = site;
     }
 
+    // print off the first ray source
+    fmt::print("Ray source 0: x = {}, y = {}, z = {}, u = {}, v = {}, w = {}\n",
+      ray_source[0].r.x, ray_source[0].r.y, ray_source[0].r.z,
+      ray_source[0].u.x, ray_source[0].u.y, ray_source[0].u.z);
+
     // Copy ray source bank to device
     ray_source.update_to_device();
+    uint64_t work_index = simulation::work_index[mpi::rank];
+    printf("Begiinning Ray initialization\n");
+
+    int nrays = simulation::work_per_rank;
+// Ray initialization on device
+#pragma omp target teams distribute parallel for
+    for (int i = 0; i < nrays; i++) {
+      if (i == 0) {
+        printf("ON DEVICE\n");
+        // Print off ray source
+        printf("Ray source: x = %f, y = %f, z = %f, u = %f, v = %f, w = %f\n",
+          ray_source[i].r.x, ray_source[i].r.y, ray_source[i].r.z,
+          ray_source[i].u.x, ray_source[i].u.y, ray_source[i].u.z);
+      }
+      rays[i].initialize_ray(i, ray_source[i], work_index);
+      // print off ray
+      if (i == 0) {
+        //printf("Ray 0: x = %f, y = %f, z = %f, u = %f, v = %f, w = %f\n",
+        //  rays[i].r().x, rays[i].r().y, rays[i].r().z, rays[i].u().x,
+        //  rays[i].u().y, rays[i].u().z);
+        // print off ray angular flux
+        for (int g = 0; g < negroups_; g++) {
+          printf("Ray 0: Angular flux for group %d = %f\n", g,
+            rays[i].angular_flux_[g]);
+        }
+        printf("END DEVICE\n");
+      }
+    }
+
+    rays.update_from_device();
+    for (int r = 0; r < nrays; r++) {
+      rays[r].update_from_device();
+    }
+    // Print out all information about ray 0 (i.e., location x,y,z, angle x,y,z,
+    // and the angular flux spectrum)
+    fmt::print("Ray 0: x = {}, y = {}, z = {}, u = {}, v = {}, w = {}\n",
+      rays[0].r().x, rays[0].r().y, rays[0].r().z, rays[0].u().x, rays[0].u().y,
+      rays[0].u().z);
+    for (int g = 0; g < negroups_; g++) {
+      fmt::print(
+        "Ray 0: Angular flux for group {} = {}\n", g, rays[0].angular_flux_[g]);
+    }
+
+    // The problem is almost 100% something to do with the domain_ pointer.
 
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
-    for (int i = 0; i < simulation::work_per_rank; i++) {
-      // RandomRay ray(i, domain_.get());
-      rays[i].initialize_ray(i, domain_, ray_source[i]);
+    for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
+    printf("Finished transport\n");
 
     simulation::time_transport.stop();
 

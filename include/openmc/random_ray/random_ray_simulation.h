@@ -31,10 +31,12 @@ public:
 
   //----------------------------------------------------------------------------
   // Data members
-private:
   // Contains all flat source region data
-  FlatSourceDomain* domain_;
+  #pragma omp declare target
+  static FlatSourceDomain* domain_;
+  #pragma omp end declare target
 
+private:
   // Random ray eigenvalue
   double k_eff_ {1.0};
 
