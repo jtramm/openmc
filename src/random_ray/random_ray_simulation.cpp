@@ -366,6 +366,11 @@ void RandomRaySimulation::simulate()
     // Execute all tallying tasks, if this is an active batch
     if (simulation::current_batch > settings::n_inactive && mpi::master) {
 
+      // Copy scalar flux data back to the host for tallying
+      // TODO: Is this necessary? Probably not, as tallying should work on device
+      // already. That said, some of the conversion stuff may be troublesome
+      domain_->scalar_flux_new_.update_from_device();
+
       // Generate mapping between source regions and tallies
       if (!domain_->mapped_all_tallies_) {
         domain_->convert_source_regions_to_tallies();
