@@ -308,12 +308,12 @@ void RandomRaySimulation::simulate()
     // Reset total starting particle weight used for normalizing tallies
     simulation::total_weight = 1.0;
 
-    domain_->scalar_flux_old_.update_to_device();
+    //domain_->scalar_flux_old_.update_to_device();
 
     // Update source term (scattering + fission)
     domain_->update_neutron_source(k_eff_);
 
-    domain_->source_.update_from_device();
+    //domain_->source_.update_from_device();
 
     // Reset scalar fluxes, iteration volume tallies, and region hit flags to
     // zero
@@ -355,65 +355,65 @@ void RandomRaySimulation::simulate()
       rays[i].initialize_ray(i, ray_source[i], work_index);
     }
 
-    rays.update_from_device();
-    for (int r = 0; r < nrays; r++) {
-      rays[r].update_from_device();
-    }
+    //rays.update_from_device();
+    //for (int r = 0; r < nrays; r++) {
+    //  rays[r].update_from_device();
+    //}
 
 // Move all needed data to device
-domain_->scalar_flux_new_.update_to_device();
-domain_->volume_.update_to_device();
-domain_->source_.update_to_device();
-domain_->was_hit_.update_to_device();
-domain_->position_recorded_.update_to_device();
-domain_->position_.update_to_device();
+//domain_->scalar_flux_new_.update_to_device();
+//domain_->volume_.update_to_device();
+//domain_->source_.update_to_device();
+//domain_->was_hit_.update_to_device();
+//domain_->position_recorded_.update_to_device();
+//domain_->position_.update_to_device();
 
 // Transport sweep over all random rays for the iteration
 #pragma omp target teams distribute parallel for reduction(+ : total_geometric_intersections_)
+//#pragma omp target teams distribute num_teams(nrays) reduction(+ : total_geometric_intersections_)
 //#pragma omp parallel for reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
 
-domain_->scalar_flux_new_.update_from_device();
-domain_->volume_.update_from_device();
-//domain_->source_.update_from_device();
-domain_->was_hit_.update_from_device();
-domain_->position_recorded_.update_from_device();
-domain_->position_.update_from_device();
+//domain_->scalar_flux_new_.update_from_device();
+//domain_->volume_.update_from_device();
+//domain_->was_hit_.update_from_device();
+//domain_->position_recorded_.update_from_device();
+//domain_->position_.update_from_device();
 
     simulation::time_transport.stop();
 
     // If using multiple MPI ranks, perform all reduce on all transport results
     domain_->all_reduce_replicated_source_regions();
 
-    domain_->scalar_flux_new_.update_to_device();
-    domain_->volume_.update_to_device();
-    domain_->volume_t_.update_to_device();
+    //domain_->scalar_flux_new_.update_to_device();
+    //domain_->volume_.update_to_device();
+    //domain_->volume_t_.update_to_device();
 
     // Normalize scalar flux and update volumes
     domain_->normalize_scalar_flux_and_volumes(
       settings::n_particles * RandomRay::distance_active_);
 
-    domain_->scalar_flux_new_.update_from_device();
-    domain_->volume_.update_from_device();
-    domain_->volume_t_.update_from_device();
+    //domain_->scalar_flux_new_.update_from_device();
+    //domain_->volume_.update_from_device();
+    //domain_->volume_t_.update_from_device();
 
-    domain_->was_hit_.update_to_device();
-    domain_->volume_.update_to_device();
-    domain_->scalar_flux_new_.update_to_device();
+    //domain_->was_hit_.update_to_device();
+    //domain_->volume_.update_to_device();
+    //domain_->scalar_flux_new_.update_to_device();
 
     // Add source to scalar flux, compute number of FSR hits
     int64_t n_hits = domain_->add_source_to_scalar_flux();
 
-    domain_->scalar_flux_new_.update_from_device();
+    //domain_->scalar_flux_new_.update_from_device();
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
 
-      domain_->volume_.update_to_device();
-      domain_->scalar_flux_new_.update_to_device();
-      domain_->scalar_flux_old_.update_to_device();
+      //domain_->volume_.update_to_device();
+      //domain_->scalar_flux_new_.update_to_device();
+      //domain_->scalar_flux_old_.update_to_device();
 
       // Compute random ray k-eff
       k_eff_ = domain_->compute_k_eff(k_eff_);
@@ -430,6 +430,7 @@ domain_->position_.update_from_device();
       // device already. That said, some of the conversion stuff may be
       // troublesome
       domain_->scalar_flux_new_.update_from_device();
+      domain_->volume_.update_from_device();
 
       // Generate mapping between source regions and tallies
       if (!domain_->mapped_all_tallies_) {

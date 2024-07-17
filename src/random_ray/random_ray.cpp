@@ -366,6 +366,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   const int a = 0;
 
   // MOC incoming flux attenuation + source contribution/attenuation equation
+  //#pragma omp parallel for
   for (int g = 0; g < negroups_; g++) {
     //float sigma_t = data::mg.macro_xs_[material].get_xs(
     //  MgxsType::TOTAL, g, NULL, NULL, NULL);
@@ -387,6 +388,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
 
     // Accumulate delta psi into new estimate of source region flux for
     // this iteration
+      //#pragma omp parallel for
     for (int g = 0; g < negroups_; g++) {
       #pragma omp atomic
       RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];

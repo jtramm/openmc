@@ -135,9 +135,22 @@ void FlatSourceDomain::batch_reset()
 {
   // Reset scalar fluxes, iteration volume tallies, and region hit flags to
   // zero
-  parallel_fill<float>(scalar_flux_new_, 0.0f);
-  parallel_fill<double>(volume_, 0.0);
-  parallel_fill<int>(was_hit_, 0);
+  //parallel_fill<float>(scalar_flux_new_, 0.0f);
+  //parallel_fill<double>(volume_, 0.0);
+  //parallel_fill<int>(was_hit_, 0);
+  uint64_t n = n_source_regions_;
+
+  #pragma omp target teams distribute parallel for
+  for(int sr = 0; sr < n; sr++) {
+    volume_[sr] = 0.0;
+    was_hit_[sr] = 0;
+  }
+
+  n = n_source_elements_;
+  #pragma omp target teams distribute parallel for
+  for(uint64_t se = 0; se < n; se++) {
+    scalar_flux_new_[se] = 0.0f;
+  }
 }
 
 void FlatSourceDomain::accumulate_iteration_flux()
@@ -1111,8 +1124,13 @@ void FlatSourceDomain::convert_external_sources()
 void FlatSourceDomain::flux_swap()
 {
   //scalar_flux_old_.swap(scalar_flux_new_);
-  #pragma omp parallel for
-  for (uint64_t se = 0; se < n_source_elements_; se++) {
+  //#pragma omp parallel for
+  //for (uint64_t se = 0; se < n_source_elements_; se++) {
+  //  scalar_flux_old_[se] = scalar_flux_new_[se];
+  //}
+uint64_t n = n_source_elements_;
+    #pragma omp target teams distribute parallel for
+  for (uint64_t se = 0; se < n; se++) {
     scalar_flux_old_[se] = scalar_flux_new_[se];
   }
 }
