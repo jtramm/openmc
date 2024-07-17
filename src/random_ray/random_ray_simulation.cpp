@@ -253,11 +253,11 @@ RandomRaySimulation::RandomRaySimulation()
 
   switch (RandomRay::source_shape_) {
   case RandomRaySourceShape::FLAT:
-    domain_ = make_unique<FlatSourceDomain>();
+    domain_ = new FlatSourceDomain();
     break;
   case RandomRaySourceShape::LINEAR:
   case RandomRaySourceShape::LINEAR_XY:
-    domain_ = make_unique<LinearSourceDomain>();
+    domain_ = new LinearSourceDomain();
     break;
   default:
     fatal_error("Unknown random ray source shape");
@@ -311,7 +311,7 @@ void RandomRaySimulation::simulate()
   reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < simulation::work_per_rank; i++) {
       //RandomRay ray(i, domain_.get());
-      rays[i].initialize_ray(i, domain_.get());
+      rays[i].initialize_ray(i, domain_);
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
