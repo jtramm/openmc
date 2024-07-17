@@ -195,10 +195,20 @@ RandomRay::RandomRay()
   }
 }
 
-RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
+void RandomRay::copy_ray_to_device()
 {
-  initialize_ray(ray_id, domain);
+  angular_flux_.copy_to_device();
+  delta_psi_.copy_to_device();
+  if (source_shape_ == RandomRaySourceShape::LINEAR ||
+      source_shape_ == RandomRaySourceShape::LINEAR_XY) {
+        delta_moments_.copy_to_device();
+  }
 }
+
+//RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
+//{
+//  initialize_ray(ray_id, domain);
+//}
 
 // Transports ray until termination criteria are met
 uint64_t RandomRay::transport_history_based_single_ray()
@@ -525,7 +535,7 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
   }
 }
 
-void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
+void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain, Particle::Bank& site)
 {
   clear();
 
@@ -547,12 +557,12 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   // set random number seed
   int64_t particle_seed =
-    (simulation::current_batch - 1) * settings::n_particles + id_;
+    (simulation::current_batch - 1) * settings::n_particles + id_;    
   init_particle_seeds(particle_seed, seeds_);
   stream_ = STREAM_TRACKING;
 
   // Sample from ray source distribution
-  Bank site {ray_source_->sample(current_seed())};
+  ///Bank site {ray_source_->sample(current_seed())};
   site.E = lower_bound_index(
     data::mg.rev_energy_bins_.begin(), data::mg.rev_energy_bins_.end(), site.E);
   site.E = negroups_ - site.E - 1.;

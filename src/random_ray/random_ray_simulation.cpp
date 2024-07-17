@@ -272,15 +272,23 @@ void RandomRaySimulation::simulate()
     domain_->count_external_source_regions();
   }
 
-  // Move domain data to device
-  #pragma omp target enter data map(to: domain_[0:1])
+// Move domain data to device
+#pragma omp target enter data map(to : domain_[0 : 1])
   domain_->device_alloc();
 
   // Allocate ray
   vector<RandomRay> rays;
   rays.resize(simulation::work_per_rank);
 
+  vector<Particle::Bank> ray_source;
+  ray_source.resize(simulation::work_per_rank);
+
   rays.copy_to_device();
+  for (int r = 0; r < rays.size(); r++) {
+    rays[r].copy_ray_to_device();
+  }
+
+  ray_source.copy_to_device();
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
@@ -306,12 +314,32 @@ void RandomRaySimulation::simulate()
     // Start timer for transport
     simulation::time_transport.start();
 
+    // Sample rays
+    #pragma omp parallel for
+    for (int i = 0; i < simulation::work_per_rank; i++) {
+      // set identifier for particle
+      uint64_t id = simulation::work_index[mpi::rank] + i;
+
+      // set random number seed
+      int64_t particle_seed =
+        (simulation::current_batch - 1) * settings::n_particles + id;
+      uint64_t seeds[N_STREAMS];
+      init_particle_seeds(particle_seed, seeds);
+
+      // Sample from ray source distribution
+      Particle::Bank site {RandomRay::ray_source_->sample(&seeds[STREAM_TRACKING])};
+      ray_source[i] = site;
+    }
+
+    // Copy ray source bank to device
+    ray_source.update_to_device();
+
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < simulation::work_per_rank; i++) {
-      //RandomRay ray(i, domain_.get());
-      rays[i].initialize_ray(i, domain_);
+      // RandomRay ray(i, domain_.get());
+      rays[i].initialize_ray(i, domain_, ray_source[i]);
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
@@ -320,9 +348,6 @@ void RandomRaySimulation::simulate()
 
     // If using multiple MPI ranks, perform all reduce on all transport results
     domain_->all_reduce_replicated_source_regions();
-
-
-
 
     domain_->scalar_flux_new_.update_to_device();
     domain_->volume_.update_to_device();
@@ -336,7 +361,6 @@ void RandomRaySimulation::simulate()
     domain_->volume_.update_from_device();
     domain_->volume_t_.update_from_device();
 
-
     domain_->was_hit_.update_to_device();
     domain_->volume_.update_to_device();
     domain_->scalar_flux_new_.update_to_device();
@@ -345,9 +369,6 @@ void RandomRaySimulation::simulate()
     int64_t n_hits = domain_->add_source_to_scalar_flux();
 
     domain_->scalar_flux_new_.update_from_device();
-
-
-
 
     if (settings::run_mode == RunMode::EIGENVALUE) {
 
@@ -358,7 +379,6 @@ void RandomRaySimulation::simulate()
       // Compute random ray k-eff
       k_eff_ = domain_->compute_k_eff(k_eff_);
 
-
       // Store random ray k-eff into OpenMC's native k-eff variable
       global_tally_tracklength = k_eff_;
     }
@@ -367,8 +387,9 @@ void RandomRaySimulation::simulate()
     if (simulation::current_batch > settings::n_inactive && mpi::master) {
 
       // Copy scalar flux data back to the host for tallying
-      // TODO: Is this necessary? Probably not, as tallying should work on device
-      // already. That said, some of the conversion stuff may be troublesome
+      // TODO: Is this necessary? Probably not, as tallying should work on
+      // device already. That said, some of the conversion stuff may be
+      // troublesome
       domain_->scalar_flux_new_.update_from_device();
 
       // Generate mapping between source regions and tallies
@@ -464,7 +485,8 @@ void RandomRaySimulation::print_results_random_ray(
     double time_per_integration =
       simulation::time_transport.elapsed() / total_integrations;
     double misc_time = time_total.elapsed() - time_update_src.elapsed() -
-                       time_transport.elapsed() - time_accumulate_tallies.elapsed() -
+                       time_transport.elapsed() -
+                       time_accumulate_tallies.elapsed() -
                        time_bank_sendrecv.elapsed();
 
     header("Simulation Statistics", 4);

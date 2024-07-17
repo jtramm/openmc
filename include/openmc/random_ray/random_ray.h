@@ -21,7 +21,7 @@ public:
   //----------------------------------------------------------------------------
   // Constructors
   RandomRay();
-  RandomRay(uint64_t ray_id, FlatSourceDomain* domain);
+  //RandomRay(uint64_t ray_id, FlatSourceDomain* domain);
 
   //----------------------------------------------------------------------------
   // Methods
@@ -29,9 +29,10 @@ public:
   void attenuate_flux(double distance, bool is_active);
   void attenuate_flux_flat_source(double distance, bool is_active);
   void attenuate_flux_linear_source(double distance, bool is_active);
-
-  void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
+  void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain, Particle::Bank& site);
   uint64_t transport_history_based_single_ray();
+
+  void copy_ray_to_device();
 
   //----------------------------------------------------------------------------
   // Static data members
