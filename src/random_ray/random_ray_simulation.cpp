@@ -397,15 +397,14 @@ void RandomRaySimulation::simulate()
     }
 
 // Do all ray tracing
-//#pragma omp target teams distribute parallel for reduction(+ : total_geometric_intersections_)
-#pragma omp parallel for reduction(+ : total_geometric_intersections_)
+#pragma omp target teams distribute parallel for num_teams(nrays) reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
 
     // Do all bookkeeping
-    #pragma omp target teams distribute parallel for
+    #pragma omp target teams distribute parallel for num_teams(nrays)
     for (int i = 0; i < nrays; i++) {
       RandomRay& ray = rays[i];
       for (int s = 0; s < ray.segments_.size(); s++)
