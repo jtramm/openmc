@@ -63,7 +63,6 @@ float cjosey_exponential2(float tau)
   return num / den;
 }
 
-
 // The below two functions (exponentialG and exponentialG2) were developed
 // by Colin Josey. The implementation of these functions is closely based
 // on the OpenMOC versions of these functions. The OpenMOC license is given
@@ -185,29 +184,27 @@ double RandomRay::distance_inactive_;
 double RandomRay::distance_active_;
 unique_ptr<IndependentSource> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
+vector<Segment> RandomRay::segments_;
+int RandomRay::max_segments_ = 10000;
 
 RandomRay::RandomRay()
-  : angular_flux_(data::mg.num_energy_groups_),
-    delta_psi_(data::mg.num_energy_groups_),
-    negroups_(data::mg.num_energy_groups_){
+  : negroups_(data::mg.num_energy_groups_)
+{
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
     delta_moments_.resize(negroups_);
   }
-  segments_.resize(max_segments_);
 }
 
 void RandomRay::copy_ray_to_device()
 {
-  angular_flux_.copy_to_device();
-  delta_psi_.copy_to_device();
-  segments_.copy_to_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
-        delta_moments_.copy_to_device();
+    delta_moments_.copy_to_device();
   }
 }
 
+/*
 void RandomRay::update_from_device()
 {
   angular_flux_.update_from_device();
@@ -215,7 +212,7 @@ void RandomRay::update_from_device()
   segments_.update_from_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
-        delta_moments_.update_from_device();
+    delta_moments_.update_from_device();
   }
 }
 
@@ -226,18 +223,20 @@ void RandomRay::update_to_device()
   segments_.update_to_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
-        delta_moments_.update_to_device();
+    delta_moments_.update_to_device();
   }
 }
+*/
 
-//RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
+// RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
 //{
-//  initialize_ray(ray_id, domain);
-//}
+//   initialize_ray(ray_id, domain);
+// }
 
 // Transports ray until termination criteria are met
 uint64_t RandomRay::transport_history_based_single_ray()
 {
+  /*
   using namespace openmc;
   while (alive()) {
     event_advance_ray();
@@ -246,6 +245,7 @@ uint64_t RandomRay::transport_history_based_single_ray()
     event_cross_surface();
   }
   return n_event_;
+  */
 }
 
 // Transports ray across a single source region
@@ -256,8 +256,8 @@ void RandomRay::event_advance_ray()
   double distance = boundary_.distance;
 
   if (distance <= 0.0) {
-    //mark_as_lost("Negative transport distance detected for particle " +
-    //             std::to_string(id_));
+    // mark_as_lost("Negative transport distance detected for particle " +
+    //              std::to_string(id_));
     printf("Negative transport distance detected for particle %d\n", id_);
     mark_as_lost_short();
     return;
@@ -320,9 +320,55 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     attenuate_flux_linear_source(distance, is_active);
     break;
   default:
-    //fatal_error("Unknown source shape for random ray transport.");
+    // fatal_error("Unknown source shape for random ray transport.");
     printf("Bad source shape\n");
   }
+}
+
+void flat_source_bookkeeping(const Segment& s)
+{
+  if (s.is_active) {
+#pragma omp atomic write
+    RandomRaySimulation::domain_->was_hit_[s.sr] = 1;
+#pragma omp atomic
+    RandomRaySimulation::domain_->volume_[s.sr] += s.distance;
+
+    if (!RandomRaySimulation::domain_->position_recorded_[s.sr]) {
+      Position midpoint = s.r + s.u * (s.distance / 2.0);
+#pragma omp atomic write
+      RandomRaySimulation::domain_->position_[s.sr].x = midpoint.x;
+#pragma omp atomic write
+      RandomRaySimulation::domain_->position_[s.sr].y = midpoint.y;
+#pragma omp atomic write
+      RandomRaySimulation::domain_->position_[s.sr].z = midpoint.z;
+#pragma omp atomic write
+      RandomRaySimulation::domain_->position_recorded_[s.sr] = 1;
+    }
+  }
+}
+
+float flat_source_flux_attenuation(
+  const Segment& s, int negroups, int g, float psi)
+{
+  int64_t source_element = s.sr * negroups + g;
+  float sigma_t =
+    RandomRaySimulation::domain_->sigma_t_[s.material * negroups + g];
+  float tau = sigma_t * s.distance;
+  float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+  float new_delta_psi =
+    (psi - RandomRaySimulation::domain_->source_[source_element]) *
+    exponential;
+
+  if (s.is_active) {    
+    #pragma omp atomic
+    RandomRaySimulation::domain_->scalar_flux_new_[source_element] +=
+      new_delta_psi;
+  }
+
+  if (s.is_vac_end)
+    return 0.0;
+  else
+    return psi - new_delta_psi;
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -348,7 +394,8 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
 
   // The source region is the spatial region index
   int64_t source_region =
-    RandomRaySimulation::domain_->source_region_offsets_[i_cell] + cell_instance_;
+    RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
+    cell_instance_;
 
   // The source element is the energy-specific region index
   int64_t source_element = source_region * negroups_;
@@ -358,8 +405,8 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
     printf("Ray has exceeded maximum number of segments.\n");
   }
 
-  Segment& segment = segments_[n_event_ - 1];
-  //Segment segment;
+  Segment& segment = segments_[id_ * max_segments_ + n_event_ - 1];
+  // Segment segment;
   segment.sr = source_region;
   segment.distance = distance;
   segment.r = r();
@@ -395,89 +442,93 @@ if( id_ == 0 ) {
   segment.is_alive);
 }
 */
-/*
+  /*
 
-    //if( id_ == 0 ) {
-   // printf("Event: %d Active: %d, distance = %f, source_region = %d, material = %d\n", n_event_, is_active, distance, source_region, material);
-    //printf("psi start = %.3e, %.3e, %.3e, %.3e, %.3e, %.3e, %.3e\n", angular_flux_[0], angular_flux_[1], angular_flux_[2], angular_flux_[3], angular_flux_[4], angular_flux_[5], angular_flux_[6]);
-   // }
+      //if( id_ == 0 ) {
+     // printf("Event: %d Active: %d, distance = %f, source_region = %d,
+    material = %d\n", n_event_, is_active, distance, source_region, material);
+      //printf("psi start = %.3e, %.3e, %.3e, %.3e, %.3e, %.3e, %.3e\n",
+    angular_flux_[0], angular_flux_[1], angular_flux_[2], angular_flux_[3],
+    angular_flux_[4], angular_flux_[5], angular_flux_[6]);
+     // }
 
-  // Temperature and angle indices, if using multiple temperature
-  // data sets and/or anisotropic data sets.
-  // TODO: Currently assumes we are only using single temp/single
-  // angle data.
-  const int t = 0;
-  const int a = 0;
+    // Temperature and angle indices, if using multiple temperature
+    // data sets and/or anisotropic data sets.
+    // TODO: Currently assumes we are only using single temp/single
+    // angle data.
+    const int t = 0;
+    const int a = 0;
 
-  // MOC incoming flux attenuation + source contribution/attenuation equation
-  //#pragma omp parallel for
-  for (int g = 0; g < negroups_; g++) {
-    //float sigma_t = data::mg.macro_xs_[material].get_xs(
-    //  MgxsType::TOTAL, g, NULL, NULL, NULL);
-    float sigma_t = RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
-    float tau = sigma_t * distance;
-    float exponential = cjosey_exponential2(tau); // exponential = 1 - exp(-tau)
-    float new_delta_psi =
-      (angular_flux_[g] - RandomRaySimulation::domain_->source_[source_element + g]) * exponential;
-    delta_psi_[g] = new_delta_psi;
-    angular_flux_[g] -= new_delta_psi;
-  }
-
-  // If ray is in the active phase (not in dead zone), make contributions to
-  // source region bookkeeping
-  if (is_active) {
-
-    // Aquire lock for source region
-    //RandomRaySimulation::domain_->lock_[source_region].lock();
-
-    // Accumulate delta psi into new estimate of source region flux for
-    // this iteration
-      //#pragma omp parallel for
+    // MOC incoming flux attenuation + source contribution/attenuation equation
+    //#pragma omp parallel for
     for (int g = 0; g < negroups_; g++) {
+      //float sigma_t = data::mg.macro_xs_[material].get_xs(
+      //  MgxsType::TOTAL, g, NULL, NULL, NULL);
+      float sigma_t = RandomRaySimulation::domain_->sigma_t_[material *
+    negroups_ + g]; float tau = sigma_t * distance; float exponential =
+    cjosey_exponential2(tau); // exponential = 1 - exp(-tau) float new_delta_psi
+    = (angular_flux_[g] - RandomRaySimulation::domain_->source_[source_element +
+    g]) * exponential; delta_psi_[g] = new_delta_psi; angular_flux_[g] -=
+    new_delta_psi;
+    }
+
+    // If ray is in the active phase (not in dead zone), make contributions to
+    // source region bookkeeping
+    if (is_active) {
+
+      // Aquire lock for source region
+      //RandomRaySimulation::domain_->lock_[source_region].lock();
+
+      // Accumulate delta psi into new estimate of source region flux for
+      // this iteration
+        //#pragma omp parallel for
+      for (int g = 0; g < negroups_; g++) {
+        #pragma omp atomic
+        RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] +=
+    delta_psi_[g];
+      }
+
+      // If the source region hasn't been hit yet this iteration,
+      // indicate that it now has
+      //if (RandomRaySimulation::domain_->was_hit_[source_region] == 0) {
+      //  RandomRaySimulation::domain_->was_hit_[source_region] = 1;
+      //}
+      #pragma omp atomic write
+      RandomRaySimulation::domain_->was_hit_[source_region] = 1;
+
+      // Accomulate volume (ray distance) into this iteration's estimate
+      // of the source region's volume
       #pragma omp atomic
-      RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+      RandomRaySimulation::domain_->volume_[source_region] += distance;
+
+      // Tally valid position inside the source region (e.g., midpoint of
+      // the ray) if not done already
+      if (!RandomRaySimulation::domain_->position_recorded_[source_region]) {
+        Position midpoint = r() + u() * (distance / 2.0);
+        #pragma omp atomic write
+        RandomRaySimulation::domain_->position_[source_region].x = midpoint.x;
+        #pragma omp atomic write
+        RandomRaySimulation::domain_->position_[source_region].y = midpoint.y;
+        #pragma omp atomic write
+        RandomRaySimulation::domain_->position_[source_region].z = midpoint.z;
+
+        RandomRaySimulation::domain_->position_recorded_[source_region] = 1;
+      }
+
+      // Release lock
+      //RandomRaySimulation::domain_->lock_[source_region].unlock();
     }
-
-    // If the source region hasn't been hit yet this iteration,
-    // indicate that it now has
-    //if (RandomRaySimulation::domain_->was_hit_[source_region] == 0) {
-    //  RandomRaySimulation::domain_->was_hit_[source_region] = 1;
-    //}
-    #pragma omp atomic write
-    RandomRaySimulation::domain_->was_hit_[source_region] = 1;
-
-    // Accomulate volume (ray distance) into this iteration's estimate
-    // of the source region's volume
-    #pragma omp atomic
-    RandomRaySimulation::domain_->volume_[source_region] += distance;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!RandomRaySimulation::domain_->position_recorded_[source_region]) {
-      Position midpoint = r() + u() * (distance / 2.0);
-      #pragma omp atomic write
-      RandomRaySimulation::domain_->position_[source_region].x = midpoint.x;
-      #pragma omp atomic write
-      RandomRaySimulation::domain_->position_[source_region].y = midpoint.y;
-      #pragma omp atomic write
-      RandomRaySimulation::domain_->position_[source_region].z = midpoint.z;
-
-      RandomRaySimulation::domain_->position_recorded_[source_region] = 1;
-    }
-
-    // Release lock
-    //RandomRaySimulation::domain_->lock_[source_region].unlock();
-  }
-  */
+    */
 }
 
 void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 {
   // Cast domain to LinearSourceDomain
-  LinearSourceDomain* domain = static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
+  LinearSourceDomain* domain =
+    static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
   if (!domain) {
-    //fatal_error("RandomRay::attenuate_flux_linear_source() called with "
-     //           "non-LinearSourceDomain domain.");
+    // fatal_error("RandomRay::attenuate_flux_linear_source() called with "
+    //            "non-LinearSourceDomain domain.");
     printf("bad domain\n");
   }
 
@@ -489,7 +540,8 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 
   // The source region is the spatial region index
   int64_t source_region =
-    RandomRaySimulation::domain_->source_region_offsets_[i_cell] + cell_instance_;
+    RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
+    cell_instance_;
 
   // The source element is the energy-specific region index
   int64_t source_element = source_region * negroups_;
@@ -529,9 +581,10 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
   for (int g = 0; g < negroups_; g++) {
 
     // Compute tau, the optical thickness of the ray segment
-    //float sigma_t = data::mg.macro_xs_[material].get_xs(
-     // MgxsType::TOTAL, g, NULL, NULL, NULL);
-    float sigma_t = RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
+    // float sigma_t = data::mg.macro_xs_[material].get_xs(
+    // MgxsType::TOTAL, g, NULL, NULL, NULL);
+    float sigma_t =
+      RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
     float tau = sigma_t * distance;
 
     // If tau is very small, set it to zero to avoid numerical issues.
@@ -594,7 +647,8 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
     // Accumulate deltas into the new estimate of source region flux for this
     // iteration
     for (int g = 0; g < negroups_; g++) {
-      RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += delta_psi_[g];
+      RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] +=
+        delta_psi_[g];
       domain->flux_moments_new_[source_element + g] += delta_moments_[g];
     }
 
@@ -625,7 +679,8 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
   }
 }
 
-void RandomRay::initialize_ray(uint64_t ray_id, Particle::Bank& site, uint64_t work_index)
+void RandomRay::initialize_ray(
+  uint64_t ray_id, Particle::Bank& site, uint64_t work_index)
 {
   clear();
 
@@ -643,15 +698,16 @@ void RandomRay::initialize_ray(uint64_t ray_id, Particle::Bank& site, uint64_t w
 
   // set random number seed
   int64_t particle_seed =
-    (simulation::current_batch - 1) * settings::n_particles + id_;    
+    (simulation::current_batch - 1) * settings::n_particles + id_;
   init_particle_seeds(particle_seed, seeds_);
   stream_ = STREAM_TRACKING;
 
   // Sample from ray source distribution
-  ///Bank site {ray_source_->sample(current_seed())};
-  //site.E = lower_bound_index(
-  //  data::mg.rev_energy_bins_.begin(), data::mg.rev_energy_bins_.end(), site.E);
-  //site.E = negroups_ - site.E - 1.;
+  /// Bank site {ray_source_->sample(current_seed())};
+  // site.E = lower_bound_index(
+  //   data::mg.rev_energy_bins_.begin(), data::mg.rev_energy_bins_.end(),
+  //   site.E);
+  // site.E = negroups_ - site.E - 1.;
   this->from_source(site);
 
   // Locate ray
@@ -669,11 +725,13 @@ void RandomRay::initialize_ray(uint64_t ray_id, Particle::Bank& site, uint64_t w
   // source
   int i_cell = lowest_coord().cell;
   int64_t source_region_idx =
-    RandomRaySimulation::domain_->source_region_offsets_[i_cell] + cell_instance_;
+    RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
+    cell_instance_;
 
-  for (int g = 0; g < negroups_; g++) {
-    angular_flux_[g] = RandomRaySimulation::domain_->source_[source_region_idx * negroups_ + g];
-  }
+  //for (int g = 0; g < negroups_; g++) {
+  //  angular_flux_[g] =
+  //    RandomRaySimulation::domain_->source_[source_region_idx * negroups_ + g];
+  //}
 }
 
 } // namespace openmc

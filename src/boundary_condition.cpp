@@ -80,12 +80,10 @@ BoundaryCondition::VacuumBC_handle_particle(Particle& p, const Surface& surf) co
 
     // Set ray's angular flux spectrum to vacuum conditions (zero)
     RandomRay* r = static_cast<RandomRay*>(&p);
-    for (int e = 0; e < r->angular_flux_.size(); e++) {
-      r->angular_flux_[e] = 0.0;
-    }
-    r->segments_[r->n_event_-1].is_vac_end = 1;
-    if (r->id_ == 0)
-      printf("Vacuum BC\n");
+    //for (int e = 0; e < r->angular_flux_.size(); e++) {
+    //  r->angular_flux_[e] = 0.0;
+    //}
+    RandomRay::segments_[r->id_ * RandomRay::max_segments_ + r->n_event_-1].is_vac_end = 1;
   } else {
     p.cross_vacuum_bc(surf);
   }

@@ -27,6 +27,11 @@ public:
  * through the model. It is a small extension of the Particle class.
  */
 
+  #pragma omp declare target
+  float flat_source_flux_attenuation(const Segment& s, int negroups, int g, float psi);
+  void flat_source_bookkeeping(const Segment& s);
+  #pragma omp end declare target
+
 // TODO: Inherit from GeometryState instead of Particle
 class RandomRay : public Particle {
 public:
@@ -48,8 +53,6 @@ public:
   #pragma omp end declare target
 
   void copy_ray_to_device();
-  void update_from_device();
-  void update_to_device();
 
   //----------------------------------------------------------------------------
   // Static data members
@@ -57,6 +60,8 @@ public:
   static double distance_inactive_;          // Inactive (dead zone) ray length
   static double distance_active_;            // Active ray length
   static RandomRaySourceShape source_shape_; // Flag for linear source
+  static vector<Segment> segments_;
+  static int max_segments_;
   #pragma omp end declare target
 
   static unique_ptr<IndependentSource>
@@ -65,8 +70,7 @@ public:
   //----------------------------------------------------------------------------
   // Public data members
   vector<float> angular_flux_;
-  int max_segments_ = 10000;
-  vector<Segment> segments_;
+  //vector<Segment> segments_;
 
 private:
   //----------------------------------------------------------------------------

@@ -328,6 +328,7 @@ void RandomRaySimulation::simulate()
 #pragma omp target update to(RandomRay::distance_active_)
 #pragma omp target update to(RandomRay::source_shape_)
 #pragma omp target update to(settings::solver_type)
+#pragma omp target update to(RandomRay::max_segments_)
 
   // Allocate rays
   vector<RandomRay> rays;
@@ -338,8 +339,15 @@ void RandomRaySimulation::simulate()
 
   rays.copy_to_device();
   for (int r = 0; r < rays.size(); r++) {
-    rays[r].copy_ray_to_device();
+    //rays[r].copy_ray_to_device();
   }
+
+  vector<float> psi;
+  psi.resize(negroups_ * rays.size());
+  psi.copy_to_device();
+
+  RandomRay::segments_.resize(rays.size() * RandomRay::max_segments_);
+  RandomRay::segments_.copy_to_device();
 
   ray_source.copy_to_device();
 
@@ -396,106 +404,79 @@ void RandomRaySimulation::simulate()
       rays[i].initialize_ray(i, ray_source[i], work_index);
     }
 
-
-
 // Do all ray tracing
-#pragma omp target teams distribute parallel for num_teams(nrays) reduction(+ : total_geometric_intersections_)
+/*
+#pragma omp target teams distribute parallel for num_teams(nrays)             \
+  reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
+    */
 
-    // Do all bookkeeping
-    #pragma omp target teams distribute parallel for num_teams(nrays)
+#pragma omp target teams distribute parallel for num_teams(nrays)             \
+  reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       RandomRay& ray = rays[i];
-      for (int s = 0; s < ray.segments_.size(); s++)
-      {
-        Segment& segment = ray.segments_[s];
-        int source_region = segment.sr;
-        double distance = segment.distance;
+      while (ray.alive()) {
+        ray.event_advance_ray();
+        if (!ray.alive())
+          break;
+        ray.event_cross_surface();
+      }
+      total_geometric_intersections_ += ray.n_event_;
+    }
+
+    // Do all bookkeeping
+#pragma omp target teams distribute parallel for num_teams(nrays)
+    for (int i = 0; i < nrays; i++) {
+      RandomRay& ray = rays[i];
+      for (int s = 0; s < RandomRay::max_segments_; s++) {
+        Segment& segment = RandomRay::segments_[i*RandomRay::max_segments_ + s];
         if (!segment.is_alive || s >= ray.n_event_)
           break;
-        if (segment.is_active)
-        {
-#pragma omp atomic write
-            RandomRaySimulation::domain_->was_hit_[source_region] = 1;
-            #pragma omp atomic
-            RandomRaySimulation::domain_->volume_[source_region] += distance;
-
-            if (!RandomRaySimulation::domain_->position_recorded_[source_region]) {
-              Position midpoint = segment.r + segment.u * (distance / 2.0);
-              #pragma omp atomic write
-              RandomRaySimulation::domain_->position_[source_region].x = midpoint.x;
-              #pragma omp atomic write
-              RandomRaySimulation::domain_->position_[source_region].y = midpoint.y;
-              #pragma omp atomic write
-              RandomRaySimulation::domain_->position_[source_region].z = midpoint.z;
-              #pragma omp atomic write
-              RandomRaySimulation::domain_->position_recorded_[source_region] = 1;
-            }
-        }
-        
+        flat_source_bookkeeping(segment);
       }
     }
 
-    int n_trips = nrays * negroups_;
+
     // Do all flux attenuation
+    int n_trips = nrays * negroups_;
 #pragma omp target teams distribute parallel for
     for (int64_t i = 0; i < n_trips; i++) {
-      RandomRay& ray = rays[i / negroups_];
+      int ray_idx = i/negroups_;
+      RandomRay& ray = rays[ray_idx];
       int g = i % negroups_;
-  
-      for (int s = 0; s < ray.segments_.size(); s++)
-      {
-        Segment& segment = ray.segments_[s];
-  
+
+      for (int s = 0; s < RandomRay::max_segments_; s++) {
+        Segment& segment = RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
+        if (s == 0) {
+          psi[ray_idx * negroups_ + g] =
+            RandomRaySimulation::domain_->source_[segment.sr * negroups_ + g];
+        }
+
         if (!segment.is_alive || s >= ray.n_event_)
           break;
-                  int material = segment.material;
-        double distance = segment.distance;
-        int64_t source_element = segment.sr * negroups_;
-        if (s == 0)
-        {
-          ray.angular_flux_[g] = RandomRaySimulation::domain_->source_[source_element+ g];
-        }
 
-      float sigma_t =
-        RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
-      float tau = sigma_t * distance;
-      float exponential =
-        cjosey_exponential(tau); // exponential = 1 - exp(-tau)
-      float new_delta_psi =
-        (ray.angular_flux_[g] -
-          RandomRaySimulation::domain_->source_[source_element + g]) *
-        exponential;
-        if (segment.is_vac_end)
-          ray.angular_flux_[g] = 0.0;
-        else
-          ray.angular_flux_[g] -= new_delta_psi;
-
-        if (segment.is_active)
-        {
-          #pragma omp atomic
-          RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += new_delta_psi;
-        }
-
+        psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
+          segment, negroups_, g, psi[ray_idx * negroups_ + g]);
       }
     }
 
 
-/*
-    // Transport sweep over all random rays for the iteration
-    #pragma omp target teams distribute parallel for reduction(+ :total_geometric_intersections_)
-       for (int i = 0; i < nrays; i++) {
-        total_geometric_intersections_ +=
-        rays[i].transport_history_based_single_ray();
-      }
-      */
+    /*
+        // Transport sweep over all random rays for the iteration
+        #pragma omp target teams distribute parallel for reduction(+
+       :total_geometric_intersections_) for (int i = 0; i < nrays; i++) {
+            total_geometric_intersections_ +=
+            rays[i].transport_history_based_single_ray();
+          }
+          */
 
     simulation::time_transport.stop();
 
-    // If using multiple MPI ranks, perform all reduce on all transport results
+    // If using multiple MPI ranks, perform all reduce on all transport
+    // results
     domain_->all_reduce_replicated_source_regions();
 
     // Normalize scalar flux and update volumes
@@ -531,10 +512,12 @@ void RandomRaySimulation::simulate()
         domain_->convert_source_regions_to_tallies();
       }
 
-      // Use above mapping to contribute FSR flux data to appropriate tallies
+      // Use above mapping to contribute FSR flux data to appropriate
+      // tallies
       domain_->random_ray_tally();
 
-      // Add this iteration's scalar flux estimate to final accumulated estimate
+      // Add this iteration's scalar flux estimate to final accumulated
+      // estimate
       domain_->accumulate_iteration_flux();
     }
 
@@ -577,8 +560,9 @@ void RandomRaySimulation::output_simulation_results() const
   }
 }
 
-// Apply a few sanity checks to catch obvious cases of numerical instability.
-// Instability typically only occurs if ray density is extremely low.
+// Apply a few sanity checks to catch obvious cases of numerical
+// instability. Instability typically only occurs if ray density is
+// extremely low.
 void RandomRaySimulation::instability_check(
   int64_t n_hits, double k_eff, double& avg_miss_rate) const
 {
@@ -590,7 +574,8 @@ void RandomRaySimulation::instability_check(
   if (mpi::master) {
     if (percent_missed > 10.0) {
       warning(fmt::format(
-        "Very high FSR miss rate detected ({:.3f}%). Instability may occur. "
+        "Very high FSR miss rate detected ({:.3f}%). Instability may "
+        "occur. "
         "Increase ray density by adding more rays and/or active distance.",
         percent_missed));
     } else if (percent_missed > 0.01) {
