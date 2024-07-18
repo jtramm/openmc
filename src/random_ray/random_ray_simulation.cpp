@@ -396,6 +396,8 @@ void RandomRaySimulation::simulate()
       rays[i].initialize_ray(i, ray_source[i], work_index);
     }
 
+
+
 // Do all ray tracing
 #pragma omp target teams distribute parallel for num_teams(nrays) reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
@@ -443,15 +445,20 @@ void RandomRaySimulation::simulate()
     for (int64_t i = 0; i < n_trips; i++) {
       RandomRay& ray = rays[i / negroups_];
       int g = i % negroups_;
+  
       for (int s = 0; s < ray.segments_.size(); s++)
       {
         Segment& segment = ray.segments_[s];
+  
         if (!segment.is_alive || s >= ray.n_event_)
           break;
-        
-        int material = segment.material;
+                  int material = segment.material;
         double distance = segment.distance;
         int64_t source_element = segment.sr * negroups_;
+        if (s == 0)
+        {
+          ray.angular_flux_[g] = RandomRaySimulation::domain_->source_[source_element+ g];
+        }
 
       float sigma_t =
         RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
@@ -476,13 +483,15 @@ void RandomRaySimulation::simulate()
       }
     }
 
+
+/*
     // Transport sweep over all random rays for the iteration
-    // #pragma omp target teams distribute parallel for reduction(+ :
-    // total_geometric_intersections_)
-    //   for (int i = 0; i < nrays; i++) {
-    //     total_geometric_intersections_ +=
-    //      rays[i].transport_history_based_single_ray();
-    //  }
+    #pragma omp target teams distribute parallel for reduction(+ :total_geometric_intersections_)
+       for (int i = 0; i < nrays; i++) {
+        total_geometric_intersections_ +=
+        rays[i].transport_history_based_single_ray();
+      }
+      */
 
     simulation::time_transport.stop();
 

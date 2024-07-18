@@ -17,11 +17,11 @@ namespace openmc {
 //==============================================================================
 // Non-method functions
 //==============================================================================
-/*
+
 // returns 1 - exp(-tau)
 // Equivalent to -(_expm1f(-tau)), but faster
 // Written by Colin Josey.
-float cjosey_exponential(float tau)
+float cjosey_exponential2(float tau)
 {
   constexpr float c1n = -1.0000013559236386308f;
   constexpr float c2n = 0.23151368626911062025f;
@@ -62,7 +62,7 @@ float cjosey_exponential(float tau)
 
   return num / den;
 }
-*/
+
 
 // The below two functions (exponentialG and exponentialG2) were developed
 // by Colin Josey. The implementation of these functions is closely based
@@ -359,6 +359,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   }
 
   Segment& segment = segments_[n_event_ - 1];
+  //Segment segment;
   segment.sr = source_region;
   segment.distance = distance;
   segment.r = r();
@@ -367,7 +368,33 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   segment.is_active = is_active;
   segment.is_vac_end = 0;
   segment.is_alive = 1;
-
+  /*
+if( id_ == 0 ) {
+  // Print out entire segment info in one line
+  printf("Segment: %d,"
+  " sr = %ld,"
+  " distance = %.3lf,"
+  " r = %.3lf, %.3lf, %.3lf,"
+  " u = %.3lf, %.3lf, %.3lf,"
+  " material = %d,"
+  " is_active = %d,"
+  " is_vac_end = %d,"
+  " is_alive = %d\n",
+  n_event_-1,
+  segment.sr,
+  segment.distance,
+  segment.r.x,
+  segment.r.y,
+  segment.r.z,
+  segment.u.x,
+  segment.u.y,
+  segment.u.z,
+  segment.material,
+  segment.is_active,
+  segment.is_vac_end,
+  segment.is_alive);
+}
+*/
 /*
 
     //if( id_ == 0 ) {
@@ -389,7 +416,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
     //  MgxsType::TOTAL, g, NULL, NULL, NULL);
     float sigma_t = RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
     float tau = sigma_t * distance;
-    float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+    float exponential = cjosey_exponential2(tau); // exponential = 1 - exp(-tau)
     float new_delta_psi =
       (angular_flux_[g] - RandomRaySimulation::domain_->source_[source_element + g]) * exponential;
     delta_psi_[g] = new_delta_psi;

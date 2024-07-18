@@ -84,6 +84,8 @@ BoundaryCondition::VacuumBC_handle_particle(Particle& p, const Surface& surf) co
       r->angular_flux_[e] = 0.0;
     }
     r->segments_[r->n_event_-1].is_vac_end = 1;
+    if (r->id_ == 0)
+      printf("Vacuum BC\n");
   } else {
     p.cross_vacuum_bc(surf);
   }
