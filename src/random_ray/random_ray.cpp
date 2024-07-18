@@ -17,7 +17,7 @@ namespace openmc {
 //==============================================================================
 // Non-method functions
 //==============================================================================
-
+/*
 // returns 1 - exp(-tau)
 // Equivalent to -(_expm1f(-tau)), but faster
 // Written by Colin Josey.
@@ -62,6 +62,7 @@ float cjosey_exponential(float tau)
 
   return num / den;
 }
+*/
 
 // The below two functions (exponentialG and exponentialG2) were developed
 // by Colin Josey. The implementation of these functions is closely based
@@ -188,18 +189,19 @@ RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 RandomRay::RandomRay()
   : angular_flux_(data::mg.num_energy_groups_),
     delta_psi_(data::mg.num_energy_groups_),
-    negroups_(data::mg.num_energy_groups_)
-{
+    negroups_(data::mg.num_energy_groups_){
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
     delta_moments_.resize(negroups_);
   }
+  segments_.resize(max_segments_);
 }
 
 void RandomRay::copy_ray_to_device()
 {
   angular_flux_.copy_to_device();
   delta_psi_.copy_to_device();
+  segments_.copy_to_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
         delta_moments_.copy_to_device();
@@ -210,6 +212,7 @@ void RandomRay::update_from_device()
 {
   angular_flux_.update_from_device();
   delta_psi_.update_from_device();
+  segments_.update_from_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
         delta_moments_.update_from_device();
@@ -220,6 +223,7 @@ void RandomRay::update_to_device()
 {
   angular_flux_.update_to_device();
   delta_psi_.update_to_device();
+  segments_.update_to_device();
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
         delta_moments_.update_to_device();
@@ -241,9 +245,6 @@ uint64_t RandomRay::transport_history_based_single_ray()
       break;
     event_cross_surface();
   }
-  //if( id_ == 0 ) {
-   // printf("Ray 0 termindated after %d events, distance = %.3f\n", n_event_, distance_travelled_);
-  //}
   return n_event_;
 }
 
@@ -353,6 +354,22 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   int64_t source_element = source_region * negroups_;
   int material = this->material_;
 
+  if (n_event_ > max_segments_) {
+    printf("Ray has exceeded maximum number of segments.\n");
+  }
+
+  Segment& segment = segments_[n_event_ - 1];
+  segment.sr = source_region;
+  segment.distance = distance;
+  segment.r = r();
+  segment.u = u();
+  segment.material = material;
+  segment.is_active = is_active;
+  segment.is_vac_end = 0;
+  segment.is_alive = 1;
+
+/*
+
     //if( id_ == 0 ) {
    // printf("Event: %d Active: %d, distance = %f, source_region = %d, material = %d\n", n_event_, is_active, distance, source_region, material);
     //printf("psi start = %.3e, %.3e, %.3e, %.3e, %.3e, %.3e, %.3e\n", angular_flux_[0], angular_flux_[1], angular_flux_[2], angular_flux_[3], angular_flux_[4], angular_flux_[5], angular_flux_[6]);
@@ -424,6 +441,7 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
     // Release lock
     //RandomRaySimulation::domain_->lock_[source_region].unlock();
   }
+  */
 }
 
 void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)

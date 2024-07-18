@@ -267,6 +267,51 @@ RandomRaySimulation::RandomRaySimulation()
   }
 }
 
+// returns 1 - exp(-tau)
+// Equivalent to -(_expm1f(-tau)), but faster
+// Written by Colin Josey.
+float cjosey_exponential(float tau)
+{
+  constexpr float c1n = -1.0000013559236386308f;
+  constexpr float c2n = 0.23151368626911062025f;
+  constexpr float c3n = -0.061481916409314966140f;
+  constexpr float c4n = 0.0098619906458127653020f;
+  constexpr float c5n = -0.0012629460503540849940f;
+  constexpr float c6n = 0.00010360973791574984608f;
+  constexpr float c7n = -0.000013276571933735820960f;
+
+  constexpr float c0d = 1.0f;
+  constexpr float c1d = -0.73151337729389001396f;
+  constexpr float c2d = 0.26058381273536471371f;
+  constexpr float c3d = -0.059892419041316836940f;
+  constexpr float c4d = 0.0099070188241094279067f;
+  constexpr float c5d = -0.0012623388962473160860f;
+  constexpr float c6d = 0.00010361277635498731388f;
+  constexpr float c7d = -0.000013276569500666698498f;
+
+  float x = -tau;
+
+  float den = c7d;
+  den = den * x + c6d;
+  den = den * x + c5d;
+  den = den * x + c4d;
+  den = den * x + c3d;
+  den = den * x + c2d;
+  den = den * x + c1d;
+  den = den * x + c0d;
+
+  float num = c7n;
+  num = num * x + c6n;
+  num = num * x + c5n;
+  num = num * x + c4n;
+  num = num * x + c3n;
+  num = num * x + c2n;
+  num = num * x + c1n;
+  num = num * x;
+
+  return num / den;
+}
+
 void RandomRaySimulation::simulate()
 {
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
@@ -284,7 +329,7 @@ void RandomRaySimulation::simulate()
 #pragma omp target update to(RandomRay::source_shape_)
 #pragma omp target update to(settings::solver_type)
 
-  // Allocate ray
+  // Allocate rays
   vector<RandomRay> rays;
   rays.resize(simulation::work_per_rank);
 
@@ -351,12 +396,94 @@ void RandomRaySimulation::simulate()
       rays[i].initialize_ray(i, ray_source[i], work_index);
     }
 
-// Transport sweep over all random rays for the iteration
-#pragma omp target teams distribute parallel for reduction(+ : total_geometric_intersections_)
+// Do all ray tracing
+//#pragma omp target teams distribute parallel for reduction(+ : total_geometric_intersections_)
+#pragma omp parallel for reduction(+ : total_geometric_intersections_)
     for (int i = 0; i < nrays; i++) {
       total_geometric_intersections_ +=
         rays[i].transport_history_based_single_ray();
     }
+
+    // Do all bookkeeping
+    #pragma omp target teams distribute parallel for
+    for (int i = 0; i < nrays; i++) {
+      RandomRay& ray = rays[i];
+      for (int s = 0; s < ray.segments_.size(); s++)
+      {
+        Segment& segment = ray.segments_[s];
+        int source_region = segment.sr;
+        double distance = segment.distance;
+        if (!segment.is_alive || s >= ray.n_event_)
+          break;
+        if (segment.is_active)
+        {
+#pragma omp atomic write
+            RandomRaySimulation::domain_->was_hit_[source_region] = 1;
+            #pragma omp atomic
+            RandomRaySimulation::domain_->volume_[source_region] += distance;
+
+            if (!RandomRaySimulation::domain_->position_recorded_[source_region]) {
+              Position midpoint = segment.r + segment.u * (distance / 2.0);
+              #pragma omp atomic write
+              RandomRaySimulation::domain_->position_[source_region].x = midpoint.x;
+              #pragma omp atomic write
+              RandomRaySimulation::domain_->position_[source_region].y = midpoint.y;
+              #pragma omp atomic write
+              RandomRaySimulation::domain_->position_[source_region].z = midpoint.z;
+              #pragma omp atomic write
+              RandomRaySimulation::domain_->position_recorded_[source_region] = 1;
+            }
+        }
+        
+      }
+    }
+
+    int n_trips = nrays * negroups_;
+    // Do all flux attenuation
+#pragma omp target teams distribute parallel for
+    for (int64_t i = 0; i < n_trips; i++) {
+      RandomRay& ray = rays[i / negroups_];
+      int g = i % negroups_;
+      for (int s = 0; s < ray.segments_.size(); s++)
+      {
+        Segment& segment = ray.segments_[s];
+        if (!segment.is_alive || s >= ray.n_event_)
+          break;
+        
+        int material = segment.material;
+        double distance = segment.distance;
+        int64_t source_element = segment.sr * negroups_;
+
+      float sigma_t =
+        RandomRaySimulation::domain_->sigma_t_[material * negroups_ + g];
+      float tau = sigma_t * distance;
+      float exponential =
+        cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+      float new_delta_psi =
+        (ray.angular_flux_[g] -
+          RandomRaySimulation::domain_->source_[source_element + g]) *
+        exponential;
+        if (segment.is_vac_end)
+          ray.angular_flux_[g] = 0.0;
+        else
+          ray.angular_flux_[g] -= new_delta_psi;
+
+        if (segment.is_active)
+        {
+          #pragma omp atomic
+          RandomRaySimulation::domain_->scalar_flux_new_[source_element + g] += new_delta_psi;
+        }
+
+      }
+    }
+
+    // Transport sweep over all random rays for the iteration
+    // #pragma omp target teams distribute parallel for reduction(+ :
+    // total_geometric_intersections_)
+    //   for (int i = 0; i < nrays; i++) {
+    //     total_geometric_intersections_ +=
+    //      rays[i].transport_history_based_single_ray();
+    //  }
 
     simulation::time_transport.stop();
 

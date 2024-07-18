@@ -10,6 +10,18 @@
 
 namespace openmc {
 
+class Segment{
+public:
+    int64_t sr;
+    double distance;
+    Position r;
+    Direction u;
+    int material;
+    int is_active;
+    int is_vac_end;
+    int is_alive;
+};
+
 /*
  * The RandomRay class encompasses data and methods for transporting random rays
  * through the model. It is a small extension of the Particle class.
@@ -53,6 +65,8 @@ public:
   //----------------------------------------------------------------------------
   // Public data members
   vector<float> angular_flux_;
+  int max_segments_ = 10000;
+  vector<Segment> segments_;
 
 private:
   //----------------------------------------------------------------------------
