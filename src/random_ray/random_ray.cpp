@@ -185,7 +185,7 @@ double RandomRay::distance_active_;
 unique_ptr<IndependentSource> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 vector<Segment> RandomRay::segments_;
-int RandomRay::max_segments_ = 10000;
+int RandomRay::max_segments_ = 100;
 
 RandomRay::RandomRay()
   : negroups_(data::mg.num_energy_groups_)

@@ -112,6 +112,26 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
 
 void FlatSourceDomain::device_alloc()
 {
+  // Estimate total size of domain data
+  uint64_t nbytes = was_hit_.size() * sizeof(int) +
+                    volume_.size() * sizeof(double) +
+                    volume_t_.size() * sizeof(double) +
+                    position_recorded_.size() * sizeof(int) +
+                    position_.size() * sizeof(Position) +
+                    scalar_flux_old_.size() * sizeof(float) +
+                    scalar_flux_new_.size() * sizeof(float) +
+                    source_.size() * sizeof(float) +
+                    external_source_.size() * sizeof(float) +
+                    source_region_offsets_.size() * sizeof(int) +
+                    material_.size() * sizeof(int) +
+                    scalar_flux_final_.size() * sizeof(float) +
+                    sigma_t_.size() * sizeof(float) +
+                    nu_sigma_f_.size() * sizeof(float) +
+                    sigma_f_.size() * sizeof(float) +
+                    chi_.size() * sizeof(float) +
+                    sigma_s_.size() * sizeof(float);
+  fmt::print("Est. Domain Data Size: {:.3f} GB\n", nbytes / 1.0e9);
+
   was_hit_.copy_to_device();
   volume_.copy_to_device();
   volume_t_.copy_to_device();

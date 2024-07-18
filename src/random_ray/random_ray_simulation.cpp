@@ -320,6 +320,7 @@ void RandomRaySimulation::simulate()
     domain_->count_external_source_regions();
   }
 
+
 // Move domain data to device
 #pragma omp target enter data map(to : domain_[0 : 1])
   domain_->device_alloc();
@@ -337,19 +338,22 @@ void RandomRaySimulation::simulate()
   vector<Particle::Bank> ray_source;
   ray_source.resize(simulation::work_per_rank);
 
-  rays.copy_to_device();
-  for (int r = 0; r < rays.size(); r++) {
-    //rays[r].copy_ray_to_device();
-  }
-
   vector<float> psi;
   psi.resize(negroups_ * rays.size());
-  psi.copy_to_device();
 
   RandomRay::segments_.resize(rays.size() * RandomRay::max_segments_);
-  RandomRay::segments_.copy_to_device();
 
+  // Estimate total ray data
+  uint64_t nbytes = rays.size() * sizeof(RandomRay) +
+                    ray_source.size() * sizeof(Particle::Bank) +
+                    psi.size() * sizeof(float) +
+                    RandomRay::segments_.size() * sizeof(Segment);
+  fmt::print("Est. Ray Data Size:    {:.3f} GB\n", nbytes / 1.0e9);
+
+  rays.copy_to_device();
   ray_source.copy_to_device();
+  psi.copy_to_device();
+  RandomRay::segments_.copy_to_device();
 
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
@@ -404,65 +408,70 @@ void RandomRaySimulation::simulate()
       rays[i].initialize_ray(i, ray_source[i], work_index);
     }
 
-// Do all ray tracing
-/*
-#pragma omp target teams distribute parallel for num_teams(nrays)             \
-  reduction(+ : total_geometric_intersections_)
-    for (int i = 0; i < nrays; i++) {
-      total_geometric_intersections_ +=
-        rays[i].transport_history_based_single_ray();
-    }
-    */
-
-#pragma omp target teams distribute parallel for num_teams(nrays)             \
-  reduction(+ : total_geometric_intersections_)
-    for (int i = 0; i < nrays; i++) {
-      RandomRay& ray = rays[i];
-      while (ray.alive()) {
-        ray.event_advance_ray();
-        if (!ray.alive())
-          break;
-        ray.event_cross_surface();
-      }
-      total_geometric_intersections_ += ray.n_event_;
-    }
-
-    // Do all bookkeeping
-#pragma omp target teams distribute parallel for num_teams(nrays)
-    for (int i = 0; i < nrays; i++) {
-      RandomRay& ray = rays[i];
-      for (int s = 0; s < RandomRay::max_segments_; s++) {
-        Segment& segment = RandomRay::segments_[i*RandomRay::max_segments_ + s];
-        if (!segment.is_alive || s >= ray.n_event_)
-          break;
-        flat_source_bookkeeping(segment);
-      }
-    }
-
-
-    // Do all flux attenuation
-    int n_trips = nrays * negroups_;
-#pragma omp target teams distribute parallel for
-    for (int64_t i = 0; i < n_trips; i++) {
-      int ray_idx = i/negroups_;
-      RandomRay& ray = rays[ray_idx];
-      int g = i % negroups_;
-
-      for (int s = 0; s < RandomRay::max_segments_; s++) {
-        Segment& segment = RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
-        if (s == 0) {
-          psi[ray_idx * negroups_ + g] =
-            RandomRaySimulation::domain_->source_[segment.sr * negroups_ + g];
+    // Do all ray tracing
+    /*
+    #pragma omp target teams distribute parallel for num_teams(nrays) \
+      reduction(+ : total_geometric_intersections_)
+        for (int i = 0; i < nrays; i++) {
+          total_geometric_intersections_ +=
+            rays[i].transport_history_based_single_ray();
         }
+        */
 
-        if (!segment.is_alive || s >= ray.n_event_)
-          break;
+    // Loop over segment blocks
+    int block;
+    for (block = 0; block < 1000; block++) {
 
-        psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
-          segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+      uint64_t intersections_begin = total_geometric_intersections_;
+#pragma omp target teams distribute parallel for num_teams(nrays)              \
+  reduction(+ : total_geometric_intersections_)
+      for (int i = 0; i < nrays; i++) {
+        RandomRay& ray = rays[i];
+        ray.n_event_ = 0;
+        while (ray.alive() && ray.n_event_ < RandomRay::max_segments_-1) {
+          ray.event_advance_ray();
+          if (!ray.alive())
+            break;
+          ray.event_cross_surface();
+        }
+        total_geometric_intersections_ += ray.n_event_;
+      }
+
+      if (total_geometric_intersections_ == intersections_begin)
+        break;
+
+      // Do all bookkeeping
+#pragma omp target teams distribute parallel for num_teams(nrays)
+      for (int i = 0; i < nrays; i++) {
+        RandomRay& ray = rays[i];
+        for (int s = 0; s < ray.n_event_; s++) {
+          Segment& segment =
+            RandomRay::segments_[i * RandomRay::max_segments_ + s];
+          flat_source_bookkeeping(segment);
+        }
+      }
+
+      // Do all flux attenuation
+      int n_trips = nrays * negroups_;
+#pragma omp target teams distribute parallel for
+      for (int64_t i = 0; i < n_trips; i++) {
+        int ray_idx = i / negroups_;
+        RandomRay& ray = rays[ray_idx];
+        int g = i % negroups_;
+
+        for (int s = 0; s < ray.n_event_; s++) {
+          Segment& segment =
+            RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
+          if (s == 0 && block == 0) {
+            psi[ray_idx * negroups_ + g] =
+              RandomRaySimulation::domain_->source_[segment.sr * negroups_ + g];
+          }
+
+          psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
+            segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+        }
       }
     }
-
 
     /*
         // Transport sweep over all random rays for the iteration
