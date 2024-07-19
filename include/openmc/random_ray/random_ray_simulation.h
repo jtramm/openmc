@@ -34,6 +34,7 @@ public:
   // Contains all flat source region data
   #pragma omp declare target
   static FlatSourceDomain* domain_;
+  static LinearSourceDomain* ls_domain_;
   #pragma omp end declare target
 
 private:

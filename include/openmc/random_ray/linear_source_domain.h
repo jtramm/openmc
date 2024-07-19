@@ -41,6 +41,8 @@ public:
   void flux_swap() override;
   double evaluate_flux_at_point(
     const Position r, const int64_t sr, const int g) const override;
+  void device_alloc() override;
+
 
   //----------------------------------------------------------------------------
   // Public Data members

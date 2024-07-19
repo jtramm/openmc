@@ -187,8 +187,7 @@ RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 vector<Segment> RandomRay::segments_;
 int RandomRay::max_segments_ = 100;
 
-RandomRay::RandomRay()
-  : negroups_(data::mg.num_energy_groups_)
+RandomRay::RandomRay() : negroups_(data::mg.num_energy_groups_)
 {
   if (source_shape_ == RandomRaySourceShape::LINEAR ||
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
@@ -317,7 +316,8 @@ void RandomRay::attenuate_flux(double distance, bool is_active)
     break;
   case RandomRaySourceShape::LINEAR:
   case RandomRaySourceShape::LINEAR_XY:
-    attenuate_flux_linear_source(distance, is_active);
+     attenuate_flux_linear_source(distance, is_active);
+    //attenuate_flux_flat_source(distance, is_active);
     break;
   default:
     // fatal_error("Unknown source shape for random ray transport.");
@@ -347,6 +347,75 @@ void flat_source_bookkeeping(const Segment& s)
   }
 }
 
+void linear_source_bookkeeping(const Segment& s)
+{
+
+  LinearSourceDomain* domain = RandomRaySimulation::ls_domain_;
+  // static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
+
+  if (s.is_active) {
+    
+#pragma omp atomic write
+    domain->was_hit_[s.sr] = 1;
+#pragma omp atomic
+    domain->volume_[s.sr] += s.distance;
+
+    if (!domain->position_recorded_[s.sr]) {
+      Position midpoint = s.r + s.u * (s.distance / 2.0);
+#pragma omp atomic write
+      domain->position_[s.sr].x = midpoint.x;
+#pragma omp atomic write
+      domain->position_[s.sr].y = midpoint.y;
+#pragma omp atomic write
+      domain->position_[s.sr].z = midpoint.z;
+#pragma omp atomic write
+      domain->position_recorded_[s.sr] = 1;
+    }
+
+    Position& centroid = domain->centroid_[s.sr];
+    Position midpoint = s.r + s.u * (s.distance / 2.0);
+
+    Position rm_local;
+    if (domain->volume_t_[s.sr]) {
+      rm_local = midpoint - centroid;
+    } else {
+      rm_local = {0.0, 0.0, 0.0};
+    }
+
+    // Compute an estimate of the spatial moments matrix for the source
+    // region based on parameters from this ray's crossing
+    MomentMatrix moment_matrix_estimate;
+    moment_matrix_estimate.compute_spatial_moments_matrix(
+      rm_local, s.u, s.distance);
+
+    // Accumulate the volume (ray segment distance), centroid, and spatial
+    // momement estimates into the running totals for the iteration for this
+    // source region. The centroid and spatial momements estimates are scaled by
+    // the ray segment length as part of length averaging of the estimates.
+
+    #pragma omp atomic
+    domain->centroid_iteration_[s.sr].x += midpoint.x * s.distance;
+    #pragma omp atomic
+    domain->centroid_iteration_[s.sr].y += midpoint.y * s.distance;
+    #pragma omp atomic
+    domain->centroid_iteration_[s.sr].z += midpoint.z * s.distance;
+
+    moment_matrix_estimate *= s.distance;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].a += moment_matrix_estimate.a;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].b += moment_matrix_estimate.b;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].c += moment_matrix_estimate.c;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].d += moment_matrix_estimate.d;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].e += moment_matrix_estimate.e;
+    #pragma omp atomic
+    domain->mom_matrix_[s.sr].f += moment_matrix_estimate.f;
+  }
+}
+
 float flat_source_flux_attenuation(
   const Segment& s, int negroups, int g, float psi)
 {
@@ -356,11 +425,10 @@ float flat_source_flux_attenuation(
   float tau = sigma_t * s.distance;
   float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
   float new_delta_psi =
-    (psi - RandomRaySimulation::domain_->source_[source_element]) *
-    exponential;
+    (psi - RandomRaySimulation::domain_->source_[source_element]) * exponential;
 
-  if (s.is_active) {    
-    #pragma omp atomic
+  if (s.is_active) {
+#pragma omp atomic
     RandomRaySimulation::domain_->scalar_flux_new_[source_element] +=
       new_delta_psi;
   }
@@ -369,6 +437,97 @@ float flat_source_flux_attenuation(
     return 0.0;
   else
     return psi - new_delta_psi;
+}
+
+float linear_source_flux_attenuation(
+  const Segment& s, int negroups, int g, float psi)
+{
+  // Cast domain to LinearSourceDomain
+  LinearSourceDomain* domain = RandomRaySimulation::ls_domain_;
+  // static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
+
+  Position& centroid = domain->centroid_[s.sr];
+  Position midpoint = s.r + s.u * (s.distance / 2.0);
+
+  // Determine the local position of the midpoint and the ray origin
+  // relative to the source region's centroid
+  Position rm_local;
+  Position r0_local;
+
+  int64_t source_element = s.sr * negroups;
+
+  // In the first few iterations of the simulation, the source region
+  // may not yet have had any ray crossings, in which case there will
+  // be no estimate of its centroid. We detect this by checking if it has
+  // any accumulated volume. If its volume is zero, just use the midpoint
+  // of the ray as the region's centroid.
+  if (domain->volume_t_[s.sr]) {
+    rm_local = midpoint - centroid;
+    r0_local = s.r - centroid;
+  } else {
+    rm_local = {0.0, 0.0, 0.0};
+    r0_local = -s.u * 0.5 * s.distance;
+  }
+  double distance_2 = s.distance * s.distance;
+
+  float sigma_t = domain->sigma_t_[s.material * negroups + g];
+  float tau = sigma_t * s.distance;
+
+  // If tau is very small, set it to zero to avoid numerical issues.
+  // The following computations will still work with tau = 0.
+  if (tau < 1.0e-8f) {
+    tau = 0.0f;
+  }
+
+  // Compute linear source terms, spatial and directional (dir),
+  // calculated from the source gradients dot product with local centroid
+  // and direction, respectively.
+  float spatial_source =
+    domain->source_[source_element + g] +
+    rm_local.dot(domain->source_gradients_[source_element + g]);
+  float dir_source = s.u.dot(domain->source_gradients_[source_element + g]);
+
+  float gn = exponentialG(tau);
+  float f1 = 1.0f - tau * gn;
+  float f2 = (2.0f * gn - f1) * distance_2;
+  float new_delta_psi =
+    (psi - spatial_source) * f1 * s.distance - 0.5 * dir_source * f2;
+
+  float h1 = f1 - gn;
+  float g1 = 0.5f - h1;
+  float g2 = exponentialG2(tau);
+  g1 = g1 * spatial_source;
+  g2 = g2 * dir_source * s.distance * 0.5f;
+  h1 = h1 * psi;
+  h1 = (g1 + g2 + h1) * distance_2;
+  spatial_source = spatial_source * s.distance + new_delta_psi;
+
+  // Store contributions for this group into arrays, so that they can
+  // be accumulated into the source region's estimates inside of the locked
+  // region.
+  MomentArray delta_moments = r0_local * spatial_source + s.u * h1;
+
+  // If 2D mode is enabled, the z-component of the flux moments is forced
+  // to zero
+  if (RandomRay::source_shape_ == RandomRaySourceShape::LINEAR_XY) {
+    delta_moments.z = 0.0;
+  }
+
+  if (s.is_active) {
+#pragma omp atomic
+    domain->scalar_flux_new_[source_element + g] += new_delta_psi;
+#pragma omp atomic
+    domain->flux_moments_new_[source_element + g].x += delta_moments.x;
+#pragma omp atomic
+    domain->flux_moments_new_[source_element + g].y += delta_moments.y;
+#pragma omp atomic
+    domain->flux_moments_new_[source_element + g].z += delta_moments.z;
+  }
+
+  if (s.is_vac_end)
+    return 0.0;
+  else
+    return psi - new_delta_psi * sigma_t;
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -393,6 +552,10 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   int i_cell = lowest_coord().cell;
 
   // The source region is the spatial region index
+  // int64_t source_region =
+  //  RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
+  //  cell_instance_;
+
   int64_t source_region =
     RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
     cell_instance_;
@@ -402,7 +565,9 @@ void RandomRay::attenuate_flux_flat_source(double distance, bool is_active)
   int material = this->material_;
 
   if (n_event_ > max_segments_) {
-    printf("Ray has exceeded maximum number of segments.\n");
+    printf("Ray has exceeded maximum number of segments (n_event = %d), "
+           "max_segments = %d\n",
+      n_event_, max_segments_);
   }
 
   Segment& segment = segments_[id_ * max_segments_ + n_event_ - 1];
@@ -523,6 +688,45 @@ if( id_ == 0 ) {
 
 void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
 {
+  // The number of geometric intersections is counted for reporting purposes
+  n_event_++;
+
+  // Determine source region index etc.
+  int i_cell = lowest_coord().cell;
+
+  // The source region is the spatial region index
+  // int64_t source_region =
+  //  RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
+  //  cell_instance_;
+
+  int64_t source_region =
+    RandomRaySimulation::ls_domain_->source_region_offsets_[i_cell] +
+    cell_instance_;
+
+  // The source element is the energy-specific region index
+  int64_t source_element = source_region * negroups_;
+  int material = this->material_;
+
+  if (n_event_ > max_segments_) {
+    printf("Ray has exceeded maximum number of segments (n_event = %d), "
+           "max_segments = %d\n",
+      n_event_, max_segments_);
+  }
+
+  Segment& segment = segments_[id_ * max_segments_ + n_event_ - 1];
+  // Segment segment;
+  segment.sr = source_region;
+  segment.distance = distance;
+  segment.r = r();
+  segment.u = u();
+  segment.material = material;
+  segment.is_active = is_active;
+  segment.is_vac_end = 0;
+  segment.is_alive = 1;
+
+/*
+
+
   // Cast domain to LinearSourceDomain
   LinearSourceDomain* domain =
     static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
@@ -677,6 +881,7 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
     // Release lock
     RandomRaySimulation::domain_->lock_[source_region].unlock();
   }
+  */
 }
 
 void RandomRay::initialize_ray(
@@ -728,10 +933,11 @@ void RandomRay::initialize_ray(
     RandomRaySimulation::domain_->source_region_offsets_[i_cell] +
     cell_instance_;
 
-  //for (int g = 0; g < negroups_; g++) {
-  //  angular_flux_[g] =
-  //    RandomRaySimulation::domain_->source_[source_region_idx * negroups_ + g];
-  //}
+  // for (int g = 0; g < negroups_; g++) {
+  //   angular_flux_[g] =
+  //     RandomRaySimulation::domain_->source_[source_region_idx * negroups_ +
+  //     g];
+  // }
 }
 
 } // namespace openmc

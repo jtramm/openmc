@@ -130,7 +130,7 @@ void FlatSourceDomain::device_alloc()
                     sigma_f_.size() * sizeof(float) +
                     chi_.size() * sizeof(float) +
                     sigma_s_.size() * sizeof(float);
-  fmt::print("Est. Domain Data Size: {:.3f} GB\n", nbytes / 1.0e9);
+  fmt::print("Est. FS Domain Data Size: {:.3f} GB\n", nbytes / 1.0e9);
 
   was_hit_.copy_to_device();
   volume_.copy_to_device();

@@ -30,6 +30,8 @@ public:
   #pragma omp declare target
   float flat_source_flux_attenuation(const Segment& s, int negroups, int g, float psi);
   void flat_source_bookkeeping(const Segment& s);
+  float linear_source_flux_attenuation(const Segment& s, int negroups, int g, float psi);
+  void linear_source_bookkeeping(const Segment& s);
   #pragma omp end declare target
 
 // TODO: Inherit from GeometryState instead of Particle

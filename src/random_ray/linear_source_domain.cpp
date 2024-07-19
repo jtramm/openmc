@@ -38,15 +38,46 @@ LinearSourceDomain::LinearSourceDomain() : FlatSourceDomain()
   mom_matrix_t_.resize(n_source_regions_, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
 }
 
+void LinearSourceDomain::device_alloc()
+{
+  FlatSourceDomain::device_alloc();
+ // Estimate total size of domain data
+ uint64_t nbytes = 0;
+  nbytes += flux_moments_old_.size() * sizeof(MomentArray);
+  nbytes += flux_moments_new_.size() * sizeof(MomentArray);
+  nbytes += flux_moments_t_.size() * sizeof(MomentArray);
+  nbytes += source_gradients_.size() * sizeof(MomentArray);
+  nbytes += centroid_.size() * sizeof(Position);
+  nbytes += centroid_iteration_.size() * sizeof(Position);
+  nbytes += centroid_t_.size() * sizeof(Position);
+  nbytes += mom_matrix_.size() * sizeof(MomentMatrix);
+  nbytes += mom_matrix_t_.size() * sizeof(MomentMatrix);
+  fmt::print("Est. LS Domain Data Size: {:.3f} GB\n", nbytes / 1.0e9);
+  flux_moments_old_.copy_to_device();
+  flux_moments_new_.copy_to_device();
+  flux_moments_t_.copy_to_device();
+  source_gradients_.copy_to_device();
+  centroid_.copy_to_device();
+  centroid_iteration_.copy_to_device();
+  centroid_t_.copy_to_device();
+  mom_matrix_.copy_to_device();
+  mom_matrix_t_.copy_to_device();
+}
+
 void LinearSourceDomain::batch_reset()
 {
   FlatSourceDomain::batch_reset();
-#pragma omp parallel for
-  for (int64_t se = 0; se < n_source_elements_; se++) {
+
+  int64_t n = n_source_elements_;
+#pragma omp target teams distribute parallel for
+  for (int64_t se = 0; se < n; se++) {
     flux_moments_new_[se] = {0.0, 0.0, 0.0};
   }
-#pragma omp parallel for
-  for (int64_t sr = 0; sr < n_source_regions_; sr++) {
+
+  n = n_source_regions_;
+
+#pragma omp target teams distribute parallel for
+  for (int64_t sr = 0; sr < n; sr++) {
     centroid_iteration_[sr] = {0.0, 0.0, 0.0};
     mom_matrix_[sr] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   }
@@ -64,9 +95,9 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
   // angle data.
   const int t = 0;
   const int a = 0;
-
-#pragma omp parallel for
-  for (int sr = 0; sr < n_source_regions_; sr++) {
+  int64_t n = n_source_regions_;
+#pragma omp target teams distribute parallel for
+  for (int sr = 0; sr < n; sr++) {
 
     int material = material_[sr];
     MomentMatrix invM = mom_matrix_[sr].inverse();
@@ -87,12 +118,9 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
         MomentArray flux_linear = flux_moments_old_[sr * negroups_ + e_in];
 
         // Handles for cross sections
-        float sigma_s = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_SCATTER, e_in, &e_out, nullptr, nullptr);
-        float nu_sigma_f = data::mg.macro_xs_[material].get_xs(
-          MgxsType::NU_FISSION, e_in, nullptr, nullptr, nullptr);
-        float chi = data::mg.macro_xs_[material].get_xs(
-          MgxsType::CHI_PROMPT, e_in, &e_out, nullptr, nullptr);
+        float sigma_s = sigma_s_[material * negroups_ * negroups_ + e_out * negroups_ + e_in];
+        float nu_sigma_f = nu_sigma_f_[material * negroups_ + e_in];
+        float chi = chi_[material * negroups_ * negroups_ + e_out * negroups_ + e_in];
 
         // Compute source terms for flat and linear components of the flux
         scatter_flat += sigma_s * flux_flat;
@@ -115,7 +143,7 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
 
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
 // Add external source to flat source term if in fixed source mode
-#pragma omp parallel for
+#pragma omp target teams distribute parallel for
     for (int se = 0; se < n_source_elements_; se++) {
       source_[se] += external_source_[se];
     }
@@ -132,16 +160,18 @@ void LinearSourceDomain::normalize_scalar_flux_and_volumes(
     1.0 / (total_active_distance_per_iteration * simulation::current_batch);
 
 // Normalize flux to total distance travelled by all rays this iteration
-#pragma omp parallel for
-  for (int64_t e = 0; e < scalar_flux_new_.size(); e++) {
+int64_t n = scalar_flux_new_.size();
+#pragma omp target teams distribute parallel for
+  for (int64_t e = 0; e < n; e++) {
     scalar_flux_new_[e] *= normalization_factor;
     flux_moments_new_[e] *= normalization_factor;
   }
 
 // Accumulate cell-wise ray length tallies collected this iteration, then
 // update the simulation-averaged cell-wise volume estimates
-#pragma omp parallel for
-  for (int64_t sr = 0; sr < n_source_regions_; sr++) {
+n = n_source_regions_;
+#pragma omp target teams distribute parallel for
+  for (int64_t sr = 0; sr < n; sr++) {
     centroid_t_[sr] += centroid_iteration_[sr];
     mom_matrix_t_[sr] += mom_matrix_[sr];
     volume_t_[sr] += volume_[sr];
@@ -167,7 +197,7 @@ int64_t LinearSourceDomain::add_source_to_scalar_flux()
   const int t = 0;
   const int a = 0;
 
-#pragma omp parallel for reduction(+ : n_hits)
+#pragma omp target teams distribute parallel for reduction(+ : n_hits)
   for (int sr = 0; sr < n_source_regions_; sr++) {
 
     double volume = volume_[sr];
@@ -211,7 +241,11 @@ int64_t LinearSourceDomain::add_source_to_scalar_flux()
 void LinearSourceDomain::flux_swap()
 {
   FlatSourceDomain::flux_swap();
-  flux_moments_old_.swap(flux_moments_new_);
+  int64_t n = flux_moments_old_.size();
+  #pragma omp target teams distribute parallel for
+  for (int i = 0; i < n; i++) {
+    flux_moments_old_[i] = flux_moments_new_[i];
+  }
 }
 
 void LinearSourceDomain::accumulate_iteration_flux()

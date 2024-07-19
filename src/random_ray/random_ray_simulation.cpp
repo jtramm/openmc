@@ -242,6 +242,7 @@ void validate_random_ray_inputs()
 //==============================================================================
 
 FlatSourceDomain* RandomRaySimulation::domain_ {nullptr};
+LinearSourceDomain* RandomRaySimulation::ls_domain_ {nullptr};
 
 RandomRaySimulation::RandomRaySimulation()
   : negroups_(data::mg.num_energy_groups_)
@@ -260,7 +261,7 @@ RandomRaySimulation::RandomRaySimulation()
     break;
   case RandomRaySourceShape::LINEAR:
   case RandomRaySourceShape::LINEAR_XY:
-    domain_ = new LinearSourceDomain();
+    ls_domain_ = new LinearSourceDomain();
     break;
   default:
     fatal_error("Unknown random ray source shape");
@@ -320,10 +321,26 @@ void RandomRaySimulation::simulate()
     domain_->count_external_source_regions();
   }
 
+  // Move domain data to device
 
-// Move domain data to device
+  switch (RandomRay::source_shape_) {
+  case RandomRaySourceShape::FLAT:
+  {
 #pragma omp target enter data map(to : domain_[0 : 1])
-  domain_->device_alloc();
+    domain_->device_alloc();
+  }
+    break;
+  case RandomRaySourceShape::LINEAR:
+  case RandomRaySourceShape::LINEAR_XY:
+  {
+#pragma omp target enter data map(to : ls_domain_[0 : 1])
+    ls_domain_->device_alloc();
+    domain_ = ls_domain_;
+  }
+    break;
+  default:
+    fatal_error("Unknown random ray source shape");
+  }
 
 #pragma omp target update to(RandomRay::distance_inactive_)
 #pragma omp target update to(RandomRay::distance_active_)
@@ -348,7 +365,7 @@ void RandomRaySimulation::simulate()
                     ray_source.size() * sizeof(Particle::Bank) +
                     psi.size() * sizeof(float) +
                     RandomRay::segments_.size() * sizeof(Segment);
-  fmt::print("Est. Ray Data Size:    {:.3f} GB\n", nbytes / 1.0e9);
+  fmt::print("Est. Ray Data Size:       {:.3f} GB\n", nbytes / 1.0e9);
 
   rays.copy_to_device();
   ray_source.copy_to_device();
@@ -428,7 +445,7 @@ void RandomRaySimulation::simulate()
       for (int i = 0; i < nrays; i++) {
         RandomRay& ray = rays[i];
         ray.n_event_ = 0;
-        while (ray.alive() && ray.n_event_ < RandomRay::max_segments_-1) {
+        while (ray.alive() && ray.n_event_ < RandomRay::max_segments_ - 1) {
           ray.event_advance_ray();
           if (!ray.alive())
             break;
@@ -440,35 +457,75 @@ void RandomRaySimulation::simulate()
       if (total_geometric_intersections_ == intersections_begin)
         break;
 
-      // Do all bookkeeping
+      if (RandomRay::source_shape_ == RandomRaySourceShape::FLAT) {
+
+        // Do all bookkeeping
 #pragma omp target teams distribute parallel for num_teams(nrays)
-      for (int i = 0; i < nrays; i++) {
-        RandomRay& ray = rays[i];
-        for (int s = 0; s < ray.n_event_; s++) {
-          Segment& segment =
-            RandomRay::segments_[i * RandomRay::max_segments_ + s];
-          flat_source_bookkeeping(segment);
-        }
-      }
-
-      // Do all flux attenuation
-      int n_trips = nrays * negroups_;
-#pragma omp target teams distribute parallel for
-      for (int64_t i = 0; i < n_trips; i++) {
-        int ray_idx = i / negroups_;
-        RandomRay& ray = rays[ray_idx];
-        int g = i % negroups_;
-
-        for (int s = 0; s < ray.n_event_; s++) {
-          Segment& segment =
-            RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
-          if (s == 0 && block == 0) {
-            psi[ray_idx * negroups_ + g] =
-              RandomRaySimulation::domain_->source_[segment.sr * negroups_ + g];
+        for (int i = 0; i < nrays; i++) {
+          RandomRay& ray = rays[i];
+          for (int s = 0; s < ray.n_event_; s++) {
+            Segment& segment =
+              RandomRay::segments_[i * RandomRay::max_segments_ + s];
+            flat_source_bookkeeping(segment);
           }
+        }
 
-          psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
-            segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+        // Do all flux attenuation
+        int n_trips = nrays * negroups_;
+#pragma omp target teams distribute parallel for
+        for (int64_t i = 0; i < n_trips; i++) {
+          int ray_idx = i / negroups_;
+          RandomRay& ray = rays[ray_idx];
+          int g = i % negroups_;
+
+          for (int s = 0; s < ray.n_event_; s++) {
+            Segment& segment =
+              RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
+            if (s == 0 && block == 0) {
+              psi[ray_idx * negroups_ + g] =
+                RandomRaySimulation::domain_
+                  ->source_[segment.sr * negroups_ + g];
+            }
+
+            psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
+              segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+          }
+        }
+      } else {
+        //////////////////////////////////////////////////////////
+        // linear source
+        //////////////////////////////////////////////////////////
+        // Do all bookkeeping
+#pragma omp target teams distribute parallel for num_teams(nrays)
+        for (int i = 0; i < nrays; i++) {
+          RandomRay& ray = rays[i];
+          for (int s = 0; s < ray.n_event_; s++) {
+            Segment& segment =
+              RandomRay::segments_[i * RandomRay::max_segments_ + s];
+            linear_source_bookkeeping(segment);
+          }
+        }
+
+        // Do all flux attenuation
+        int n_trips = nrays * negroups_;
+#pragma omp target teams distribute parallel for
+        for (int64_t i = 0; i < n_trips; i++) {
+          int ray_idx = i / negroups_;
+          RandomRay& ray = rays[ray_idx];
+          int g = i % negroups_;
+
+          for (int s = 0; s < ray.n_event_; s++) {
+            Segment& segment =
+              RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
+            if (s == 0 && block == 0) {
+              psi[ray_idx * negroups_ + g] =
+                RandomRaySimulation::ls_domain_
+                  ->source_[segment.sr * negroups_ + g];
+            }
+
+            psi[ray_idx * negroups_ + g] = linear_source_flux_attenuation(
+              segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+          }
         }
       }
     }
