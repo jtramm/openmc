@@ -72,6 +72,9 @@ public:
   //! \param capacity The number of elements to allocate in the container
   void reserve(int capacity)
   {
+    if (capacity <= capacity_) {
+      return;
+    }
     data_ = new T[capacity];
     capacity_ = capacity;
   }
@@ -108,19 +111,6 @@ public:
     data_[idx] = value;
 
     return idx;
-  }
-
-  //! Free any space that was allocated for the container. Set the
-  //! container's size and capacity to 0.
-  void clear()
-  {
-    if( data_ != nullptr )
-    {
-      delete[] data_;
-      data_ = nullptr;
-    }
-    size_ = 0;
-    capacity_ = 0;
   }
 
   //! Return the number of elements in the container
@@ -177,6 +167,12 @@ public:
     //device_data_ = static_cast<T*>(omp_get_mapped_ptr(data_, omp_get_default_device()));
   }
 
+  //! Free allocated memory on device
+  void free_on_device()
+  {
+    #pragma omp target exit data map(delete: data_[:capacity_])
+  }
+
   void copy_host_to_device()
   {
     #pragma omp target update to(size_)
@@ -187,6 +183,20 @@ public:
   {
     #pragma omp target update from(data_[:capacity_])
     #pragma omp target update from(size_)
+  }
+
+  //! Free any space that was allocated for the container. Set the
+  //! container's size and capacity to 0.
+  void clear()
+  {
+    if( data_ != nullptr )
+    {
+      free_on_device();
+      delete[] data_;
+      data_ = nullptr;
+    }
+    size_ = 0;
+    capacity_ = 0;
   }
   
   //==========================================================================
