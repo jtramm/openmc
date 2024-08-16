@@ -72,6 +72,9 @@ public:
   //! \param capacity The number of elements to allocate in the container
   void reserve(int capacity)
   {
+    if (capacity <= capacity_) {
+      return;
+    }
     data_ = new T[capacity];
     capacity_ = capacity;
   }
@@ -116,6 +119,7 @@ public:
   {
     if( data_ != nullptr )
     {
+      free_on_device();
       delete[] data_;
       data_ = nullptr;
     }
@@ -175,6 +179,12 @@ public:
     
     // If OpenMP 5.1 is fully supported, we can more simply just do:
     //device_data_ = static_cast<T*>(omp_get_mapped_ptr(data_, omp_get_default_device()));
+  }
+
+  //! Free allocated memory on device
+  void free_on_device()
+  {
+    #pragma omp target exit data map(delete: data_[:capacity_])
   }
 
   void copy_host_to_device()
