@@ -113,20 +113,6 @@ public:
     return idx;
   }
 
-  //! Free any space that was allocated for the container. Set the
-  //! container's size and capacity to 0.
-  void clear()
-  {
-    if( data_ != nullptr )
-    {
-      free_on_device();
-      delete[] data_;
-      data_ = nullptr;
-    }
-    size_ = 0;
-    capacity_ = 0;
-  }
-
   //! Return the number of elements in the container
   int size() {return size_;}
   
@@ -197,6 +183,20 @@ public:
   {
     #pragma omp target update from(data_[:capacity_])
     #pragma omp target update from(size_)
+  }
+
+  //! Free any space that was allocated for the container. Set the
+  //! container's size and capacity to 0.
+  void clear()
+  {
+    if( data_ != nullptr )
+    {
+      free_on_device();
+      delete[] data_;
+      data_ = nullptr;
+    }
+    size_ = 0;
+    capacity_ = 0;
   }
   
   //==========================================================================
