@@ -64,7 +64,7 @@ int32_t find_root_universe();
 //! Populate all data structures needed for distribcells.
 //==============================================================================
 
-void prepare_distribcell();
+void prepare_distribcell(const std::vector<int32_t>* user_distribcells = nullptr);
 
 //==============================================================================
 //! Recursively search through the geometry and count cell instances.

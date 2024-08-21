@@ -24,6 +24,10 @@
 #include "openmc/wmp.h"
 #include "openmc/material.h"
 
+#ifndef NO_MICRO_XS_CACHE
+#define NO_MICRO_XS_CACHE
+#endif
+
 namespace openmc {
 
 //==============================================================================

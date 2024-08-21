@@ -312,39 +312,54 @@ find_root_universe()
 
 //==============================================================================
 
-void
-prepare_distribcell()
+void prepare_distribcell(const std::vector<int32_t>* user_distribcells)
 {
   write_message("Preparing distributed cell instances...", 5);
 
-  // Find all cells listed in a DistribcellFilter or CellInstanceFilter
   std::unordered_set<int32_t> distribcells;
+
+  // start with any cells manually specified via the C++ API
+  if (user_distribcells) {
+    distribcells.insert(user_distribcells->begin(), user_distribcells->end());
+  }
+
+  // Find all cells listed in a DistribcellFilter or CellInstanceFilter
   for (int i = 0; i < model::n_tally_filters; i++) {
-    Filter& distrib_filt = model::tally_filters[i];
-    if (distrib_filt.get_type() == Filter::FilterType::DistribcellFilter) {
-      distribcells.insert(distrib_filt.cell());
+    auto& filt = model::tally_filters[i];
+  
+  //for (auto& filt : model::tally_filters) {
+    Filter::FilterType filt_type = filt.get_type();
+    //auto* distrib_filt = dynamic_cast<DistribcellFilter*>(filt.get());
+    //auto* cell_inst_filt = dynamic_cast<CellInstanceFilter*>(filt.get());
+    if (filt_type == Filter::FilterType::DistribcellFilter) {
+      distribcells.insert(filt.cell());
+    }
+    if (filt_type == Filter::FilterType::CellInstanceFilter) {
+      const auto& filter_cells = filt.cells();
+      distribcells.insert(filter_cells.begin(), filter_cells.end());
     }
   }
 
   // By default, add material cells to the list of distributed cells
   if (settings::material_cell_offsets) {
     for (gsl::index i = 0; i < model::cells.size(); ++i) {
-      if (model::cells[i].type_ == Fill::MATERIAL) distribcells.insert(i);
+      if (model::cells[i].type_ == Fill::MATERIAL)
+        distribcells.insert(i);
     }
   }
 
   // Make sure that the number of materials/temperatures matches the number of
   // cell instances.
   for (int i = 0; i < model::cells.size(); i++) {
-    Cell& c {model::cells[i]};
+    Cell& c = model::cells[i];
 
     if (c.material_.size() > 1) {
       if (c.material_.size() != c.n_instances_) {
         fatal_error(fmt::format(
           "Cell {} was specified with {} materials but has {} distributed "
           "instances. The number of materials must equal one or the number "
-          "of instances.", c.id_, c.material_.size(), c.n_instances_
-        ));
+          "of instances.",
+          c.id_, c.material_.size(), c.n_instances_));
       }
     }
 
@@ -353,8 +368,8 @@ prepare_distribcell()
         fatal_error(fmt::format(
           "Cell {} was specified with {} temperatures but has {} distributed "
           "instances. The number of temperatures must equal one or the number "
-          "of instances.", c.id_, c.sqrtkT_.size(), c.n_instances_
-        ));
+          "of instances.",
+          c.id_, c.sqrtkT_.size(), c.n_instances_));
       }
     }
   }
@@ -362,7 +377,7 @@ prepare_distribcell()
   // Search through universes for material cells and assign each one a
   // unique distribcell array index.
   int distribcell_index = 0;
-  std::vector<int32_t> target_univ_ids;
+  vector<int32_t> target_univ_ids;
   for (const auto& u : model::universes) {
     for (auto idx : u.cells_) {
       if (distribcells.find(idx) != distribcells.end()) {
@@ -383,8 +398,8 @@ prepare_distribcell()
     lat.allocate_offset_table(n_maps);
   }
 
-  // Fill the cell and lattice offset tables.
-  #pragma omp parallel for
+// Fill the cell and lattice offset tables.
+#pragma omp parallel for
   for (int map = 0; map < target_univ_ids.size(); map++) {
     auto target_univ_id = target_univ_ids[map];
     std::unordered_map<int32_t, int32_t> univ_count_memo;
@@ -396,13 +411,14 @@ prepare_distribcell()
         if (c.type_ == Fill::UNIVERSE) {
           c.offset_[map] = offset;
           int32_t search_univ = c.fill_;
-          offset += count_universe_instances(search_univ, target_univ_id,
-                                             univ_count_memo);
+          offset += count_universe_instances(
+            search_univ, target_univ_id, univ_count_memo);
 
         } else if (c.type_ == Fill::LATTICE) {
+          c.offset_[map] = offset;
           Lattice& lat = model::lattices[c.fill_];
-          offset = lat.fill_offset_table(offset, target_univ_id, map,
-                                         univ_count_memo);
+          offset +=
+            lat.fill_offset_table(offset, target_univ_id, map, univ_count_memo);
         }
       }
     }
