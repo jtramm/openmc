@@ -338,7 +338,9 @@ typename vector<T>::iterator vector<T>::erase(vector<T>::const_iterator pos)
   }
 
   // Add space for one more element
-  this->resize(size_ - 1);
+  //this->resize(size_ - 1);
+  size_ -= 1;
+  data_[size_].~T();
 
   // Return new iterator
   return data_ + idx;
