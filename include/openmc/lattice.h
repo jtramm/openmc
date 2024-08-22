@@ -130,6 +130,11 @@ public:
   std::array<int, 3> HexLattice_get_indices(Position r, Direction u) const;
   #pragma omp end declare target
 
+  //! \brief Compute the the flat index for a set of lattice cell indices
+  //! \param i_xyz The indices for a lattice cell.
+  //! \return Flat index into the universes vector.
+  int get_flat_index(const std::array<int, 3>& i_xyz);
+
   //! \brief Get coordinates local to a lattice tile.
   //! \param r A 3D Cartesian coordinate.
   //! \param i_xyz The indices for a lattice tile.

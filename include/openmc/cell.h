@@ -169,6 +169,15 @@ public:
   //!   temperatures.
   void set_temperature(double T, int32_t instance = -1, bool set_contained = false);
 
+  //! Get all cell instances contained by this cell
+  //! \param[in] instance Instance of the cell for which to get contained cells
+  //! (default instance is zero)
+  //! \param[in] hint positional hint for determining the parent cells
+  //! \return Map with cell indexes as keys and
+  //! instances as values
+  std::unordered_map<int32_t, vector<int32_t>> get_contained_cells(
+    int32_t instance = 0, Position* hint = nullptr) const;
+
   //! Get the name of a cell
   //! \return Cell name
   const std::string& name() const { return name_; };
@@ -179,14 +188,37 @@ public:
 
   //! Get all cell instances contained by this cell
   //! \return Map with cell indexes as keys and instances as values
-  std::unordered_map<int32_t, std::vector<int32_t>>
-  get_contained_cells() const;
+  //std::unordered_map<int32_t, std::vector<int32_t>>
+  //get_contained_cells() const;
 
 protected:
-  void
-  get_contained_cells_inner(std::unordered_map<int32_t, std::vector<int32_t>>& contained_cells,
-                            std::vector<ParentCell>& parent_cells) const;
+  
+  //get_contained_cells_inner(std::unordered_map<int32_t, std::vector<int32_t>>& contained_cells,
+  //                          std::vector<ParentCell>& parent_cells) const;
 
+  //! Determine the path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cells for
+  //! \param[in] r position used to do a fast search for parent cells
+  //! \return parent cells
+  vector<ParentCell> find_parent_cells(
+    int32_t instance, const Position& r) const;
+
+  //! Determine the path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cells for
+  //! \param[in] p particle used to do a fast search for parent cells
+  //! \return parent cells
+  vector<ParentCell> find_parent_cells(
+    int32_t instance, Particle& p) const;
+
+  //! Determine the path to this cell instance in the geometry hierarchy
+  //! \param[in] instance of the cell to find parent cells for
+  //! \return parent cells
+  vector<ParentCell> exhaustive_find_parent_cells(int32_t instance) const;
+
+  //! Inner function for retrieving contained cells
+  void get_contained_cells_inner(
+    std::unordered_map<int32_t, vector<int32_t>>& contained_cells,
+    vector<ParentCell>& parent_cells) const;
 public:
   //----------------------------------------------------------------------------
   // Data members
@@ -379,10 +411,10 @@ public:
 //! Define a containing (parent) cell
 //==============================================================================
 
-struct ParentCell {
-  gsl::index cell_index;
-  gsl::index lattice_index;
-};
+//struct ParentCell {
+//  gsl::index cell_index;
+//  gsl::index lattice_index;
+//};
 
 //==============================================================================
 //! Define an instance of a particular cell

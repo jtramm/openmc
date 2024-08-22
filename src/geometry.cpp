@@ -69,6 +69,46 @@ bool check_cell_overlap(Particle& p, bool error)
 
 //==============================================================================
 
+int cell_instance_at_level(const Particle& p, int level)
+{
+  // throw error if the requested level is too deep for the geometry
+  if (level > model::n_coord_levels) {
+    fatal_error(fmt::format("Cell instance at level {} requested, but only {} "
+                            "levels exist in the geometry.",
+      level, p.n_coord_));
+  }
+
+  // determine the cell instance
+  Cell& c = model::cells[p.coord_[level].cell];
+
+  // quick exit if this cell doesn't have distribcell instances
+  if (c.distribcell_index_ == C_NONE)
+    return C_NONE;
+
+  // compute the cell's instance
+  int instance = 0;
+  for (int i = 0; i < level; i++) {
+    const auto& c_i  = model::cells[p.coord_[i].cell];
+    if (c_i.type_ == Fill::UNIVERSE) {
+      instance += c_i.offset_[c.distribcell_index_];
+    } else if (c_i.type_ == Fill::LATTICE) {
+      instance += c_i.offset_[c.distribcell_index_];
+      auto& lat = model::lattices[p.coord_[i + 1].lattice];
+      const int i_xyz[3] {p.coord_[i + 1].lattice_x, p.coord_[i + 1].lattice_y,
+        p.coord_[i + 1].lattice_z};
+      //const std::array<int, 3> i_xyz {p.coord_[i + 1].lattice_x, p.coord_[i + 1].lattice_y,
+      //  p.coord_[i + 1].lattice_z};
+      //const auto& i_xyz {p.coord_[i + 1].lattice_i};
+      if (lat.are_valid_indices(i_xyz)) {
+        instance += lat.offset(c.distribcell_index_, i_xyz);
+      }
+    }
+  }
+  return instance;
+}
+
+//==============================================================================
+
 bool
 find_cell_inner(Particle& p, const NeighborList* neighbor_list)
 {

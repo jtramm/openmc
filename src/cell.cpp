@@ -1457,6 +1457,340 @@ openmc_cell_set_name(int32_t index, const char* name) {
 }
 
 
+
+
+
+
+
+
+
+
+//==============================================================================
+//! Define a containing (parent) cell
+//==============================================================================
+
+//! Used to locate a universe fill in the geometry
+struct ParentCell {
+  bool operator==(const ParentCell& other) const
+  {
+    return cell_index == other.cell_index &&
+           lattice_index == other.lattice_index;
+  }
+
+  bool operator<(const ParentCell& other) const
+  {
+    return cell_index < other.cell_index ||
+           (cell_index == other.cell_index &&
+             lattice_index < other.lattice_index);
+  }
+
+  gsl::index cell_index;
+  gsl::index lattice_index;
+};
+
+//! Structure used to insert ParentCell into hashed STL data structures
+struct ParentCellHash {
+  std::size_t operator()(const ParentCell& p) const
+  {
+    return 4096 * p.cell_index + p.lattice_index;
+  }
+};
+
+//! Used to manage a traversal stack when locating parent cells of a cell
+//! instance in the model
+struct ParentCellStack {
+
+  //! push method that adds to the parent_cells visited cells for this search
+  //! universe
+  void push(int32_t search_universe, const ParentCell& pc)
+  {
+    parent_cells_.push_back(pc);
+    // add parent cell to the set of cells we've visited for this search
+    // universe
+    visited_cells_[search_universe].insert(pc);
+  }
+
+  //! removes the last parent_cell and clears the visited cells for the popped
+  //! cell's universe
+  void pop()
+  {
+    visited_cells_[this->current_univ()].clear();
+    parent_cells_.pop_back();
+  }
+
+  //! checks whether or not the parent cell has been visited already for this
+  //! search universe
+  bool visited(int32_t search_universe, const ParentCell& parent_cell)
+  {
+    return visited_cells_[search_universe].count(parent_cell) != 0;
+  }
+
+  //! return the next universe to search for a parent cell
+  int32_t current_univ() const
+  {
+    return model::cells[parent_cells_.back().cell_index].universe_;
+  }
+
+  //! indicates whether nor not parent cells are present on the stack
+  bool empty() const { return parent_cells_.empty(); }
+
+  //! compute an instance for the provided distribcell index
+  int32_t compute_instance(int32_t distribcell_index) const
+  {
+    if (distribcell_index == C_NONE)
+      return 0;
+
+    int32_t instance = 0;
+    for (const auto& parent_cell : this->parent_cells_) {
+      auto& cell = model::cells[parent_cell.cell_index];
+      if (cell.type_ == Fill::UNIVERSE) {
+        instance += cell.offset_[distribcell_index];
+      } else if (cell.type_ == Fill::LATTICE) {
+        auto& lattice = model::lattices[cell.fill_];
+        instance +=
+          lattice.offset(distribcell_index, parent_cell.lattice_index);
+      }
+    }
+    return instance;
+  }
+
+  // Accessors
+  vector<ParentCell>& parent_cells() { return parent_cells_; }
+  const vector<ParentCell>& parent_cells() const { return parent_cells_; }
+
+  // Data Members
+  vector<ParentCell> parent_cells_;
+  std::unordered_map<int32_t, std::unordered_set<ParentCell, ParentCellHash>>
+    visited_cells_;
+};
+
+vector<ParentCell> Cell::find_parent_cells(
+  int32_t instance, const Position& r) const
+{
+
+  // create a temporary particle
+  Particle dummy_particle {};
+  dummy_particle.r() = r;
+  dummy_particle.u() = {0., 0., 1.};
+
+  return find_parent_cells(instance, dummy_particle);
+}
+
+vector<ParentCell> Cell::find_parent_cells(
+  int32_t instance, Particle& p) const
+{
+  // look up the particle's location
+  exhaustive_find_cell(p);
+  const auto& coords = p.coord_;
+
+  // build a parent cell stack from the particle coordinates
+  ParentCellStack stack;
+  bool cell_found = false;
+  for (int i = 0; i < COORD_SIZE; i++) {
+  //for (auto it = coords.begin(); it != coords.end(); it++) {
+    const auto& coord = coords[i];
+    //const auto& coord = *it;
+    const auto& cell = model::cells[coord.cell];
+    // if the cell at this level matches the current cell, stop adding to the
+    // stack
+    if (coord.cell == model::cell_map[this->id_]) {
+      cell_found = true;
+      break;
+    }
+
+    // if filled with a lattice, get the lattice index from the next
+    // level in the coordinates to push to the stack
+    int lattice_idx = C_NONE;
+    if (cell.type_ == Fill::LATTICE) {
+      //const auto& next_coord = *(it + 1);
+      const auto& next_coord = coords[i + 1];
+      auto& lattice = model::lattices[next_coord.lattice];
+      std::array<int, 3> i_xyz {next_coord.lattice_x, next_coord.lattice_y, next_coord.lattice_z};
+      if (lattice.type_ == LatticeType::rect) {
+        lattice_idx = lattice.RectLattice_index(i_xyz);
+      } else if (lattice.type_ == LatticeType::hex) {
+        lattice_idx = lattice.HexLattice_index(i_xyz);
+      }
+      //lattice_idx = model::lattices[next_coord.lattice].get_flat_index(
+      //  next_coord.lattice_i);
+    }
+    stack.push(coord.universe, {coord.cell, lattice_idx});
+  }
+
+  // if this loop finished because the cell was found and
+  // the instance matches the one requested in the call
+  // we have the correct path and can return the stack
+  if (cell_found &&
+      stack.compute_instance(this->distribcell_index_) == instance) {
+    return stack.parent_cells();
+  }
+
+  // fall back on an exhaustive search for the cell's parents
+  return exhaustive_find_parent_cells(instance);
+}
+
+vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
+{
+  ParentCellStack stack;
+  // start with this cell's universe
+  int32_t prev_univ_idx;
+  int32_t univ_idx = this->universe_;
+
+  while (true) {
+    const auto& univ = model::universes[univ_idx];
+    prev_univ_idx = univ_idx;
+
+    // search for a cell that is filled w/ this universe
+    for (const auto& cell : model::cells) {
+      // if this is a material-filled cell, move on
+      if (cell.type_ == Fill::MATERIAL)
+        continue;
+
+      if (cell.type_ == Fill::UNIVERSE) {
+        // if this is in the set of cells previously visited for this universe,
+        // move on
+        if (stack.visited(univ_idx, {model::cell_map[cell.id_], C_NONE}))
+          continue;
+
+        // if this cell contains the universe we're searching for, add it to the
+        // stack
+        if (cell.fill_ == univ_idx) {
+          stack.push(univ_idx, {model::cell_map[cell.id_], C_NONE});
+          univ_idx = cell.universe_;
+        }
+      } else if (cell.type_ == Fill::LATTICE) {
+        // retrieve the lattice and lattice universes
+        const auto& lattice = model::lattices[cell.fill_];
+        const auto& lattice_univs = lattice.universes_;
+
+        // start search for universe
+        auto lat_it = lattice_univs.begin();
+        while (true) {
+          // find the next lattice cell with this universe
+          lat_it = std::find(lat_it, lattice_univs.end(), univ_idx);
+          if (lat_it == lattice_univs.end())
+            break;
+
+          int lattice_idx = lat_it - lattice_univs.begin();
+
+          // move iterator forward one to avoid finding the same entry
+          lat_it++;
+          if (stack.visited(
+                univ_idx, {model::cell_map[cell.id_], lattice_idx}))
+            continue;
+
+          // add this cell and lattice index to the stack and exit loop
+          stack.push(univ_idx, {model::cell_map[cell.id_], lattice_idx});
+          univ_idx = cell.universe_;
+          break;
+        }
+      }
+      // if we've updated the universe, break
+      if (prev_univ_idx != univ_idx)
+        break;
+    } // end cell loop search for universe
+
+    // if we're at the top of the geometry and the instance matches, we're done
+    if (univ_idx == model::root_universe &&
+        stack.compute_instance(this->distribcell_index_) == instance)
+      break;
+
+    // if there is no match on the original cell's universe, report an error
+    if (univ_idx == this->universe_) {
+      fatal_error(
+        fmt::format("Could not find the parent cells for cell {}, instance {}.",
+          this->id_, instance));
+    }
+
+    // if we don't find a suitable update, adjust the stack and continue
+    if (univ_idx == model::root_universe || univ_idx == prev_univ_idx) {
+      stack.pop();
+      univ_idx = stack.empty() ? this->universe_ : stack.current_univ();
+    }
+
+  } // end while
+
+  // reverse the stack so the highest cell comes first
+  std::reverse(stack.parent_cells().begin(), stack.parent_cells().end());
+  return stack.parent_cells();
+}
+
+std::unordered_map<int32_t, vector<int32_t>> Cell::get_contained_cells(
+  int32_t instance, Position* hint) const
+{
+  std::unordered_map<int32_t, vector<int32_t>> contained_cells;
+
+  // if this is a material-filled cell it has no contained cells
+  if (this->type_ == Fill::MATERIAL)
+    return contained_cells;
+
+  // find the pathway through the geometry to this cell
+  vector<ParentCell> parent_cells;
+
+  // if a positional hint is provided, attempt to do a fast lookup
+  // of the parent cells
+  parent_cells = hint ? find_parent_cells(instance, *hint)
+                      : exhaustive_find_parent_cells(instance);
+
+  // if this cell is filled w/ a material, it contains no other cells
+  if (type_ != Fill::MATERIAL) {
+    this->get_contained_cells_inner(contained_cells, parent_cells);
+  }
+
+  return contained_cells;
+}
+
+//! Get all cells within this cell
+void Cell::get_contained_cells_inner(
+  std::unordered_map<int32_t, vector<int32_t>>& contained_cells,
+  vector<ParentCell>& parent_cells) const
+{
+
+  // filled by material, determine instance based on parent cells
+  if (type_ == Fill::MATERIAL) {
+    int instance = 0;
+    if (this->distribcell_index_ >= 0) {
+      for (auto& parent_cell : parent_cells) {
+        auto& cell = model::cells[parent_cell.cell_index];
+        if (cell.type_ == Fill::UNIVERSE) {
+          instance += cell.offset_[distribcell_index_];
+        } else if (cell.type_ == Fill::LATTICE) {
+          auto& lattice = model::lattices[cell.fill_];
+          instance += lattice.offset(
+            this->distribcell_index_, parent_cell.lattice_index);
+        }
+      }
+    }
+    // add entry to contained cells
+    contained_cells[model::cell_map[id_]].push_back(instance);
+    // filled with universe, add the containing cell to the parent cells
+    // and recurse
+  } else if (type_ == Fill::UNIVERSE) {
+    parent_cells.push_back({model::cell_map[id_], -1});
+    auto& univ = model::universes[fill_];
+    for (auto cell_index : univ.cells_) {
+      auto& cell = model::cells[cell_index];
+      cell.get_contained_cells_inner(contained_cells, parent_cells);
+    }
+    parent_cells.pop_back();
+    // filled with a lattice, visit each universe in the lattice
+    // with a recursive call to collect the cell instances
+  } else if (type_ == Fill::LATTICE) {
+    auto& lattice = model::lattices[fill_];
+    for (auto i = lattice.begin(); i != lattice.end(); ++i) {
+      auto& univ = model::universes[*i];
+      parent_cells.push_back({model::cell_map[id_], i.indx_});
+      for (auto cell_index : univ.cells_) {
+        auto& cell = model::cells[cell_index];
+        cell.get_contained_cells_inner(contained_cells, parent_cells);
+      }
+      parent_cells.pop_back();
+    }
+  }
+}
+
+/*
+
 std::unordered_map<int32_t, std::vector<int32_t>>
 Cell::get_contained_cells() const {
   std::unordered_map<int32_t, std::vector<int32_t>> contained_cells;
@@ -1517,6 +1851,21 @@ Cell::get_contained_cells_inner(std::unordered_map<int32_t, std::vector<int32_t>
     }
   }
 }
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //! Return the index in the cells array of a cell with a given ID
 extern "C" int
