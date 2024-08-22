@@ -92,7 +92,7 @@ void run_particle_restart()
   if (settings::write_all_tracks) p.write_track_ = true;
 
   // Set all tallies to 0 for now (just tracking errors)
-  model::tallies_size = 0;
+  model::tallies.clear();
 
   // Compute random number seed
   int64_t particle_seed;

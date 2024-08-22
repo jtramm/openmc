@@ -161,12 +161,12 @@ openmc_statepoint_write(const char* filename, bool* write_source)
     close_group(filters_group);
 
     // Write information for tallies
-    write_attribute(tallies_group, "n_tallies", model::tallies_size);
-    if (model::tallies_size > 0) {
+    write_attribute(tallies_group, "n_tallies", model::tallies.size());
+    if (model::tallies.size() > 0) {
       // Write tally IDs
       std::vector<int32_t> tally_ids;
-      tally_ids.reserve(model::tallies_size);
-      for (int i = 0; i < model::tallies_size; ++i)
+      tally_ids.reserve(model::tallies.size());
+      for (int i = 0; i < model::tallies.size(); ++i)
         tally_ids.push_back(model::tallies[i].id_);
       write_attribute(tallies_group, "ids", tally_ids);
 
@@ -176,7 +176,7 @@ openmc_statepoint_write(const char* filename, bool* write_source)
 #endif
 
       // Write all tally information except results
-      for (int i = 0; i < model::tallies_size; ++i) {
+      for (int i = 0; i < model::tallies.size(); ++i) {
         const auto& tally = &model::tallies[i];
         hid_t tally_group = create_group(tallies_group,
           "tally " + std::to_string(tally->id_));
@@ -250,7 +250,7 @@ openmc_statepoint_write(const char* filename, bool* write_source)
         write_attribute(file_id, "tallies_present", 1);
 
         // Write all tally results
-        for (int i = 0; i < model::tallies_size; ++i) {
+        for (int i = 0; i < model::tallies.size(); ++i) {
           const auto& tally = &model::tallies[i];
           if (!tally->writable_) continue;
           // Write sum and sum_sq for each bin
@@ -451,7 +451,7 @@ void load_state_point()
     if (present) {
       hid_t tallies_group = open_group(file_id, "tallies");
 
-      for (int i = 0; i < model::tallies_size; ++i) {
+      for (int i = 0; i < model::tallies.size(); ++i) {
         auto& tally = model::tallies[i];
         // Read sum, sum_sq, and N for each bin
         std::string name = "tally " + std::to_string(tally.id_);
@@ -896,7 +896,7 @@ void write_tally_results_nr(hid_t file_id)
     write_dataset(file_id, "global_tallies", gt);
   }
 
-  for (int i = 0; i < model::tallies_size; ++i) {
+  for (int i = 0; i < model::tallies.size(); ++i) {
     const auto& t = &model::tallies[i];
     // Skip any tallies that are not active
     if (!t->active_) continue;

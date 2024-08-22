@@ -105,7 +105,7 @@ int openmc_simulation_init()
 
 
   // Allocate tally results arrays if they're not allocated yet
-  for (int i = 0; i < model::tallies_size; ++i) {
+  for (int i = 0; i < model::tallies.size(); ++i) {
     model::tallies[i].init_results();
   }
 
@@ -184,7 +184,7 @@ int openmc_simulation_finalize()
   if (settings::output_tallies && mpi::master) write_tallies();
 
   // Deactivate all tallies
-  for (int i = 0; i < model::tallies_size; ++i) {
+  for (int i = 0; i < model::tallies.size(); ++i) {
     model::tallies[i].active_ = false;
   }
 
@@ -372,7 +372,7 @@ void initialize_batch()
   } else if (first_active) {
     simulation::time_inactive.stop();
     simulation::time_active.start();
-    for (int i = 0; i < model::tallies_size; ++i) {
+    for (int i = 0; i < model::tallies.size(); ++i) {
       model::tallies[i].active_ = true;
     }
     // Add user tallies to active tallies list
@@ -692,7 +692,7 @@ void initialize_data()
 #ifdef OPENMC_MPI
 void broadcast_results() {
   // Broadcast tally results so that each process has access to results
-  for (int i = 0; i < model::tallies_size; i++) {
+  for (int i = 0; i < model::tallies.size(); i++) {
     Tally* t = &model::tallies[i];
     // Create a new datatype that consists of all values for a given filter
     // bin and then use that to broadcast. This is done to minimize the
@@ -860,7 +860,7 @@ void transport_event_based()
   
   // Transfer tally data to device for on-device tallying
   if (!model::active_tracklength_tallies.empty()) {
-    for (int i = 0; i < model::tallies_size; ++i) {
+    for (int i = 0; i < model::tallies.size(); ++i) {
       auto& tally = model::tallies[i];
       tally.update_host_to_device();
     }
@@ -938,7 +938,7 @@ void transport_event_based()
   
   // Transfer tally data back to host for host-side accumulation
   if (!model::active_tracklength_tallies.empty()) {
-    for (int i = 0; i < model::tallies_size; ++i) {
+    for (int i = 0; i < model::tallies.size(); ++i) {
       auto& tally = model::tallies[i];
       tally.update_device_to_host();
     }

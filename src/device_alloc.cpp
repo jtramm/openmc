@@ -32,7 +32,7 @@ void enforce_assumptions()
 
   // Assertions made when initializing particles
   assert(model::tally_derivs.size() <= FLUX_DERIVS_SIZE);
-  for (auto i = 0; i < model::tallies_size; i++) {
+  for (auto i = 0; i < model::tallies.size(); i++) {
     assert(model::tallies[i].n_filters() <= FILTER_MATCHES_SIZE);
     assert(model::tallies[i].estimator_ == TallyEstimator::TRACKLENGTH && "Analog and collision tallies not yet supported on device.");
   }
@@ -341,11 +341,12 @@ void move_read_only_data_to_device()
   // Tallies ///////////////////////////////////////////////////
 
   if (mpi::master) {
-    std::cout << " Moving " << model::tallies_size << " tallies to device..." << std::endl;
+    std::cout << " Moving " << model::tallies.size() << " tallies to device..." << std::endl;
   }
-  #pragma omp target update to(model::tallies_size)
-  #pragma omp target enter data map(to: model::tallies[:model::tallies_size])
-  for (int i = 0; i < model::tallies_size; ++i) {
+  model::tallies.copy_to_device();
+  //#pragma omp target update to(model::tallies_size)
+  //#pragma omp target enter data map(to: model::tallies[:model::tallies_size])
+  for (int i = 0; i < model::tallies.size(); ++i) {
     auto& tally = model::tallies[i];
     if (mpi::master) {
       std::cout << "   Moving tally " << tally.id_ << " containing " << tally.n_filter_bins() << " bins with " << tally.n_scores_ << " scores each. Total size: " << (double) tally.results_size_ * sizeof(double) / 1.0e6 << " MB" << std::endl;
@@ -372,7 +373,7 @@ void release_data_from_device()
     data::elements[i].release_from_device();
   }
 
-  for (int i = 0; i < model::tallies_size; ++i) {
+  for (int i = 0; i < model::tallies.size(); ++i) {
     model::tallies[i].release_from_device();
   }
 }

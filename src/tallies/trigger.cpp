@@ -54,7 +54,7 @@ void
 check_tally_triggers(double& ratio, int& tally_id, int& score)
 {
   ratio = 0.;
-  for (auto i_tally = 0; i_tally < model::tallies_size; ++i_tally) {
+  for (auto i_tally = 0; i_tally < model::tallies.size(); ++i_tally) {
     const Tally& t {model::tallies[i_tally]};
 
     // Ignore tallies with less than two realizations.

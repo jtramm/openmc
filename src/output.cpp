@@ -630,14 +630,14 @@ const std::unordered_map<int, const char*> score_names = {
 void
 write_tallies()
 {
-  if (model::tallies_size == 0) return;
+  if (model::tallies.size() == 0) return;
 
   // Open the tallies.out file.
   std::ofstream tallies_out;
   tallies_out.open("tallies.out", std::ios::out | std::ios::trunc);
 
   // Loop over each tally.
-  for (auto i_tally = 0; i_tally < model::tallies_size; ++i_tally) {
+  for (auto i_tally = 0; i_tally < model::tallies.size(); ++i_tally) {
     const auto& tally {model::tallies[i_tally]};
 
     // Write header block.

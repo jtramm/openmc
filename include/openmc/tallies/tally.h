@@ -165,8 +165,9 @@ namespace model {
   extern std::vector<int> active_surface_tallies;
 
   #pragma omp declare target
-  extern Tally* tallies;
-  extern size_t tallies_size;
+  //extern Tally* tallies;
+  extern vector<Tally> tallies;
+  //extern size_t tallies_size;
   extern int* device_active_tallies;
   extern size_t active_tallies_size;
   extern int* device_active_collision_tallies;
