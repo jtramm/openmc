@@ -48,6 +48,25 @@ public:
     }
   }
 
+      // Equality operator
+    bool operator==(const FilterMatch& rhs) const {
+        if (bins_weights_length_ != rhs.bins_weights_length_) return false;
+        if (i_bin_ != rhs.i_bin_) return false;
+        if (bins_present_ != rhs.bins_present_) return false;
+
+        for (int i = 0; i < bins_weights_length_; ++i) {
+            if (bins_[i] != rhs.bins_[i]) return false;
+            if (fabs(weights_[i] - rhs.weights_[i]) > 1e-6) return false; // Using a small tolerance for floating point comparison
+        }
+
+        return true;
+    }
+
+    // Inequality operator
+    bool operator!=(const FilterMatch& rhs) const {
+        return !(*this == rhs);
+    }
+
 };
 
 class BigFilterMatch

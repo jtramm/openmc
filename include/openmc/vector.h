@@ -84,6 +84,22 @@ public:
   const_reverse_iterator crbegin() const { return rbegin(); }
   const_reverse_iterator crend() const { return rend(); }
 
+      // Equality operator
+    bool operator==(const vector& rhs) const {
+        if (size_ != rhs.size_) return false;  // Size check
+        // Uncomment the following line if you want to compare capacities as well
+        // if (capacity_ != rhs.capacity_) return false;
+        for (size_type i = 0; i < size_; i++) {
+            if (data_[i] != rhs.data_[i]) return false;
+        }
+        return true;
+    }
+
+    // Inequality operator
+    bool operator!=(const vector& rhs) const {
+        return !(*this == rhs);  // Simply use the equality operator
+    }
+
   // Capacity
   bool empty() const { return size_ == 0; }
   size_type size() const { return size_; }
