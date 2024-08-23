@@ -682,7 +682,7 @@ write_tallies()
     // Initialize Filter Matches Object
     vector<BigFilterMatch> filter_matches;
     // Allocate space for tally filter matches
-    filter_matches.resize(model::n_tally_filters);
+    filter_matches.resize(model::tally_filters.size());
 
     //FilterMatch filter_matches[FILTER_MATCHES_SIZE];
 

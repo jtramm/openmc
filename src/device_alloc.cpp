@@ -319,11 +319,10 @@ void move_read_only_data_to_device()
   // Filters ////////////////////////////////////////////////////////////////
 
   if (mpi::master) {
-    std::cout << " Moving " << model::n_tally_filters << " tally filters to device..." << std::endl;
+    std::cout << " Moving " << model::tally_filters.size() << " tally filters to device..." << std::endl;
   }
-  #pragma omp target update to(model::n_tally_filters)
-  #pragma omp target enter data map(to: model::tally_filters[:model::n_tally_filters])
-  for (int i = 0; i < model::n_tally_filters; i++) {
+  model::tally_filters.copy_to_device();
+  for (int i = 0; i < model::tally_filters.size(); i++) {
     model::tally_filters[i].copy_to_device();
   }
 

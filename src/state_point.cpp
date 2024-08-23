@@ -138,19 +138,19 @@ openmc_statepoint_write(const char* filename, bool* write_source)
 
     // Write information for filters
     hid_t filters_group = create_group(tallies_group, "filters");
-    write_attribute(filters_group, "n_filters", model::n_tally_filters);
-    if (model::n_tally_filters > 0) {
+    write_attribute(filters_group, "n_filters", model::tally_filters.size());
+    if (model::tally_filters.size() > 0) {
       // Write filter IDs
       std::vector<int32_t> filter_ids;
-      filter_ids.reserve(model::n_tally_filters);
-      for (int fidx = 0; fidx < model::n_tally_filters; fidx++) {
+      filter_ids.reserve(model::tally_filters.size());
+      for (int fidx = 0; fidx < model::tally_filters.size(); fidx++) {
         Filter& filt = model::tally_filters[fidx];
         filter_ids.push_back(filt.id());
       }
       write_attribute(filters_group, "ids", filter_ids);
 
       // Write info for each filter
-      for (int fidx = 0; fidx < model::n_tally_filters; fidx++) {
+      for (int fidx = 0; fidx < model::tally_filters.size(); fidx++) {
         Filter& filt = model::tally_filters[fidx];
         hid_t filter_group = create_group(filters_group,
           "filter " + std::to_string(filt.id()));

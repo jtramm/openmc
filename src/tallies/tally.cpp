@@ -738,21 +738,22 @@ void read_tallies_xml()
 
   // Determine number of filters
   int n_tally_filters = std::distance(root.children("filter").begin(), root.children("filter").end());
-
+  model::tally_filters.reserve(n_tally_filters);
   if (n_tally_filters > 0 ) {
     // Allocate the filter array
-    model::tally_filters = static_cast<Filter*>(malloc(n_tally_filters * sizeof(Filter)));
+    //model::tally_filters = static_cast<Filter*>(malloc(n_tally_filters * sizeof(Filter)));
 
     // Initialize user filters with placement new operator
     int i = 0;
     for (auto node_filt : root.children("filter")) {
-      new (model::tally_filters + i) Filter(node_filt, i);
+      //new (model::tally_filters + i) Filter(node_filt, i);
+      model::tally_filters.emplace_back(node_filt, i);
       i++;
 
       // The number of tally filters gets updated here, rather than at the end,
       // as the Filter constructor loops through
       // all filters so far created to check if the given id_ is unique or not
-      model::n_tally_filters = i;
+      //model::n_tally_filters = i;
     }
   }
 
@@ -964,12 +965,13 @@ free_memory_tally()
   model::tally_derivs.clear();
   model::tally_deriv_map.clear();
 
-  //model::tally_filters.clear();
-  for (int i = 0; i < model::n_tally_filters; i++) {
-    model::tally_filters[i].~Filter();
-  }
-  free(model::tally_filters);
-  model::n_tally_filters = 0;
+  model::tally_filters.release_device();
+  model::tally_filters.clear();
+  //for (int i = 0; i < model::n_tally_filters; i++) {
+  //  model::tally_filters[i].~Filter();
+  //}
+  //free(model::tally_filters);
+  //model::n_tally_filters = 0;
   model::filter_map.clear();
 
 /*

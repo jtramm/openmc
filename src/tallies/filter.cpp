@@ -23,17 +23,7 @@ namespace openmc {
 
 namespace model {
   std::unordered_map<int, int> filter_map;
-  Filter* tally_filters;
-  int32_t n_tally_filters {0};
-}
-
-//==============================================================================
-// Non-member functions
-//==============================================================================
-
-extern "C" size_t tally_filters_size()
-{
-  return model::n_tally_filters;
+  vector<Filter> tally_filters;
 }
 
 //==============================================================================
@@ -130,6 +120,11 @@ Filter::Filter(pugi::xml_node node, int32_t index) : index_(index)
   this->from_xml(node);
 }
 
+Filter::Filter(const std::string& type_string) {
+  type_ = get_filter_type(type_string);
+  this->set_id(C_NONE);
+}
+
 void Filter::from_xml(pugi::xml_node node)
 {
   switch(type_){
@@ -182,7 +177,7 @@ void Filter::set_id(int32_t id)
   // If no ID specified, auto-assign next ID in sequence
   if (id == C_NONE) {
     id = 0;
-    for (int i = 0; i < model::n_tally_filters; i++) {
+    for (int i = 0; i < model::tally_filters.size(); i++) {
       Filter& f = model::tally_filters[i];
       id = std::max(id, f.id_);
     }
@@ -343,7 +338,7 @@ void Filter::set_bins(gsl::span<const double> bins)
 
 int verify_filter(int32_t index)
 {
-  if (index < 0 || index >= model::n_tally_filters) {
+  if (index < 0 || index >= model::tally_filters.size()) {
     set_errmsg("Filter index is out of bounds.");
     return OPENMC_E_OUT_OF_BOUNDS;
   }
@@ -394,7 +389,7 @@ extern "C" void
 openmc_get_filter_next_id(int32_t* id)
 {
   int32_t largest_filter_id = 0;
-  for (int i = 0; i < model::n_tally_filters; i++) {
+  for (int i = 0; i < model::tally_filters.size(); i++) {
     Filter& t = model::tally_filters[i];
     largest_filter_id = std::max(largest_filter_id, t.id());
   }

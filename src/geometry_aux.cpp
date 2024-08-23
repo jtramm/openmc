@@ -324,7 +324,7 @@ void prepare_distribcell(const std::vector<int32_t>* user_distribcells)
   }
 
   // Find all cells listed in a DistribcellFilter or CellInstanceFilter
-  for (int i = 0; i < model::n_tally_filters; i++) {
+  for (int i = 0; i < model::tally_filters.size(); i++) {
     auto& filt = model::tally_filters[i];
   
   //for (auto& filt : model::tally_filters) {

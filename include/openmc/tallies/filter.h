@@ -84,6 +84,7 @@ public:
   ~Filter();
 
   Filter(pugi::xml_node node, int32_t index);
+  Filter(const std::string& type_string);
 
   //! Uses an XML input to fill the filter's data fields.
   void from_xml(pugi::xml_node node);
@@ -337,12 +338,10 @@ private:
 //==============================================================================
 
 namespace model {
-  extern "C" int32_t n_filters;
   // TODO: Need to declare the filter_map as target
   extern std::unordered_map<int, int> filter_map;
   #pragma omp declare target
-  extern Filter* tally_filters;
-  extern int32_t n_tally_filters;
+  extern vector<Filter> tally_filters;
   #pragma omp end declare target
 }
 

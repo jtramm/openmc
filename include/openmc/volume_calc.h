@@ -33,6 +33,8 @@ public:
   // Constructors
   VolumeCalculation(pugi::xml_node node);
 
+  VolumeCalculation() = default;
+
   // Methods
 
   //! \brief Stochastically determine the volume of a set of domains along with the

@@ -125,7 +125,7 @@ void run_particle_restart()
 
   // Allocate space for tally filter matches
   //p.filter_matches_.resize(model::tally_filters.size());
-  assert( FILTER_MATCHES_SIZE >= model::n_tally_filters );
+  assert( FILTER_MATCHES_SIZE >= model::tally_filters.size() );
 
   // Transport neutron
   // TODO: run on device
