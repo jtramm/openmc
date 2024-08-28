@@ -119,6 +119,7 @@ struct NuclideMicroXS {
   double absorption;       //!< absorption (disappearance)
   double fission;          //!< fission
   double nu_fission;       //!< neutron production from fission
+  double kappa_fission;
 
   double elastic;          //!< If sab_frac is not 1 or 0, then this value is
                            //!<   averaged over bound and non-bound nuclei
@@ -129,7 +130,6 @@ struct NuclideMicroXS {
   // Cross sections for depletion reactions (note that these are not stored in
   // macroscopic cache)
   double reaction[DEPLETION_RX_SIZE];
-  double kappa_fission;
 
   // Indicies and factors needed to compute cross sections from the data tables
   int index_grid;        //!< Index on nuclide energy grid
@@ -253,12 +253,12 @@ struct MacroXS {
   double absorption;    //!< macroscopic absorption xs
   double fission;       //!< macroscopic fission xs
   double nu_fission;    //!< macroscopic production xs
+  double kappa_fission;  //!< macroscopic kappa-fission xs
   double photon_prod;   //!< macroscopic photon production xs
   
   // Cross sections for depletion reactions
   double reaction[DEPLETION_RX_SIZE];
 
-  double kappa_fission;  //!< macroscopic kappa-fission xs
 
   // Photon cross sections
   double coherent;        //!< macroscopic coherent xs
@@ -276,8 +276,8 @@ struct MicroXS {
   double absorption;    //!< macroscopic absorption xs
   double fission;       //!< macroscopic fission xs
   double nu_fission;    //!< macroscopic production xs
-  double reaction[DEPLETION_RX_SIZE];
   double kappa_fission; //!< macroscopic kappa-fission xs
+  double reaction[DEPLETION_RX_SIZE];
 
   MicroXS() = default;
 
