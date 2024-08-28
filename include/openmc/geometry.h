@@ -17,9 +17,13 @@ namespace openmc {
 
 namespace model {
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern int root_universe;  //!< Index of root universe
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 extern "C" int n_coord_levels; //!< Number of CSG coordinate levels
 
 extern std::vector<int64_t> overlap_check_count;
@@ -30,11 +34,15 @@ extern std::vector<int64_t> overlap_check_count;
 //! Check two distances by coincidence tolerance
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 inline bool coincident(double d1, double d2) {
   return std::abs(d1 - d2) < FP_COINCIDENT;
 }
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Check for overlapping cells at a particle's position.
@@ -61,26 +69,38 @@ int cell_instance_at_level(const Particle& p, int level);
 //! \return True if the particle's location could be found and ascribed to a
 //!   valid geometry coordinate stack.
 //==============================================================================
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 bool exhaustive_find_cell(Particle& p);
 bool neighbor_list_find_cell(Particle& p); // Only usable on surface crossings
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Move a particle into a new lattice tile.
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 void cross_lattice(Particle& p, const BoundaryInfo& boundary);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Find the next boundary a particle will intersect.
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 BoundaryInfo distance_to_boundary(Particle& p);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace openmc
 

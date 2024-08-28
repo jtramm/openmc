@@ -61,28 +61,40 @@ public:
 class ReactionFlat {
 public:
   // Constructors
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit ReactionFlat(const uint8_t* data);
 
   double xs(gsl::index i_temp, gsl::index i_grid, double interp_factor) const;
   double xs(const NuclideMicroXS& micro) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   double collapse_rate(gsl::index i_temp, gsl::span<const double> energy,
     gsl::span<const double> flux, const std::vector<double>& grid) const;
 
   // Accessors
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   int mt() const;
   double q_value() const;
   bool scatter_in_cm() const;
   bool redundant() const;
   int xs_threshold(gsl::index i_temp) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   gsl::span<const double> xs_value(gsl::index i_temp) const;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   ReactionProductFlat products(gsl::index i) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   size_t n_xs() const { return n_xs_; }
   size_t n_products() const { return n_products_; }
 private:
@@ -99,9 +111,13 @@ public:
   void copy_to_device();
   void release_from_device();
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   ReactionFlat obj() const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   int mt() const { return this->obj().mt(); }
 private:
   // Data members

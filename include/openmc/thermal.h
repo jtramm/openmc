@@ -29,9 +29,13 @@ class ThermalScattering;
 namespace data {
 extern std::unordered_map<std::string, int> thermal_scatt_map;
 extern std::vector<ThermalScattering> thermal_scatt;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern ThermalScattering* device_thermal_scatt;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 }
 
 //==============================================================================
@@ -48,9 +52,13 @@ public:
   //! \param[in] E Incident neutron energy in [eV]
   //! \param[out] elastic Elastic scattering cross section in [b]
   //! \param[out] inelastic Inelastic scattering cross section in [b]
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void calculate_xs(double E, double* elastic, double* inelastic) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Sample an outgoing energy and angle
   //
@@ -59,10 +67,14 @@ public:
   //! \param[out] E_out Outgoing neutron energy in [eV]
   //! \param[out] mu Outgoing scattering angle cosine
   //! \param[inout] seed Pseudorandom seed pointer
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void sample(const NuclideMicroXS& micro_xs, double E_in,
               double* E_out, double* mu, uint64_t* seed);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   struct Reaction {
     // Default constructor
@@ -100,10 +112,14 @@ public:
   //! \param[out] elastic Thermal elastic scattering cross section
   //! \param[out] inelastic Thermal inelastic scattering cross section
   //! \param[inout] seed Pseudorandom seed pointer
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void calculate_xs(double E, double sqrtkT, int* i_temp, double* elastic,
                     double* inelastic, double sample) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Determine whether table applies to a particular nuclide
   //!

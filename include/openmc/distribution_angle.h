@@ -42,11 +42,15 @@ private:
 
 class AngleDistributionFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit AngleDistributionFlat(const uint8_t* data);
 
   double sample(double E, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   bool empty() const { return energy().empty(); }
 

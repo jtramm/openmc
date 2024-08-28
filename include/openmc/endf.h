@@ -23,9 +23,13 @@ Interpolation int2interp(int i);
 //! Determine whether MT number corresponds to a fission reaction
 //! \param[in] MT ENDF MT value
 //! \return Whether corresponding reaction is a fission reaction
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 bool is_fission(int MT);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //! Determine if a given MT number is that of a disappearance reaction, i.e., a
 //! reaction with no neutron in the exit channel
@@ -71,11 +75,15 @@ private:
 
 class PolynomialFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit PolynomialFlat(const uint8_t* data) : data_(data) { }
 
   double operator()(double x) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   gsl::span<const double> coef() const;
 
@@ -115,11 +123,15 @@ private:
 
 class Tabulated1DFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit Tabulated1DFlat(const uint8_t* data);
 
   double operator()(double x) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   gsl::span<const double> x() const;
   gsl::span<const double> y() const;
@@ -153,11 +165,15 @@ private:
 
 class CoherentElasticXSFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit CoherentElasticXSFlat(const uint8_t* data) : data_{data} { }
 
   double operator()(double E) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   gsl::span<const double> bragg_edges() const;
   gsl::span<const double> factors() const;
@@ -183,11 +199,15 @@ private:
 
 class IncoherentElasticXSFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit IncoherentElasticXSFlat(const uint8_t* data) : data_{data} { }
 
   double operator()(double E) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   double bound_xs() const { return *reinterpret_cast<const double*>(data_ + 8); }
   double debye_waller() const { return *reinterpret_cast<const double*>(data_ + 16); }

@@ -50,7 +50,9 @@ public:
   //! Initialize logarithmic grid for energy searches
   void init_grid();
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   // Template function for performing a microscopic cross section lookup.
   // This function is templated due to emprical results showing high performance sensitivity
   // to the amount of data being returned by the function. We have also experimented with
@@ -539,7 +541,9 @@ public:
   //! Determines the microscopic 0K elastic cross section at a trial relative
   //! energy used in resonance scattering
   double elastic_xs_0K(double E) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! \brief Calculate reaction rate based on group-wise flux distribution
   //
@@ -623,13 +627,17 @@ private:
   //! \return Temperature index and interpolation factor
   std::pair<gsl::index, double> find_temperature(double T) const;
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   static int XS_TOTAL;
   static int XS_ABSORPTION;
   static int XS_FISSION;
   static int XS_NU_FISSION;
   static int XS_PHOTON_PROD;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 };
 
 //==============================================================================
@@ -649,10 +657,14 @@ namespace data {
 
 // Minimum/maximum transport energy for each particle type. Order corresponds to
 // that of the ParticleType enum
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern std::array<double, 2> energy_min;
 extern std::array<double, 2> energy_max;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //! Minimum temperature in [K] that nuclide data is available at
 extern double temperature_min;
@@ -661,10 +673,14 @@ extern double temperature_min;
 extern double temperature_max;
 
 extern std::unordered_map<std::string, int> nuclide_map;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern Nuclide* nuclides;
 extern size_t nuclides_size;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 extern size_t nuclides_capacity;
 
 } // namespace data

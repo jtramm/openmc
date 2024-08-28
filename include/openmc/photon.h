@@ -49,7 +49,9 @@ public:
   ~PhotonInteraction();
 
   // Methods
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void calculate_xs(Particle& p) const;
 
   void compton_scatter(double alpha, bool doppler, double* alpha_out,
@@ -61,7 +63,9 @@ public:
     double* mu_electron, double* mu_positron, uint64_t* seed) const;
 
   void atomic_relaxation(int i_shell, Particle& p) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   void copy_to_device();
   void release_from_device();
@@ -153,17 +157,25 @@ void free_memory_photon();
 
 namespace data {
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern double* compton_profile_pz; //! Compton profile momentum grid
 extern size_t compton_profile_pz_size;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //! Photon interaction data for each element
 extern std::unordered_map<std::string, int> element_map;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern PhotonInteraction* elements;
 extern size_t elements_size;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 extern size_t elements_capacity;
 
 } // namespace data

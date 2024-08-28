@@ -14,6 +14,7 @@
 #include "openmc/capi.h"
 #include "openmc/constants.h"
 #include "openmc/cross_sections.h"
+#include "openmc/device_alloc.h"
 #include "openmc/error.h"
 #include "openmc/geometry_aux.h"
 #include "openmc/hdf5_interface.h"
@@ -316,6 +317,50 @@ void read_input_xml()
       warning("Cell overlap checking is ON.");
     }
   }
+
+  //move_read_only_data_to_device();
+
+  // Surfaces ////////////////////////////////////////////////////////
+
+  if (mpi::master) {
+    std::cout << " Moving " << model::surfaces.size() << " surfaces to device..." << std::endl;
+  }
+  model::device_surfaces = model::surfaces.data();
+  #pragma omp target enter data map(to: model::device_surfaces[:model::surfaces.size()])
+
+  // Universes ///////////////////////////////////////////////////////
+
+  if (mpi::master) {
+    std::cout << " Moving " << model::universes.size() << " universes to device..." << std::endl;
+  }
+  model::device_universes = model::universes.data();
+  #pragma omp target enter data map(to: model::device_universes[:model::universes.size()])
+  for( auto& universe : model::universes ) {
+    universe.allocate_and_copy_to_device();
+  }
+
+  // Cells //////////////////////////////////////////////////////////
+
+  if (mpi::master) {
+    std::cout << " Moving " << model::cells.size() << " cells to device..." << std::endl;
+  }
+  model::device_cells = model::cells.data();
+  #pragma omp target enter data map(to: model::device_cells[0:model::cells.size()])
+  for( auto& cell : model::cells ) {
+    cell.copy_to_device();
+  }
+
+  // Lattices /////////////////////////////////////////////////////////
+
+  if (mpi::master) {
+    std::cout << " Moving " << model::lattices.size() << " lattices to device..." << std::endl;
+  }
+  model::device_lattices = model::lattices.data();
+  #pragma omp target enter data map(to: model::device_lattices[:model::lattices.size()])
+  for( auto& lattice : model::lattices ) {
+    lattice.allocate_and_copy_to_device();
+  }
+
 
 }
 

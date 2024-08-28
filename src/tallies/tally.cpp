@@ -68,7 +68,7 @@ double global_tally_leakage;
 
 Tally::Tally(int32_t id)
 {
-  index_ = model::tallies.size(); // Avoids warning about narrowing
+  index_ = model::tallies.size()-1; // Avoids warning about narrowing
   this->set_id(id);
   this->set_filters({});
 }
@@ -325,6 +325,7 @@ Tally::set_id(int32_t id)
 void
 Tally::set_filters(gsl::span<Filter*> filters)
 {
+  printf("Appending %d filters\n", filters.size());
   // Clear old data.
   filters_.clear();
   strides_.clear();
@@ -336,6 +337,7 @@ Tally::set_filters(gsl::span<Filter*> filters)
   for (int i = 0; i < n; ++i) {
     // Add index to vector of filters
     auto& f {filters[i]};
+    printf("New Filter Id: %d, index = %d\n", f->id(), model::filter_map.at(f->id()));
     filters_.push_back(model::filter_map.at(f->id()));
 
     // Keep track of indices for special filters.
@@ -353,6 +355,7 @@ Tally::set_filters(gsl::span<Filter*> filters)
   int stride = 1;
   for (int i = n-1; i >= 0; --i) {
     strides_[i] = stride;
+    printf("attempting to access tally_filters at index %d, length is %d\n", filters_[i], model::tally_filters.size());
     stride *= model::tally_filters[filters_[i]].n_bins();
   }
   n_filter_bins_ = stride;
@@ -608,14 +611,19 @@ Tally::init_triggers(pugi::xml_node node)
 void Tally::init_results()
 {
   n_scores_ = scores_.size() * nuclides_.size();
-  results_size_ = n_filter_bins_ * n_scores_ * 3;
-  results_ = static_cast<double*>(malloc(results_size_ * sizeof(double)));
+  uint64_t n = n_filter_bins_ * n_scores_ * 3;
+  //results_size_ = n_filter_bins_ * n_scores_ * 3;
+    printf("Setting results size to %lu\n", n);
+
+  //results_ = static_cast<double*>(malloc(results_size_ * sizeof(double)));
+  results_.resize(n, 0.0);
 }
 
 void Tally::reset()
 {
   n_realizations_ = 0;
-  std::memset(results_, 0, results_size_ * sizeof(double));
+  //std::memset(results_, 0, results_size_ * sizeof(double));
+  std::fill(results_.begin(), results_.end(), 0);
 }
 
 void Tally::accumulate()
@@ -664,18 +672,21 @@ void Tally::copy_to_device()
   nuclides_.copy_to_device();
   filters_.copy_to_device();
   strides_.copy_to_device();
-  #pragma omp target enter data map(alloc: results_[:results_size_])
-  #pragma omp target update to(results_[:results_size_])
+  results_.copy_to_device();
+  //#pragma omp target enter data map(alloc: results_[:results_size_])
+  //#pragma omp target update to(results_[:results_size_])
 }
 
 void Tally::update_host_to_device()
 {
-  #pragma omp target update to(results_[:results_size_])
+  //#pragma omp target update to(results_.size_)
+  results_.update_to_device();
 }
 
 void Tally::update_device_to_host()
 {
-  #pragma omp target update from(results_[:results_size_])
+  //#pragma omp target update from(results_[:results_size_])
+  results_.update_from_device();
 }
 
 void Tally::release_from_device()
@@ -684,22 +695,29 @@ void Tally::release_from_device()
   nuclides_.release_device();
   filters_.release_device();
   strides_.release_device();
-  #pragma omp target exit data map(delete: results_[:results_size_])
+  results_.release_device();
+  //#pragma omp target exit data map(delete: results_[:results_size_])
 }
 
-const double* Tally::results(gsl::index i, gsl::index j, TallyResult k) const
+const double* Tally::results(unsigned long i, unsigned long j, TallyResult k) const
 {
-  return results_ + ((i * n_scores_ + j) * 3 + static_cast<int>(k));
+  //printf("inner size = %d\n", results_.size());
+  //printf("Attempting to access results at index %lu out of length %d\n", ((i * n_scores_ + j) * 3 + static_cast<unsigned long>(k)), results_.size());
+  return &results_[((i * n_scores_ + j) * 3 + static_cast<int>(k))];
 }
 
-double* Tally::results(gsl::index i, gsl::index j, TallyResult k)
+double* Tally::results(unsigned long  i, unsigned long  j, TallyResult k)
 {
-  return results_ + ((i * n_scores_ + j) * 3 + static_cast<int>(k));
+   // printf("inner size = %d\n", results_.size());
+
+    //printf("Attempting to access results at index %lu out of length %d\n", ((i * n_scores_ + j) * 3 + static_cast<unsigned long>(k)), results_.size());
+
+  return &results_[((i * n_scores_ + j) * 3 + static_cast<int>(k))];
 }
 
 std::array<size_t, 3> Tally::results_shape() const
 {
-  return {static_cast<size_t>(n_filter_bins_), n_scores_, 3};
+  return {static_cast<size_t>(n_filter_bins_), n_scores_, static_cast<size_t>(3)};
 }
 
 //==============================================================================
@@ -945,9 +963,12 @@ setup_active_tallies()
   model::device_active_tallies = model::active_tallies.data();
   model::device_active_collision_tallies = model::active_collision_tallies.data();
   model::device_active_tracklength_tallies = model::active_tracklength_tallies.data();
-  #pragma omp target enter data map(to: model::device_active_tallies[:model::active_tallies.size()])
-  #pragma omp target enter data map(to: model::device_active_collision_tallies[:model::active_collision_tallies.size()])
-  #pragma omp target enter data map(to: model::device_active_tracklength_tallies[:model::active_tracklength_tallies.size()])
+  #pragma omp target enter data map(alloc: model::device_active_tallies[:model::active_tallies.size()])
+  #pragma omp target update to(model::device_active_tallies[:model::active_tallies.size()])
+  #pragma omp target enter data map(alloc: model::device_active_collision_tallies[:model::active_collision_tallies.size()])
+  #pragma omp target update to(model::device_active_collision_tallies[:model::active_collision_tallies.size()])
+  #pragma omp target enter data map(alloc: model::device_active_tracklength_tallies[:model::active_tracklength_tallies.size()])
+  #pragma omp target update to(model::device_active_tracklength_tallies[:model::active_tracklength_tallies.size()])
   
   model::active_tallies_size = model::active_tallies.size();
   model::active_collision_tallies_size = model::active_collision_tallies.size();
@@ -1332,14 +1353,16 @@ openmc_tally_results(int32_t index, double** results, size_t* shape)
     return OPENMC_E_OUT_OF_BOUNDS;
   }
 
-  const auto& t {model::tallies[index]};
-  if (t.results_size_ == 0) {
+  //const auto& t {model::tallies[index]};
+  auto& t {model::tallies[index]};
+
+  if (t.results_.size() == 0) {
     set_errmsg("Tally results have not been allocated yet.");
     return OPENMC_E_ALLOCATE;
   }
 
   // Set pointer to results and copy shape
-  *results = t.results_;
+  *results = t.results_.data();
   auto s = t.results_shape();
   shape[0] = s[0];
   shape[1] = s[1];

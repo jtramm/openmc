@@ -32,9 +32,13 @@ public:
   // function will return without actually modifying the data.  It has been
   // found that returning the transport calculation and possibly re-adding the
   // element later is slightly faster than waiting on the lock to be released.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void push_back(int32_t new_elem);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   
   int32_t list_[NEIGHBOR_SIZE];
 };

@@ -216,7 +216,6 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
       } else {
         cells = univ.partitioner_->get_cells(p.r_local(), p.u_local(), ncells);
       }
-
       for (int i = 0; i < ncells; i++) {
         i_cell = cells[i];
         //i_cell = model::device_cells[i];
@@ -225,13 +224,10 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
         int i_universe = p.coord_[p.n_coord_-1].universe;
         //if (model::cells[i_cell].universe_ != i_universe) continue;
         if (model::device_cells[i_cell].universe_ != i_universe) continue;
-
         // Check if this cell contains the particle.
         Position r {p.r_local()};
         Direction u {p.u_local()};
         auto surf = p.surface_;
-
-
         bool does_contain;
         //#pragma omp target map(from:does_contain)
         {
@@ -255,6 +251,11 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
       //p = p_inner;
     }
     if (!found) {
+      // This is not a great place to check/print, as this is allowed
+      // to fail if doing sampling on a box that surrounds a cylinder,
+      // with the idea that we want to be doing rejection sampling.
+      //printf("Particle not found in any cell at coord level %d\n", p.n_coord_);
+      //      printf("Particle location: %f %f %f\n", p.r().x, p.r().y, p.r().z);
       return found;
     }
 

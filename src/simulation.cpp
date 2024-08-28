@@ -103,7 +103,7 @@ int openmc_simulation_init()
     #pragma omp target enter data map(to: simulation::device_particles[:event_buffer_length])
   }
 
-
+printf("Allocating results for %d tallies...\n", model::tallies.size());
   // Allocate tally results arrays if they're not allocated yet
   for (int i = 0; i < model::tallies.size(); ++i) {
     model::tallies[i].init_results();
@@ -124,6 +124,16 @@ int openmc_simulation_init()
 
   // Allocate & Copy simulation data from host -> device
   move_read_only_data_to_device();
+  printf("Host tallies size = %d\n", model::tallies.size());
+  #pragma omp target
+  {
+    printf("Device tallies size = %d\n", model::tallies.size());
+    // Print out results length of tallies
+    for (int i = 0; i < model::tallies.size(); ++i) {
+      int n = model::tallies[i].results_.size();
+      printf("Tally %d has result length %d\n", i, n);
+    }
+  }
 
   // If this is a restart run, load the state point data and binary source
   // file
@@ -153,6 +163,9 @@ int openmc_simulation_init()
 
   // Set flag indicating initialization is done
   simulation::initialized = true;
+
+//exit(0);
+
   return 0;
 }
 
@@ -702,7 +715,7 @@ void broadcast_results() {
     MPI_Datatype result_block;
     MPI_Type_contiguous(count_per_filter, MPI_DOUBLE, &result_block);
     MPI_Type_commit(&result_block);
-    MPI_Bcast(t->results_, shape[0], result_block, 0, mpi::intracomm);
+    MPI_Bcast(t->results_.data(), shape[0], result_block, 0, mpi::intracomm);
     MPI_Type_free(&result_block);
   }
 
@@ -858,11 +871,27 @@ void transport_event_based()
   simulation::fission_bank.copy_host_to_device();
   #pragma omp target update to(simulation::keff)
   
+
   // Transfer tally data to device for on-device tallying
   if (!model::active_tracklength_tallies.empty()) {
     for (int i = 0; i < model::tallies.size(); ++i) {
       auto& tally = model::tallies[i];
       tally.update_host_to_device();
+    }
+  }
+printf("Host:\n");
+      for (int i = 0; i < model::tallies.size(); ++i) {
+      auto& tally = model::tallies[i];
+      std::array<size_t, 3> shape = tally.results_shape();
+      printf("Shape of tally %d results is %lu %lu %lu\n", i, shape[0], shape[1], shape[2]);
+    }
+    printf("Device:\n");
+  #pragma omp target
+  {
+    for (int i = 0; i < model::tallies.size(); ++i) {
+      auto& tally = model::tallies[i];
+      std::array<size_t, 3> shape = tally.results_shape();
+      printf("Shape of tally %d results is %lu %lu %lu\n", i, shape[0], shape[1], shape[2]);
     }
   }
 

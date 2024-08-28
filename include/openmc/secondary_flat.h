@@ -44,9 +44,13 @@ class AngleEnergyFlatContainer {
 public:
   explicit AngleEnergyFlatContainer(const AngleEnergy& dist);
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void sample(double E_in, double& E_out, double& mu, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   void copy_to_device() const;
   void release_device() const;

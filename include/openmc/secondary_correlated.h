@@ -64,9 +64,13 @@ private:
 
 class CorrTableFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit CorrTableFlat(const uint8_t* data);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   int n_discrete() const;
   Interpolation interpolation() const;
@@ -81,13 +85,21 @@ private:
 
 class CorrelatedAngleEnergyFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit CorrelatedAngleEnergyFlat(const uint8_t* data);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void sample(double E_in, double& E_out, double& mu, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   gsl::span<const int> breakpoints() const;
   Interpolation interpolation(gsl::index i) const;

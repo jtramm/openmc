@@ -25,8 +25,8 @@ endif()
 # Command line options
 #===============================================================================
 
-option(profile  "Compile with profiling flags"                   OFF)
-option(debug    "Compile with debug flags"                       OFF)
+option(profile  "Compile with profiling flags"                   ON)
+option(debug    "Compile with debug flags"                       ON)
 option(optimize "Turn on all compiler optimization flags"        OFF)
 option(coverage "Compile with coverage analysis flags"           OFF)
 option(dagmc    "Enable support for DAGMC (CAD) geometry"        OFF)
@@ -459,6 +459,8 @@ endif()
 if(disable_xs_cache)
   target_compile_definitions(libopenmc PRIVATE NO_MICRO_XS_CACHE)
 endif()
+
+target_compile_definitions(libopenmc PRIVATE OPENMC_OFFLOAD)
 
 #===============================================================================
 # openmc executable

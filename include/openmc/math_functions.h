@@ -45,9 +45,13 @@ extern "C" double t_percentile(double p, int df);
 //!   evaluated at x.
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern "C" void calc_pn_c(int n, double x, double pnx[]);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Find the value of f(x) given a set of Legendre coefficients and the value
@@ -75,9 +79,13 @@ extern "C" double evaluate_legendre(int n, const double data[], double x);
 
 extern "C" void calc_rn_c(int n, const double uvw[3], double rn[]);
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 void calc_rn(int n, Direction u, double rn[]);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Calculate the n-th order modified Zernike polynomial moment for a given
@@ -120,9 +128,13 @@ extern "C" void calc_zn(int n, double rho, double phi, double zn[]);
 //!   evaluated at rho and phi when m = 0.
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern "C" void calc_zn_rad(int n, double rho, double zn_rad[]);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Rotate the direction cosines through a polar angle whose cosine is mu and
@@ -141,10 +153,14 @@ extern "C" void calc_zn_rad(int n, double rho, double zn_rad[]);
 extern "C" void rotate_angle_c(double uvw[3], double mu, const double* phi,
   uint64_t* seed);
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 Direction rotate_angle(Direction u, double mu, const double* phi,
   uint64_t* seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Samples an energy from the Maxwell fission distribution based on a direct
@@ -159,9 +175,13 @@ Direction rotate_angle(Direction u, double mu, const double* phi,
 //! \return The sampled outgoing energy
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern "C" double maxwell_spectrum(double T, uint64_t* seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Samples an energy from a Watt energy-dependent fission distribution.
@@ -177,9 +197,13 @@ extern "C" double maxwell_spectrum(double T, uint64_t* seed);
 //! \return The sampled outgoing energy
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern "C" double watt_spectrum(double a, double b, uint64_t* seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Samples an energy from the Gaussian energy-dependent fission distribution.
@@ -271,9 +295,13 @@ double spline_integrate(int n, const double x[], const double y[],
 //!
 //! \param z Complex argument
 //! \return Faddeeva function evaluated at z
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 std::complex<double> faddeeva(std::complex<double> z);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //! Evaluate derivative of the Faddeeva function
 //!

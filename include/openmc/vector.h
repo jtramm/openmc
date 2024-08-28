@@ -202,6 +202,7 @@ public:
   void update_to_device() {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wopenmp-mapping"
+#pragma omp target update to(size_)
 #pragma omp target update to(data_[:size_])
 #pragma GCC diagnostic pop
   }

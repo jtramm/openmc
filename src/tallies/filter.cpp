@@ -120,7 +120,7 @@ Filter::Filter(pugi::xml_node node, int32_t index) : index_(index)
   this->from_xml(node);
 }
 
-Filter::Filter(const std::string& type_string) {
+Filter::Filter(const std::string& type_string, int32_t index) : index_(index){
   type_ = get_filter_type(type_string);
   this->set_id(C_NONE);
 }

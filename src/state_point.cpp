@@ -258,7 +258,7 @@ openmc_statepoint_write(const char* filename, bool* write_source)
           hid_t tally_group = open_group(tallies_group, name.c_str());
           auto results_shape = tally->results_shape();
           write_tally_results(tally_group, results_shape[0],
-            results_shape[1], tally->results_);
+            results_shape[1], tally->results_.data());
           close_group(tally_group);
         }
       } else {
@@ -466,7 +466,7 @@ void load_state_point()
         } else {
 
           read_tally_results(tally_group, tally.results_shape()[0],
-            tally.results_shape()[1], tally.results_);
+            tally.results_shape()[1], tally.results_.data());
           read_dataset(tally_group, "n_realizations", tally.n_realizations_);
           close_group(tally_group);
         }
@@ -907,7 +907,7 @@ void write_tally_results_nr(hid_t file_id)
     }
 
     // Get view of accumulated tally values
-    auto adapted_array = xt::adapt(t->results_, t->results_size_,
+    auto adapted_array = xt::adapt(t->results_.data(), t->results_.size(),
       xt::no_ownership(), t->results_shape());
 
     auto values_view = xt::view(adapted_array, xt::all(), xt::all(),

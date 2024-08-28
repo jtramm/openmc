@@ -17,21 +17,33 @@ namespace openmc {
 namespace simulation {
 
 extern std::vector<Particle::Bank> source_bank;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern Particle::Bank* device_source_bank;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 extern SharedArray<Particle::Bank> surf_source_bank;
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern SharedArray<Particle::Bank> fission_bank;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 extern std::vector<int64_t> progeny_per_particle;
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern int64_t* device_progeny_per_particle;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace simulation
 

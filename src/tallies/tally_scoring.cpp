@@ -921,7 +921,8 @@ score_general_ce_nonanalog(Particle& p, int i_tally, int start_index, int filter
             * atom_density * flux;
         }
       } else if (p.material_ != MATERIAL_VOID) {
-        not_supported();
+        //not_supported();
+        // TODO: ADD THIS IN FOR CARDINAL TO WORK!!!!!!!!!!!!!!!!!!!!!!!!
         /*
         const Material& material {model::materials[p.material_]};
         for (auto i = 0; i < material.nuclide_.size(); ++i) {
@@ -1102,7 +1103,7 @@ score_general_ce_nonanalog(Particle& p, int i_tally, int start_index, int filter
     // if (tally.deriv_ != C_NONE)
     //   apply_derivative_to_score(p, i_tally, i_nuclide, atom_density, score_bin,
     //     score);
-
+    //printf("i_tally = %d\n", i_tally);
     // Update tally results
     #pragma omp atomic
     *tally.results(filter_index, score_index, TallyResult::VALUE) += score*filter_weight;

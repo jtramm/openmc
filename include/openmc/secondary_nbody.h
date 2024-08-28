@@ -43,11 +43,15 @@ private:
 
 class NBodyPhaseSpaceFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit NBodyPhaseSpaceFlat(const uint8_t* data) : data_(data) { }
 
   void sample(double E_in, double& E_out, double& mu, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   int n_bodies() const { return *reinterpret_cast<const int*>(data_ + 4); };
   double mass_ratio() const { return *reinterpret_cast<const double*>(data_ + 8); }

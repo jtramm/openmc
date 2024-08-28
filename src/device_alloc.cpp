@@ -348,7 +348,7 @@ void move_read_only_data_to_device()
   for (int i = 0; i < model::tallies.size(); ++i) {
     auto& tally = model::tallies[i];
     if (mpi::master) {
-      std::cout << "   Moving tally " << tally.id_ << " containing " << tally.n_filter_bins() << " bins with " << tally.n_scores_ << " scores each. Total size: " << (double) tally.results_size_ * sizeof(double) / 1.0e6 << " MB" << std::endl;
+      std::cout << "   Moving tally " << tally.id_ << " containing " << tally.n_filter_bins() << " bins with " << tally.n_scores_ << " scores each. Total size: " << (double) tally.results_.size() * sizeof(double) / 1.0e6 << " MB" << std::endl;
     }
     tally.copy_to_device();
   }

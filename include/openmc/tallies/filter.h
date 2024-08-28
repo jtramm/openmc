@@ -84,7 +84,7 @@ public:
   ~Filter();
 
   Filter(pugi::xml_node node, int32_t index);
-  Filter(const std::string& type_string);
+  Filter(const std::string& type_string, int32_t index);
 
   //! Uses an XML input to fill the filter's data fields.
   void from_xml(pugi::xml_node node);
@@ -120,7 +120,9 @@ public:
   FilterType get_type() const {return type_;}
   FilterType get_filter_type(const std::string& type);
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //! Matches a tally event to a set of filter bins and weights.
   //!
   //! \param[in] p Particle being tracked
@@ -151,7 +153,9 @@ public:
   void SurfaceFilter_get_all_bins(const Particle& p, TallyEstimator estimator, FilterMatch& match) const;
   void UniverseFilter_get_all_bins(const Particle& p, TallyEstimator estimator, FilterMatch& match) const;
   void ZernikeRadialFilter_get_all_bins(const Particle& p, TallyEstimator estimator, FilterMatch& match) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   void ZernikeFilter_get_all_bins(const Particle& p, TallyEstimator estimator, FilterMatch& match) const;
 
 
@@ -340,9 +344,13 @@ private:
 namespace model {
   // TODO: Need to declare the filter_map as target
   extern std::unordered_map<int, int> filter_map;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   extern vector<Filter> tally_filters;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 }
 
 //==============================================================================

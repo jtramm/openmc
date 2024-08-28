@@ -56,9 +56,13 @@ public:
   //! \param E Incident neutron energy in [eV]
   //! \param sqrtkT Square root of temperature times Boltzmann constant
   //! \return Tuple of elastic scattering, absorption, and fission cross sections in [b]
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   std::tuple<double, double, double> evaluate(double E, double sqrtkT) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! \brief Evaluates the windowed multipole equations for the derivative of
   //! cross sections in the resolved resonance regions with respect to
@@ -76,11 +80,15 @@ public:
 
   void release_from_device();
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double curvefit(int window, int poly_order, int reaction) const;
 
   std::complex<double> data(int pole, int res) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   // Data members
   std::string name_; //!< Name of nuclide
@@ -100,9 +108,13 @@ public:
   int n_data_size_;
 
   // Constant data
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   static const int MAX_POLY_COEFFICIENTS; //!< Max order of polynomial fit plus one
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 };
 
 //========================================================================

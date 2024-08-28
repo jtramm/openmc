@@ -26,9 +26,13 @@ class Surface;
 
 namespace model {
   extern std::vector<Surface> surfaces;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   extern Surface* device_surfaces;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   extern std::unordered_map<int, int> surface_map;
 } // namespace model
 
@@ -126,28 +130,38 @@ public:
   //!   point is very close to the surface.
   //! \return true if the point is on the "positive" side of the surface and
   //!   false otherwise.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   bool sense(Position r, Direction u) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Determine the direction of a ray reflected from the surface.
   //! \param[in] r The point at which the ray is incident.
   //! \param[in] u Incident direction of the ray
   //! \param[inout] p Pointer to the particle
   //! \return Outgoing direction of the ray
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Direction reflect(Position r, Direction u, Particle* p) const;
 
   Direction diffuse_reflect(Position r, Direction u,
     uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Evaluate the equation describing the surface.
   //!
   //! Surfaces can be described by some function f(x, y, z) = 0.  This member
   //! function evaluates that mathematical function.
   //! \param r A 3D Cartesian coordinate.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double evaluate(Position r) const;
  double SurfaceXPlane_evaluate(Position r) const;   
  double SurfaceYPlane_evaluate(Position r) const;   
@@ -197,7 +211,9 @@ public:
  Direction SurfaceYCone_normal(Position r) const;    
  Direction SurfaceZCone_normal(Position r) const;    
  Direction SurfaceQuadric_normal(Position r) const;  
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Write all information needed to reconstruct the surface to an HDF5 group.
   //! \param group_id An HDF5 group id.

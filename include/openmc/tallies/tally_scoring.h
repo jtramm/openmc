@@ -24,7 +24,9 @@ namespace openmc {
 class FilterBinIter
 {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //! Construct an iterator over bins that match a given particle's state.
   FilterBinIter(const Tally& tally, Particle& p);
 
@@ -33,7 +35,9 @@ public:
   //! \param end if true, the returned iterator indicates the end of a loop.
   FilterBinIter(const Tally& tally, bool end,
       FilterMatch* particle_filter_matches);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Construct an iterator over all filter bin combinations.
   //
@@ -99,7 +103,9 @@ void score_analog_tally_ce(Particle& p);
 //! \param p The particle being tracked
 void score_analog_tally_mg(Particle& p);
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 //! Score tallies using a tracklength estimate of the flux.
 //
 //! This is triggered at every event (surface crossing, lattice crossing, or
@@ -109,7 +115,9 @@ void score_analog_tally_mg(Particle& p);
 //! \param p The particle being tracked
 //! \param distance The distance in [cm] traveled by the particle
 void score_tracklength_tally(Particle& p, double distance, bool need_depletion_rx);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //! Score surface or mesh-surface tallies for particle currents.
 //

@@ -27,11 +27,15 @@ enum class EnergyDistType {
 
 class EnergyDistributionFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   EnergyDistributionFlat(const uint8_t* data);
 
   double sample(double E, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   EnergyDistType type_;
   const uint8_t* data_;
@@ -111,9 +115,13 @@ public:
 
   double sample(double E, uint64_t* seed) const;
 private:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double threshold() const { return *reinterpret_cast<const double*>(data_ + 8); }
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   double mass_ratio() const { return *reinterpret_cast<const double*>(data_ + 16); }
 
   const uint8_t* data_;
@@ -159,11 +167,15 @@ public:
   // Intel compiler due to a bug (CMPLRLLVM-26916). However, they are necessary
   // for LLVM.
   //#ifndef __INTEL_LLVM_COMPILER
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //#endif
   explicit CTTableFlat(const uint8_t* data);
   //#ifndef __INTEL_LLVM_COMPILER
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   //#endif
 
   Interpolation interpolation() const;
@@ -179,11 +191,15 @@ private:
 class ContinuousTabularFlat {
 public:
   //#ifndef __INTEL_LLVM_COMPILER
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //#endif
   explicit ContinuousTabularFlat(const uint8_t* data);
   //#ifndef __INTEL_LLVM_COMPILER
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   //#endif
 
   double sample(double E, uint64_t* seed) const;

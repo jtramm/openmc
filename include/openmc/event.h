@@ -108,7 +108,9 @@ namespace simulation {
 
 // Note: we only need to declare the xs queues as global items as the rest
 // are only used within the lexical scope of a target construct. 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern SharedArray<EventQueueItem> calculate_fuel_xs_queue;
 extern SharedArray<EventQueueItem> calculate_nonfuel_xs_queue;
 extern SharedArray<EventQueueItem> advance_particle_queue;
@@ -117,7 +119,9 @@ extern SharedArray<EventQueueItem> collision_queue;
 extern SharedArray<EventQueueItem> revival_queue;
 
 extern int current_source_offset;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 extern int sort_counter;
 

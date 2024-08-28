@@ -22,7 +22,9 @@ struct Position {
   Position(const std::array<double, 3>& xyz) : x{xyz[0]}, y{xyz[1]}, z{xyz[2]} { };
 
   // Unary operators
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Position& operator+=(Position);
   Position& operator+=(double);
   Position& operator-=(Position);
@@ -32,9 +34,13 @@ struct Position {
   Position& operator/=(Position);
   Position& operator/=(double);
   Position operator-() const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   const double& operator[](int i) const {
     switch (i) {
       case 0: return x;
@@ -55,7 +61,9 @@ struct Position {
       printf("Index in Position must be between 0 and 2.\n"); return x;
     }
   }
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   // Access to x, y, or z by compile time known index (specializations below)
   template<int i>
@@ -88,9 +96,13 @@ struct Position {
 
   //! Rotate the position based on a rotation matrix
   //Position rotate(const std::vector<double>& rotation) const;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Position rotate(const double* rotation) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   // Data members
   double x = 0.;
@@ -98,7 +110,9 @@ struct Position {
   double z = 0.;
 };
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 // Compile-time known member index access functions
 template<>
 inline const double& Position::get<0>() const
@@ -130,7 +144,9 @@ inline double& Position::get<2>()
 {
   return z;
 }
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 // Binary operators
 inline Position operator+(Position a, Position b) { return a += b; }

@@ -34,7 +34,9 @@ struct ThermalTable {
 namespace model {
 
 extern std::unordered_map<int32_t, int32_t> material_map;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern Material* materials;
 extern uint64_t materials_size;
 extern vector2d<int> materials_nuclide;
@@ -43,7 +45,9 @@ extern vector2d<double> materials_atom_density;
 extern vector2d<int> materials_p0;
 extern vector2d<int> materials_mat_nuclide_index;
 extern vector2d<ThermalTable> materials_thermal_tables;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace model
 
@@ -63,9 +67,13 @@ public:
   //----------------------------------------------------------------------------
   // Methods
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void calculate_xs(Particle& p, bool need_depletion_rx) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Assign thermal scattering tables to specific nuclides within the material
   //! so the code knows when to apply bound thermal scattering data
@@ -158,14 +166,18 @@ public:
   void release_from_device();
 
   // Serialized global array accessor functions
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   int& nuclide(int i) const {                 return model::materials_nuclide(          index_, i);}
   int& element(int i) const {                 return model::materials_element(          index_, i);}
   double& atom_density(int i) const {         return model::materials_atom_density(     index_, i);}
   int& p0(int i) const {                      return model::materials_p0(               index_, i);}
   int& mat_nuclide_index(int i)const  {       return model::materials_mat_nuclide_index(index_, i);}
   ThermalTable& thermal_tables(int i) const { return model::materials_thermal_tables(   index_, i);}
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //----------------------------------------------------------------------------
   // Data
@@ -205,10 +217,14 @@ private:
   //! Normalize density
   void normalize_density();
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void calculate_neutron_xs(Particle& p, bool need_depletion_rx) const;
   void calculate_photon_xs(Particle& p) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //----------------------------------------------------------------------------
   // Private data members

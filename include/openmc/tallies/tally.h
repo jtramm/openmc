@@ -111,15 +111,18 @@ public:
   //! combination of filters (e.g. specific cell, specific energy group, etc.)
   //! and the second dimension of the array is for scores (e.g. flux, total
   //! reaction rate, fission reaction rate, etc.)
-  double* results_;
-  size_t results_size_ {0};
+  vector<double> results_;
   size_t n_scores_;
 
-  #pragma omp declare target
-  const double* results(gsl::index i, gsl::index j, TallyResult k) const;
-  double* results(gsl::index i, gsl::index j, TallyResult k);
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
+  const double* results(unsigned long i, unsigned long j, TallyResult k) const;
+  double* results(unsigned long i, unsigned long j, TallyResult k);
   std::array<size_t, 3> results_shape() const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! True if this tally should be written to statepoint files
   bool writable_ {true};
@@ -136,6 +139,7 @@ public:
   std::vector<Trigger> triggers_;
 
   int deriv_ {C_NONE}; //!< Index of a TallyDerivative object for diff tallies.
+  gsl::index index_;
 
 private:
   //----------------------------------------------------------------------------
@@ -148,7 +152,6 @@ private:
 
   int32_t n_filter_bins_ {0};
 
-  gsl::index index_;
 };
 
 //==============================================================================
@@ -164,7 +167,9 @@ namespace model {
   extern std::vector<int> active_meshsurf_tallies;
   extern std::vector<int> active_surface_tallies;
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //extern Tally* tallies;
   extern vector<Tally> tallies;
   //extern size_t tallies_size;
@@ -174,7 +179,9 @@ namespace model {
   extern size_t active_collision_tallies_size;
   extern int* device_active_tracklength_tallies;
   extern size_t active_tracklength_tallies_size;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 }
 
 namespace simulation {
@@ -185,12 +192,16 @@ namespace simulation {
   extern "C" int32_t n_realizations;
 }
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern double global_tally_absorption;
 extern double global_tally_collision;
 extern double global_tally_tracklength;
 extern double global_tally_leakage;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 // Non-member functions

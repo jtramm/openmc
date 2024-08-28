@@ -35,10 +35,14 @@ namespace model {
 
 // TODO: Need to declare the mesh_map as target
 extern std::unordered_map<int32_t, int32_t> mesh_map;
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern Mesh* meshes;
 extern int32_t meshes_size;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace model
 
@@ -53,7 +57,9 @@ public:
 
   // Methods
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   //! Determine which bins were crossed by a particle
   //
   //! \param[in] p Particle to check
@@ -77,7 +83,9 @@ public:
   //! \param[in] r Position to get bin for
   //! \return Mesh bin
   int get_bin(Position r) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Get the number of mesh cells.
   int n_bins() const;

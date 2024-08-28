@@ -52,16 +52,24 @@ class UniversePartitioner;
 namespace model {
   //extern std::vector<std::unique_ptr<Cell>> cells;
   extern std::vector<Cell> cells;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   extern Cell* device_cells;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   extern std::unordered_map<int32_t, int32_t> cell_map;
 
   //extern std::vector<std::unique_ptr<Universe>> universes;
   extern std::vector<Universe> universes;
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   extern Universe* device_universes;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   extern std::unordered_map<int32_t, int32_t> universe_map;
 } // namespace model
 
@@ -122,16 +130,24 @@ public:
   //! \param on_surface The signed index of a surface that the coordinate is
   //!   known to be on.  This index takes precedence over surface sense
   //!   calculations.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   bool
   contains(Position r, Direction u, int32_t on_surface) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Find the oncoming boundary of this cell.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   std::pair<double, int32_t>
   distance(Position r, Direction u, int32_t on_surface, Particle* p) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Write all information needed to reconstruct the cell to an HDF5 group.
   //! \param group_id An HDF5 group id.
@@ -267,10 +283,14 @@ public:
   vector<int32_t> offset_;  //!< Distribcell offset table
 
 protected:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   bool contains_simple(Position r, Direction u, int32_t on_surface) const;
   bool contains_complex(Position r, Direction u, int32_t on_surface) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   BoundingBox bounding_box_simple() const;
   static BoundingBox bounding_box_complex(vector<int32_t> postfix);
 
@@ -383,9 +403,13 @@ public:
   explicit UniversePartitioner(const Universe& univ);
 
   //! Return the list of cells that could contain the given coordinates.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   int32_t* get_cells(Position r, Direction u, int& ncells) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   void allocate_and_copy_to_device();
 

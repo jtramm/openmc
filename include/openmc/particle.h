@@ -21,6 +21,10 @@
 #include "DagMC.hpp"
 #endif
 
+#ifndef NO_MICRO_XS_CACHE
+#define NO_MICRO_XS_CACHE
+#endif
+
 /*
 //#define NEUTRON_XS_SIZE 300 // Depleted SMR uses 296
 #define NEUTRON_XS_SIZE 35 // Depleted SMR uses 296
@@ -76,14 +80,22 @@ class Surface;
 class LocalCoord {
 public:
   //void rotate(const std::vector<double>& rotation);
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void rotate(const double* rotation);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! clear data from a single coordinate level
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void reset();
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   Position r; //!< particle position
   Direction u; //!< particle direction
@@ -182,7 +194,9 @@ struct NuclideMicroXS {
 class NuclideMicroXSCache {
   public:
   NuclideMicroXS neutron_xs_[NEUTRON_XS_SIZE]; //!< Microscopic neutron cross sections
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   NuclideMicroXS  operator [](int64_t i) const
   {
     #ifdef NO_MICRO_XS_CACHE
@@ -199,7 +213,9 @@ class NuclideMicroXSCache {
     return neutron_xs_[i];
     #endif
   }
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   void clear()
   {
     if (settings::run_CE) {
@@ -345,15 +361,21 @@ public:
   //==========================================================================
   // Constructors
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Particle();
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //==========================================================================
   // Methods and accessors
 
   // Accessors for position in global coordinates
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Position& r() { return coord_[0].r; }
   const Position& r() const { return coord_[0].r; }
 
@@ -374,7 +396,9 @@ public:
 
   //! resets all coordinate levels for the particle
   void clear();
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! create a secondary particle
   //
@@ -384,9 +408,13 @@ public:
   //! \param u Direction of the secondary particle
   //! \param E Energy of the secondary particle in [eV]
   //! \param type Particle type
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void create_secondary(double wgt, Direction u, double E, Type type);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! initialize from a source site
   //
@@ -394,12 +422,18 @@ public:
   //! site may have been produced from an external source, from fission, or
   //! simply as a secondary particle.
   //! \param src Source site data
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void from_source(const Bank& src);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   // Coarse-grained particle events
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void event_tracklength_tally(bool need_depletion_rx);
   void event_calculate_xs(bool need_depletion_rx);
   bool event_calculate_xs_dispatch();
@@ -411,29 +445,43 @@ public:
   void event_death();
   void accumulate_keff_tallies_global();
   void accumulate_keff_tallies_local(double& absorption, double& collision, double& tracklength, double& leakage);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Cross a surface and handle boundary conditions
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void cross_surface();
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Cross a vacuum boundary condition.
   //
   //! \param surf The surface (with the vacuum boundary condition) that the
   //!   particle struck.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void cross_vacuum_bc(const Surface& surf);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //! Cross a reflective boundary condition.
   //
   //! \param surf The surface (with the reflective boundary condition) that the
   //!   particle struck.
   //! \param new_u The direction of the particle after reflection.
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void cross_reflective_bc(const Surface& surf, Direction new_u);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
 
   //! Cross a periodic boundary condition.
@@ -450,9 +498,13 @@ public:
   //! mark a particle as lost and create a particle restart file
   //! \param message A warning message to display
   void mark_as_lost(const char* message);
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void mark_as_lost_short();
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   void mark_as_lost(const std::string& message)
   {mark_as_lost(message.c_str());}
@@ -464,10 +516,14 @@ public:
   void write_restart() const;
 
   //! Gets the pointer to the particle's current PRN seed
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   uint64_t* current_seed() {return seeds_ + stream_;}
   const uint64_t* current_seed() const {return seeds_ + stream_;}
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   //==========================================================================
   // Data members

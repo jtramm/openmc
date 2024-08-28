@@ -27,9 +27,13 @@ constexpr int64_t DEFAULT_SEED  {1};
 //! @return A random number between 0 and 1
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 double prn(uint64_t* seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Generate a random number which is 'n' times ahead from the current seed.
@@ -42,9 +46,13 @@ double prn(uint64_t* seed);
 //! @return A random number between 0 and 1
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 double future_prn(int64_t n, uint64_t seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Set a RNG seed to a unique value based on a unique particle ID by striding
@@ -65,7 +73,9 @@ uint64_t init_seed(int64_t id, int offset);
 //! @param id The particle ID
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 void init_particle_seeds(int64_t id, uint64_t* seeds);
 
 //==============================================================================
@@ -77,7 +87,9 @@ void init_particle_seeds(int64_t id, uint64_t* seeds);
 //==============================================================================
 
 void advance_prn_seed(int64_t n, uint64_t* seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //! Advance a random number seed 'n' times.
@@ -89,9 +101,13 @@ void advance_prn_seed(int64_t n, uint64_t* seed);
 //! @param seed The starting to seed to advance from
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 uint64_t future_seed(uint64_t n, uint64_t seed);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 //==============================================================================
 //                               API FUNCTIONS

@@ -21,9 +21,13 @@ public:
   // Constructors
   explicit Function1DFlat(const uint8_t* data) : data_(data) { }
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double operator()(double x) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   FunctionType type() const;
 private:
@@ -35,9 +39,13 @@ class Function1DFlatContainer {
 public:
   explicit Function1DFlatContainer(const Function1D& func);
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double operator()(double x) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
   void copy_to_device();
   void release_from_device();

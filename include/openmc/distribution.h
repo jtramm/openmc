@@ -198,11 +198,15 @@ private:
 
 class TabularFlat {
 public:
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit TabularFlat(const uint8_t* data);
 
   double sample(uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 private:
   Interpolation interp() const;
   gsl::span<const double> x() const;

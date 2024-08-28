@@ -52,9 +52,13 @@ constexpr double TINY_BIT {1e-8};
 constexpr double FP_PRECISION {1e-14};
 constexpr double FP_REL_PRECISION {1e-5};
 /*
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
 constexpr double FP_COINCIDENT {1e-12};
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   */
 #define FP_COINCIDENT 1e-12
 
@@ -83,10 +87,14 @@ constexpr double EXTSRC_REJECT_FRACTION {0.05};
 // modifying test results
 constexpr double PI {3.1415926535898};
 /*
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
 constexpr double SQRT_PI {std::sqrt(PI)};
 constexpr double INFTY {std::numeric_limits<double>::max()};
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   */
 
 #define SQRT_PI 1.77245385091
@@ -257,9 +265,13 @@ enum ReactionType {
 };
 
 #define DEPLETION_RX_SIZE 6
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 constexpr std::array<int, DEPLETION_RX_SIZE> DEPLETION_RX {N_GAMMA, N_P, N_A, N_2N, N_3N, N_4N};
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 enum class URRTableParam {
   CUM_PROB,

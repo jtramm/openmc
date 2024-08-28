@@ -34,9 +34,13 @@ public:
 
   void flatten_urr_data();
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   double prob(int i_energy, URRTableParam i_tableparam, int band) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 };
 
 } // namespace openmc

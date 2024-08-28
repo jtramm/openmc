@@ -50,10 +50,14 @@ namespace data {
 extern xt::xtensor<double, 1> ttb_e_grid; //! energy T of incident electron in [eV]
 extern xt::xtensor<double, 1> ttb_k_grid; //! reduced energy W/T of emitted photon
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 extern double* device_ttb_e_grid;
 extern size_t ttb_e_grid_size;
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace data
 
@@ -61,9 +65,13 @@ extern size_t ttb_e_grid_size;
 // Non-member functions
 //==============================================================================
 
+#ifdef OPENMC_OFFLOAD
 #pragma omp declare target
+#endif
 void thick_target_bremsstrahlung(Particle& p, double* E_lost);
+#ifdef OPENMC_OFFLOAD
 #pragma omp end declare target
+#endif
 
 } // namespace openmc
 

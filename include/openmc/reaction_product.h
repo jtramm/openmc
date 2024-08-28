@@ -55,20 +55,32 @@ public:
 class ReactionProductFlat {
 public:
   // Constructors
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   explicit ReactionProductFlat(const uint8_t* data);
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   void sample(double E_in, double& E_out, double& mu, uint64_t* seed) const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
 
-  #pragma omp declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp declare target
+#endif
   Particle::Type particle() const;
   ReactionProduct::EmissionMode emission_mode() const;
   double decay_rate() const;
   Function1DFlat yield() const;
-  #pragma omp end declare target
+  #ifdef OPENMC_OFFLOAD
+#pragma omp end declare target
+#endif
   Tabulated1DFlat applicability(gsl::index i) const;
   AngleEnergyFlat distribution(gsl::index i) const;
 
