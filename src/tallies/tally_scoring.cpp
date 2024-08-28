@@ -921,6 +921,7 @@ score_general_ce_nonanalog(Particle& p, int i_tally, int start_index, int filter
             * atom_density * flux;
         }
       } else if (p.material_ != MATERIAL_VOID) {
+        score = p.macro_xs_.kappa_fission * flux;
         //not_supported();
         // TODO: ADD THIS IN FOR CARDINAL TO WORK!!!!!!!!!!!!!!!!!!!!!!!!
         /*

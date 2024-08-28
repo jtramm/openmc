@@ -66,6 +66,7 @@ public:
   T calculate_xs(int i_log_union, Particle& p, bool need_depletion_rx, double E, double sqrtkT)
   {
     double reaction[DEPLETION_RX_SIZE] = {};
+    double kappa_fission = 0.0;
 
     // ======================================================================
     // CHECK FOR SAB TABLE BEGIN
@@ -510,6 +511,18 @@ public:
     // ======================================================================
 
     // ======================================================================
+    // Kappa Fission BEGIN
+    // ======================================================================
+    if (fissionable_) {
+      ReactionFlat rx = device_fission_rx_[0]->obj();
+      //ReactionFlat& rx {device_fission_rx_[0]->obj()};
+      kappa_fission = fission * rx.q_value();
+    }
+    // ======================================================================
+    // Kappa Fission END
+    // ======================================================================
+
+    // ======================================================================
     // Return Struct (depends on template type)
     // ======================================================================
 
@@ -518,6 +531,7 @@ public:
         absorption,
         fission,
         nu_fission,
+        kappa_fission,
         elastic,
         thermal,
         thermal_elastic,

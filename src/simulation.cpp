@@ -871,27 +871,11 @@ void transport_event_based()
   simulation::fission_bank.copy_host_to_device();
   #pragma omp target update to(simulation::keff)
   
-
   // Transfer tally data to device for on-device tallying
   if (!model::active_tracklength_tallies.empty()) {
     for (int i = 0; i < model::tallies.size(); ++i) {
       auto& tally = model::tallies[i];
       tally.update_host_to_device();
-    }
-  }
-printf("Host:\n");
-      for (int i = 0; i < model::tallies.size(); ++i) {
-      auto& tally = model::tallies[i];
-      std::array<size_t, 3> shape = tally.results_shape();
-      printf("Shape of tally %d results is %lu %lu %lu\n", i, shape[0], shape[1], shape[2]);
-    }
-    printf("Device:\n");
-  #pragma omp target
-  {
-    for (int i = 0; i < model::tallies.size(); ++i) {
-      auto& tally = model::tallies[i];
-      std::array<size_t, 3> shape = tally.results_shape();
-      printf("Shape of tally %d results is %lu %lu %lu\n", i, shape[0], shape[1], shape[2]);
     }
   }
 

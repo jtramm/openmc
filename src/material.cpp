@@ -797,6 +797,7 @@ void Material::calculate_neutron_xs(Particle& p, bool need_depletion_rx) const
     macro.absorption += atom_density * nuclide_micro.absorption;
     macro.fission    += atom_density * nuclide_micro.fission;
     macro.nu_fission += atom_density * nuclide_micro.nu_fission;
+    macro.kappa_fission += atom_density * nuclide_micro.kappa_fission;
 
     if (need_depletion_rx) {
       for (int r = 0; r < DEPLETION_RX_SIZE; r++) {
@@ -810,6 +811,7 @@ void Material::calculate_neutron_xs(Particle& p, bool need_depletion_rx) const
   p.macro_xs_.absorption = macro.absorption;
   p.macro_xs_.fission    = macro.fission;
   p.macro_xs_.nu_fission = macro.nu_fission;
+  p.macro_xs_.kappa_fission = macro.kappa_fission;
   if (need_depletion_rx) {
     for (int r = 0; r < DEPLETION_RX_SIZE; r++) {
       p.macro_xs_.reaction[r] = macro.reaction[r];

@@ -129,6 +129,7 @@ struct NuclideMicroXS {
   // Cross sections for depletion reactions (note that these are not stored in
   // macroscopic cache)
   double reaction[DEPLETION_RX_SIZE];
+  double kappa_fission;
 
   // Indicies and factors needed to compute cross sections from the data tables
   int index_grid;        //!< Index on nuclide energy grid
@@ -152,6 +153,7 @@ struct NuclideMicroXS {
       double absorption,
       double fission,
       double nu_fission,
+      double kappa_fission,
       double elastic,
       double thermal,
       double thermal_elastic,
@@ -171,6 +173,7 @@ struct NuclideMicroXS {
     absorption(absorption),
     fission(fission),
     nu_fission(nu_fission),
+    kappa_fission(kappa_fission),
     elastic( elastic),
     thermal(thermal),
     thermal_elastic(thermal_elastic),
@@ -255,6 +258,8 @@ struct MacroXS {
   // Cross sections for depletion reactions
   double reaction[DEPLETION_RX_SIZE];
 
+  double kappa_fission;  //!< macroscopic kappa-fission xs
+
   // Photon cross sections
   double coherent;        //!< macroscopic coherent xs
   double incoherent;      //!< macroscopic incoherent xs
@@ -272,6 +277,7 @@ struct MicroXS {
   double fission;       //!< macroscopic fission xs
   double nu_fission;    //!< macroscopic production xs
   double reaction[DEPLETION_RX_SIZE];
+  double kappa_fission; //!< macroscopic kappa-fission xs
 
   MicroXS() = default;
 
@@ -280,6 +286,7 @@ struct MicroXS {
       double absorption,
       double fission,
       double nu_fission,
+      double kappa_fission,
       double elastic,
       double thermal,
       double thermal_elastic,
@@ -298,7 +305,8 @@ struct MicroXS {
     total(total),
     absorption(absorption),
     fission(fission),
-    nu_fission(nu_fission)
+    nu_fission(nu_fission),
+    kappa_fission(kappa_fission)
   {
     for (int r = 0; r < DEPLETION_RX_SIZE; r++) {
       reaction[r] = reaction_in[r];
