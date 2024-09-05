@@ -26,14 +26,14 @@ endif()
 #===============================================================================
 
 option(profile  "Compile with profiling flags"                   ON)
-option(debug    "Compile with debug flags"                       ON)
+option(debug    "Compile with debug flags"                       OFF)
 option(optimize "Turn on all compiler optimization flags"        OFF)
 option(coverage "Compile with coverage analysis flags"           OFF)
 option(dagmc    "Enable support for DAGMC (CAD) geometry"        OFF)
 option(new_w    "Use Ben Forget's Rational Fraction Approximation of Faddeeva W(z)" ON)
 option(device_history "Enable history-based transport on device" OFF)
 
-option(device_printf  "Enable printf statements on device"       ON)
+option(device_printf  "Enable printf statements on device"       OFF)
 option(disable_xs_cache "Disable Micro XS cache"       ON)
 option(cuda_thrust_sort "Enable on-device sorting via CUDA Thrust (NVIDIA devices only)"       OFF)
 option(hip_thrust_sort "Enable on-device sorting via HIP Thrust (AMD devices only)"       OFF)

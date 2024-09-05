@@ -164,6 +164,8 @@ printf("Allocating results for %d tallies...\n", model::tallies.size());
   // Set flag indicating initialization is done
   simulation::initialized = true;
 
+  simulation::satisfy_triggers = false;
+
 //exit(0);
 
   return 0;
@@ -356,6 +358,7 @@ void allocate_banks()
 
 void initialize_batch()
 {
+  //simulation::satisfy_triggers = false;
   // Increment current batch
   ++simulation::current_batch;
   #pragma omp target update to(simulation::current_batch)
@@ -388,10 +391,10 @@ void initialize_batch()
     for (int i = 0; i < model::tallies.size(); ++i) {
       model::tallies[i].active_ = true;
     }
-    // Add user tallies to active tallies list
-    setup_active_tallies();
-  }
 
+  }
+  // Add user tallies to active tallies list
+  setup_active_tallies();
 }
 
 void finalize_batch()

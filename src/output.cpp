@@ -380,7 +380,9 @@ void print_generation()
   if (n > 1) {
     fmt::print("   {:8.5f} +/-{:8.5f}", simulation::keff, simulation::keff_std);
   }
-  std::cout << std::endl;
+  fflush(stdout); 
+  fmt::print("\n");
+  //std::cout << std::endl;
 }
 
 //==============================================================================

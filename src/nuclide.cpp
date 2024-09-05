@@ -312,7 +312,9 @@ void Nuclide::flatten_xs_data()
 {
   // Allocate array to store 1D jagged offsets for each temperature
   int n_temps = kTs_.size();
-  flat_temp_offsets_ = new int[n_temps];
+  //flat_temp_offsets_ = new int[n_temps];
+  flat_temp_offsets_.resize(n_temps, 0);
+  //printf("For nuclide id %d, kTs size is %d, flat_temp_offsets_ pointer is %p\n", index_, n_temps, flat_temp_offsets_);
 
   // Compute offsets for each temperature and total # of gridpoints
   total_energy_gridpoints_ = 0;
@@ -331,12 +333,14 @@ void Nuclide::flatten_xs_data()
 
     for (int e = 0; e < grid_[t].energy.size(); e++) {
       flat_grid_energy_[energy_offset + e] = grid_[t].energy[e];
+      assert(energy_offset + e < total_energy_gridpoints_);
     }
 
     int grid_offset = t * (settings::n_log_bins + 1);
 
     for (int i = 0; i < grid_[t].grid_index.size(); i++) {
       flat_grid_index_[grid_offset + i] = grid_[t].grid_index[i];
+      assert(grid_offset + i < total_index_gridpoints_);
     }
   }
 
@@ -365,8 +369,8 @@ Nuclide::~Nuclide()
   data::nuclide_map.erase(name_);
 
   // These arrays are only allocated if 1D flattening function was called
-  if (flat_temp_offsets_ != nullptr) {
-    delete[] flat_temp_offsets_;
+  if (flat_grid_index_ != nullptr) {
+    //delete[] flat_temp_offsets_;
     delete[] flat_grid_index_;
     delete[] flat_grid_energy_;
     delete[] flat_xs_;
@@ -715,7 +719,30 @@ void Nuclide::copy_to_device()
   energy_0K_.copy_to_device();
   elastic_0K_.copy_to_device();
   xs_cdf_.copy_to_device();
-  #pragma omp target enter data map(to: flat_temp_offsets_[:kTs_.size()])
+  //#pragma omp target enter data map(to: flat_temp_offsets_[:kTs_.size()])
+  //#pragma omp target enter data map(to: flat_temp_offsets_[:n])
+
+  // TODO: This mapping seems to cause issues when the following happens:
+  // 1) OpenMC is run via Cardinal
+  // 2) OpenMC is run in history-based mode on CPU
+  // When the above two conditions are met, it gives a fails to offload error
+  // here, complaining that:
+  //  Moving 11 nuclides to device...
+  //    omptarget message: explicit extension not allowed: host address specified is 0x000000000d390770 (20 bytes), but device allocation maps to host at 0x000000000d390770 (8 bytes)
+  //    omptarget error: Call to getTargetPointer returned null pointer (device failure or illegal mapping).
+  //    omptarget error: Consult https://openmp.llvm.org/design/Runtimes.html for debugging options.
+  //    vector.h:213:1: omptarget fatal error 1: failure of target construct while offloading is mandatory
+  // I.e., it is like it is upset because data has already been mapped for a length of 8 bytes, but now it is trying to map it for 20 bytes.
+  // While 20 bytes is the expected value for the test problem, there is no reason it would have already been mapped.
+  // The only reason I can think of is that some other mapping routine is incorrect and is accidentally mapping the same memory again.
+  // However, even in that scenario, it should still work as it is ok to map the same pointer multiple times.
+  // But for now, I'll just leave this in. Notably, this will prevent history-based mode from running correctly on GPU, but
+  // that's not useful anyway.
+
+  if (settings::event_based) {
+    flat_temp_offsets_.copy_to_device();
+  }
+
   #pragma omp target enter data map(to: flat_grid_energy_[:total_energy_gridpoints_])
   #pragma omp target enter data map(to: flat_grid_index_[:total_index_gridpoints_])
   #pragma omp target enter data map(to: flat_xs_[:total_energy_gridpoints_*5])
@@ -726,7 +753,7 @@ void Nuclide::copy_to_device()
     #pragma omp target enter data map(to: u.device_energy_[:u.n_energy_])
     #pragma omp target enter data map(to: u.device_prob_[:u.n_total_prob_])
   }
-
+  
   // Because fission_rx_ is an array of host pointers, if we copy it over as an
   // array, we'll simply have an identical array of host pointers in device
   // memory. To get around this, we run a target region on device to manually
@@ -748,6 +775,7 @@ void Nuclide::copy_to_device()
     #pragma omp target enter data map(to: device_multipole_[:1])
     multipole_->copy_to_device();
   }
+  
 }
 
 void Nuclide::release_from_device()
@@ -764,7 +792,8 @@ void Nuclide::release_from_device()
   xs_cdf_.release_device();
   elastic_0K_.release_device();
   energy_0K_.release_device();
-  #pragma omp target exit data map(release: flat_temp_offsets_[:kTs_.size()])
+  flat_temp_offsets_.release_device();
+  //#pragma omp target exit data map(release: flat_temp_offsets_[:kTs_.size()])
   #pragma omp target exit data map(release: flat_grid_energy_[:total_energy_gridpoints_])
   #pragma omp target exit data map(release: flat_grid_index_[:total_index_gridpoints_])
   #pragma omp target exit data map(release: flat_xs_[:total_energy_gridpoints_*5])

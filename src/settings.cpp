@@ -46,7 +46,7 @@ bool create_fission_neutrons {true};
 bool dagmc                   {false};
 bool delayed_photon_scaling  {true};
 bool entropy_on              {false};
-bool event_based             {true};
+bool event_based             {false};
 bool legendre_to_tabular     {true};
 bool material_cell_offsets   {true};
 bool output_summary          {true};
@@ -89,7 +89,7 @@ double fuel_lookup_bias {2.0};
 
 bool sort_fissionable_xs_lookups {true};
 bool sort_non_fissionable_xs_lookups {true};
-bool sort_surface_crossing {true};
+bool sort_surface_crossing {false};
 #if defined(CUDA_THRUST_SORT) || defined(SYCL_SORT)
 bool sort_on_device {true};
 #else
