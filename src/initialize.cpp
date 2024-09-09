@@ -301,10 +301,11 @@ void read_input_xml()
 
   // Initialize distribcell_filters
   prepare_distribcell();
+    
+  // Read plots.xml if it exists
+  read_plots_xml();
 
   if (settings::run_mode == RunMode::PLOTTING) {
-    // Read plots.xml if it exists
-    read_plots_xml();
     if (mpi::master && settings::verbosity >= 5) print_plot();
 
   } else {
