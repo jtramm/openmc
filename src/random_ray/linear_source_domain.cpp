@@ -134,7 +134,7 @@ void LinearSourceDomain::update_neutron_source(double k_eff)
         (scatter_flat + fission_flat * inverse_k_eff) / sigma_t;
 
       // Compute the linear source terms
-      if (simulation::current_batch > 2) {
+      if (simulation::current_batch > 10) {
         source_gradients_[sr * negroups_ + e_out] =
           invM * ((scatter_linear + fission_linear * inverse_k_eff) / sigma_t);
       }

@@ -474,7 +474,7 @@ float linear_source_flux_attenuation(
   // of the ray as the region's centroid.
   if (domain->volume_t_[s.sr]) { // 2 * 3 = 6
     Position centroid = domain->centroid_[s.sr];
-    rm_local = (s.sr + s.u * (distance * 0.5f)) - centroid; 
+    rm_local = (s.r + s.u * (distance * 0.5f)) - centroid; 
     r0_local = s.r - centroid;
   } else {
     rm_local = {0.0, 0.0, 0.0};
