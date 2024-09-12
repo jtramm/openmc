@@ -472,24 +472,28 @@ void RandomRaySimulation::simulate()
 
         // Do all flux attenuation
         int n_trips = nrays * negroups_;
-#pragma omp target teams distribute parallel for
+#pragma omp target teams distribute parallel for thread_limit(negroups_*7)
         for (int64_t i = 0; i < n_trips; i++) {
           int ray_idx = i / negroups_;
           RandomRay& ray = rays[ray_idx];
           int g = i % negroups_;
 
+          float psi_local;
+          if (block == 0) {
+              psi_local =
+                RandomRaySimulation::domain_
+                  ->source_[RandomRay::segments_[ray_idx * RandomRay::max_segments_].sr * negroups_ + g];
+          } else {
+            psi_local = psi[ray_idx * negroups_ + g];
+          }
+
           for (int s = 0; s < ray.n_event_; s++) {
             Segment& segment =
               RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
-            if (s == 0 && block == 0) {
-              psi[ray_idx * negroups_ + g] =
-                RandomRaySimulation::domain_
-                  ->source_[segment.sr * negroups_ + g];
-            }
-
-            psi[ray_idx * negroups_ + g] = flat_source_flux_attenuation(
-              segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+              psi_local = flat_source_flux_attenuation(
+              segment, negroups_, g, psi_local);
           }
+          psi[ray_idx * negroups_ + g] = psi_local;
         }
       } else {
         //////////////////////////////////////////////////////////
@@ -508,24 +512,29 @@ void RandomRaySimulation::simulate()
 
         // Do all flux attenuation
         int n_trips = nrays * negroups_;
-#pragma omp target teams distribute parallel for
+#pragma omp target teams distribute parallel for thread_limit(negroups_*3)
         for (int64_t i = 0; i < n_trips; i++) {
           int ray_idx = i / negroups_;
           RandomRay& ray = rays[ray_idx];
           int g = i % negroups_;
 
+          float psi_local;
+          if (block == 0) {
+              psi_local =
+                RandomRaySimulation::ls_domain_
+                  ->source_[RandomRay::segments_[ray_idx * RandomRay::max_segments_].sr * negroups_ + g];
+          } else {
+            psi_local = psi[ray_idx * negroups_ + g];
+          }
+
           for (int s = 0; s < ray.n_event_; s++) {
             Segment& segment =
               RandomRay::segments_[ray_idx * RandomRay::max_segments_ + s];
-            if (s == 0 && block == 0) {
-              psi[ray_idx * negroups_ + g] =
-                RandomRaySimulation::ls_domain_
-                  ->source_[segment.sr * negroups_ + g];
-            }
 
-            psi[ray_idx * negroups_ + g] = linear_source_flux_attenuation(
-              segment, negroups_, g, psi[ray_idx * negroups_ + g]);
+            psi_local = linear_source_flux_attenuation(
+              segment, negroups_, g, psi_local);
           }
+          psi[ray_idx * negroups_ + g] = psi_local;
         }
       }
     }

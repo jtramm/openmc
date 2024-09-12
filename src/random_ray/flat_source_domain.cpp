@@ -918,7 +918,7 @@ void FlatSourceDomain::output_to_vtk() const
     }
 
     // Relate voxel spatial locations to random ray source regions
-    vector<int> voxel_indices(Nx * Ny * Nz);
+    vector<uint64_t> voxel_indices(Nx * Ny * Nz);
     vector<Position> voxel_positions(Nx * Ny * Nz);
 
 #pragma omp parallel for collapse(3)
@@ -957,8 +957,8 @@ void FlatSourceDomain::output_to_vtk() const
     std::fprintf(plot, "SPACING %lf %lf %lf\n", x_delta, y_delta, z_delta);
     std::fprintf(plot, "POINT_DATA %d\n", Nx * Ny * Nz);
 
-    // Plot multigroup flux data
-    for (int g = 0; g < negroups_; g++) {
+    // Plot most thermal group data
+    for (int g = negroups_ - 1; g < negroups_; g++) {
       std::fprintf(plot, "SCALARS flux_group_%d float\n", g);
       std::fprintf(plot, "LOOKUP_TABLE default\n");
       for (int i = 0; i < Nx * Ny * Nz; i++) {
@@ -969,12 +969,14 @@ void FlatSourceDomain::output_to_vtk() const
         std::fwrite(&flux, sizeof(float), 1, plot);
       }
     }
-
-    // Plot FSRs
-    std::fprintf(plot, "SCALARS FSRs float\n");
+    
+    // Plot Random FSRs
+    std::fprintf(plot, "SCALARS FSRs_rand float\n");
     std::fprintf(plot, "LOOKUP_TABLE default\n");
-    for (int fsr : voxel_indices) {
-      float value = future_prn(10, fsr);
+    for (uint64_t fsr : voxel_indices) {
+      uint64_t seed = fsr;
+      int n = fsr % 13;
+      float value = static_cast<float>(future_prn(n, fsr));
       value = convert_to_big_endian<float>(value);
       std::fwrite(&value, sizeof(float), 1, plot);
     }

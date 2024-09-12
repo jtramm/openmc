@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdlib> // for getenv
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -303,7 +304,9 @@ void read_input_xml()
   prepare_distribcell();
     
   // Read plots.xml if it exists
-  read_plots_xml();
+  if (std::filesystem::exists("plots.xml")) {
+    read_plots_xml();
+  }
 
   if (settings::run_mode == RunMode::PLOTTING) {
     if (mpi::master && settings::verbosity >= 5) print_plot();

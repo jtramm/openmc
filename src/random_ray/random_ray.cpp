@@ -11,6 +11,7 @@
 #include "openmc/settings.h"
 #include "openmc/simulation.h"
 #include "openmc/source.h"
+#include "openmc/random_lcg.h"
 
 namespace openmc {
 
@@ -50,6 +51,7 @@ float cjosey_exponential2(float tau)
   den = den * x + c2d;
   den = den * x + c1d;
   den = den * x + c0d;
+  // 7 * 2 = 14
 
   float num = c7n;
   num = num * x + c6n;
@@ -59,8 +61,9 @@ float cjosey_exponential2(float tau)
   num = num * x + c2n;
   num = num * x + c1n;
   num = num * x;
+  // 6 * 2 = 12 + 1 = 13
 
-  return num / den;
+  return num / den; // 1
 }
 
 // The below two functions (exponentialG and exponentialG2) were developed
@@ -117,11 +120,12 @@ float exponentialG(float tau)
   float x = tau;
 
   float num = d5n;
-  num = num * x + d4n;
+  num = num * x + d4n; 
   num = num * x + d3n;
   num = num * x + d2n;
   num = num * x + d1n;
   num = num * x + d0n;
+  // 5 * 2 = 10
 
   float den = d6d;
   den = den * x + d5d;
@@ -130,8 +134,9 @@ float exponentialG(float tau)
   den = den * x + d2d;
   den = den * x + d1d;
   den = den * x + d0d;
+  // 6 * 2 = 10
 
-  return num / den;
+  return num / den; // 1
 }
 
 // Computes G2 : y = 2/3 - (1 + 2/x) * (1/x + 0.5 - (1 + 1/x) * (1-exp(-x)) /
@@ -163,7 +168,8 @@ float exponentialG2(float tau)
   num = num * x + g3n;
   num = num * x + g2n;
   num = num * x + g1n;
-  num = num * x;
+  // 4 * 2 = 8
+  num = num * x; // 1
 
   float den = g5d;
   den = den * x + g4d;
@@ -171,8 +177,9 @@ float exponentialG2(float tau)
   den = den * x + g2d;
   den = den * x + g1d;
   den = den * x + 1.0f;
+  // 5 * 2 = 10
 
-  return num / den;
+  return num / den; // 1
 }
 
 //==============================================================================
@@ -422,56 +429,67 @@ float flat_source_flux_attenuation(
   int64_t source_element = s.sr * negroups + g;
   float sigma_t =
     RandomRaySimulation::domain_->sigma_t_[s.material * negroups + g];
-  float tau = sigma_t * s.distance;
-  float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau)
+  float tau = sigma_t * s.distance; // 1
+  float exponential = cjosey_exponential(tau); // exponential = 1 - exp(-tau) // ????
   float new_delta_psi =
-    (psi - RandomRaySimulation::domain_->source_[source_element]) * exponential;
+    (psi - RandomRaySimulation::domain_->source_[source_element]) * exponential; // 2
 
   if (s.is_active) {
 #pragma omp atomic
     RandomRaySimulation::domain_->scalar_flux_new_[source_element] +=
-      new_delta_psi;
+      new_delta_psi; // 1
   }
 
   if (s.is_vac_end)
     return 0.0;
   else
-    return psi - new_delta_psi;
+    return psi - new_delta_psi; // 1
 }
 
 float linear_source_flux_attenuation(
-  const Segment& s, int negroups, int g, float psi)
+  const Segment& seg_in, int negroups, int g, float psi)
 {
+  Segment s = seg_in;
+  //Segment s = seg_in;
+  //float distance = s.distance;
+
   // Cast domain to LinearSourceDomain
   LinearSourceDomain* domain = RandomRaySimulation::ls_domain_;
   // static_cast<LinearSourceDomain*>(RandomRaySimulation::domain_);
 
-  Position& centroid = domain->centroid_[s.sr];
-  Position midpoint = s.r + s.u * (s.distance / 2.0);
+
 
   // Determine the local position of the midpoint and the ray origin
   // relative to the source region's centroid
   Position rm_local;
   Position r0_local;
+  float distance = s.distance;
 
-  int64_t source_element = s.sr * negroups;
+  int64_t source_element = s.sr * negroups + g; // 2
 
   // In the first few iterations of the simulation, the source region
   // may not yet have had any ray crossings, in which case there will
   // be no estimate of its centroid. We detect this by checking if it has
   // any accumulated volume. If its volume is zero, just use the midpoint
   // of the ray as the region's centroid.
-  if (domain->volume_t_[s.sr]) {
-    rm_local = midpoint - centroid;
+  if (domain->volume_t_[s.sr]) { // 2 * 3 = 6
+    Position centroid = domain->centroid_[s.sr];
+    rm_local = (s.sr + s.u * (distance * 0.5f)) - centroid; 
     r0_local = s.r - centroid;
   } else {
     rm_local = {0.0, 0.0, 0.0};
-    r0_local = -s.u * 0.5 * s.distance;
+    r0_local = -s.u * (0.5f * distance);
   }
-  double distance_2 = s.distance * s.distance;
+
+  // Compute linear source terms, spatial and directional (dir),
+  // calculated from the source gradients dot product with local centroid
+  // and direction, respectively.
+  float spatial_source =
+    domain->source_[source_element] + rm_local.dot(domain->source_gradients_[source_element]); // 1
+  float dir_source = s.u.dot(domain->source_gradients_[source_element]); // 5
 
   float sigma_t = domain->sigma_t_[s.material * negroups + g];
-  float tau = sigma_t * s.distance;
+  float tau =  sigma_t * distance; // 1
 
   // If tau is very small, set it to zero to avoid numerical issues.
   // The following computations will still work with tau = 0.
@@ -479,33 +497,27 @@ float linear_source_flux_attenuation(
     tau = 0.0f;
   }
 
-  // Compute linear source terms, spatial and directional (dir),
-  // calculated from the source gradients dot product with local centroid
-  // and direction, respectively.
-  float spatial_source =
-    domain->source_[source_element + g] +
-    rm_local.dot(domain->source_gradients_[source_element + g]);
-  float dir_source = s.u.dot(domain->source_gradients_[source_element + g]);
+  float gn = exponentialG(tau); // ???
+  float f1 = 1.0f - tau * gn; // 2
+      float distance_2 = distance * distance; // 1
 
-  float gn = exponentialG(tau);
-  float f1 = 1.0f - tau * gn;
-  float f2 = (2.0f * gn - f1) * distance_2;
+  float f2 = (2.0f * gn - f1) * distance_2; // 3
   float new_delta_psi =
-    (psi - spatial_source) * f1 * s.distance - 0.5 * dir_source * f2;
+    (psi - spatial_source) * f1 * distance - 0.5f * dir_source * f2; // 6
 
-  float h1 = f1 - gn;
-  float g1 = 0.5f - h1;
-  float g2 = exponentialG2(tau);
-  g1 = g1 * spatial_source;
-  g2 = g2 * dir_source * s.distance * 0.5f;
-  h1 = h1 * psi;
-  h1 = (g1 + g2 + h1) * distance_2;
-  spatial_source = spatial_source * s.distance + new_delta_psi;
+  float h1 = f1 - gn; // 1
+  float g1 = 0.5f - h1; // 1
+  float g2 = exponentialG2(tau); // ????
+  g1 = g1 * spatial_source; // 1
+  g2 = g2 * dir_source * (distance * 0.5f); // 3
+  h1 = h1 * psi; // 1
+  h1 = (g1 + g2 + h1) * distance_2; // 3
+  spatial_source = spatial_source * distance + new_delta_psi; // 2 * 3 = 6
 
   // Store contributions for this group into arrays, so that they can
   // be accumulated into the source region's estimates inside of the locked
   // region.
-  MomentArray delta_moments = r0_local * spatial_source + s.u * h1;
+  MomentArray delta_moments = r0_local * spatial_source + s.u * h1; // 3 * 3
 
   // If 2D mode is enabled, the z-component of the flux moments is forced
   // to zero
@@ -515,19 +527,19 @@ float linear_source_flux_attenuation(
 
   if (s.is_active) {
 #pragma omp atomic
-    domain->scalar_flux_new_[source_element + g] += new_delta_psi;
+    domain->scalar_flux_new_[source_element] += new_delta_psi; // 1
 #pragma omp atomic
-    domain->flux_moments_new_[source_element + g].x += delta_moments.x;
+    domain->flux_moments_new_[source_element].x += delta_moments.x; // 1
 #pragma omp atomic
-    domain->flux_moments_new_[source_element + g].y += delta_moments.y;
+    domain->flux_moments_new_[source_element].y += delta_moments.y; // 1
 #pragma omp atomic
-    domain->flux_moments_new_[source_element + g].z += delta_moments.z;
+    domain->flux_moments_new_[source_element].z += delta_moments.z; // 1
   }
 
   if (s.is_vac_end)
     return 0.0;
   else
-    return psi - new_delta_psi * sigma_t;
+    return psi - new_delta_psi * sigma_t; // 2
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -716,6 +728,7 @@ void RandomRay::attenuate_flux_linear_source(double distance, bool is_active)
   Segment& segment = segments_[id_ * max_segments_ + n_event_ - 1];
   // Segment segment;
   segment.sr = source_region;
+  //segment.sr = static_cast<int>(prn(current_seed()) * static_cast<double>(RandomRaySimulation::ls_domain_->n_source_regions_));
   segment.distance = distance;
   segment.r = r();
   segment.u = u();
