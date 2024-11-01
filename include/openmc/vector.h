@@ -271,7 +271,7 @@ template<typename T>
 void vector<T>::push_back(const T& value)
 {
   if (capacity_ == 0) {
-    this->reserve(8);
+    this->reserve(1);
   } else if (size_ == capacity_ ) {
     this->reserve(2*capacity_);
   }
@@ -284,7 +284,7 @@ template<typename T>
 void vector<T>::push_back(T&& value)
 {
   if (capacity_ == 0) {
-    this->reserve(8);
+    this->reserve(1);
   } else if (size_ == capacity_ ) {
     this->reserve(2*capacity_);
   }
@@ -299,7 +299,7 @@ template<class... Args>
 void vector<T>::emplace_back(Args&&... args)
 {
   if (capacity_ == 0) {
-    this->reserve(8);
+    this->reserve(1);
   } else if (size_ == capacity_ ) {
     this->reserve(2*capacity_);
   }
