@@ -22,6 +22,7 @@
 #include "openmc/particle.h"
 #include "openmc/particle_data.h"
 #include "openmc/physics_common.h"
+#include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/search.h"
 #include "openmc/settings.h"
 #include "openmc/tallies/filter_energy.h"
@@ -623,25 +624,48 @@ void WeightWindows::update_magic(
   // get mesh volumes
   auto mesh_vols = this->mesh()->volumes();
 
-  int e_bins = new_bounds.shape()[0];
-  for (int e = 0; e < e_bins; e++) {
-    // select all
-    auto group_view = xt::view(new_bounds, e);
+  if (FlatSourceDomain::adjoint_) {
+    // find max flux in new_bounds
+    double max_flux = *std::max_element(new_bounds.begin(), new_bounds.end());
 
-    // divide by volume of mesh elements
-    for (int i = 0; i < group_view.size(); i++) {
-      group_view[i] /= mesh_vols[i];
+    // FW-CADIS weight window computation
+    // xt::noalias(new_bounds) = max_flux / (1000.0 * new_bounds);
+    xt::noalias(new_bounds) = max_flux / (new_bounds);
+
+    int e_bins = new_bounds.shape()[0];
+    for (int e = 0; e < e_bins; e++) {
+      // select all
+      auto group_view = xt::view(new_bounds, e);
+
+      // divide by volume of mesh elements
+      for (int i = 0; i < group_view.size(); i++) {
+        group_view[i] /= mesh_vols[i];
+        printf("dividing by mesh_vols %.3le\n", mesh_vols[i]);
+      }
     }
 
-    double group_max = *std::max_element(group_view.begin(), group_view.end());
-    // normalize values in this energy group by the maximum value for this
-    // group
-    if (group_max > 0.0)
-      group_view /= 2.0 * group_max;
+  } else {
+    int e_bins = new_bounds.shape()[0];
+    for (int e = 0; e < e_bins; e++) {
+      // select all
+      auto group_view = xt::view(new_bounds, e);
+
+      // divide by volume of mesh elements
+      for (int i = 0; i < group_view.size(); i++) {
+        group_view[i] /= mesh_vols[i];
+      }
+
+      double group_max =
+        *std::max_element(group_view.begin(), group_view.end());
+      // normalize values in this energy group by the maximum value for this
+      // group
+      if (group_max > 0.0)
+        group_view /= 2.0 * group_max;
+    }
   }
 
-  // make sure that values where the mean is zero are set s.t. the weight window
-  // value will be ignored
+  // make sure that values where the mean is zero are set s.t. the weight
+  // window value will be ignored
   xt::filter(new_bounds, sum <= 0.0).fill(-1.0);
 
   // make sure the weight windows are ignored for any locations where the
@@ -668,7 +692,8 @@ void WeightWindows::check_tally_update_compatibility(const Tally* tally)
       "A mesh filter is required for a tally to update weight window bounds");
   }
 
-  // ensure the mesh filter is using the same mesh as this weight window object
+  // ensure the mesh filter is using the same mesh as this weight window
+  // object
   auto mesh_filter = tally->get_filter<MeshFilter>();
 
   // make sure that all of the filters present on the tally are allowed
@@ -688,8 +713,8 @@ void WeightWindows::check_tally_update_compatibility(const Tally* tally)
       mesh_filter->id(), mesh_filter_id, id_, ww_mesh_id));
   }
 
-  // if an energy filter exists, make sure the energy grid matches that of this
-  // weight window object
+  // if an energy filter exists, make sure the energy grid matches that of
+  // this weight window object
   if (auto energy_filter = tally->get_filter<EnergyFilter>()) {
     std::vector<double> filter_bins = energy_filter->bins();
     std::set<double> filter_e_bounds(
