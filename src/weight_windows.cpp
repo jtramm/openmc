@@ -610,7 +610,6 @@ void WeightWindows::update_magic(
   // bounds to avoid allocating additional memory
   auto& new_bounds = this->lower_ww_;
   auto& rel_err = this->upper_ww_;
-
   // noalias avoids memory allocation here
   xt::noalias(new_bounds) = sum / n;
 
@@ -625,13 +624,39 @@ void WeightWindows::update_magic(
   auto mesh_vols = this->mesh()->volumes();
 
   if (FlatSourceDomain::adjoint_) {
+    /*
     // find max flux in new_bounds
     double max_flux = *std::max_element(new_bounds.begin(), new_bounds.end());
+    double min_flux = *std::min_element(new_bounds.begin(), new_bounds.end());
+    double sum_flux = xt::sum(new_bounds)[0];
+
+    printf("max flux: %.3le min flux: %.3le sum flux: %.3le\n", max_flux,
+      min_flux, sum_flux);
+
+    for (int e = 0; e < new_bounds.shape()[0]; e++) {
+      // select all
+      auto group_view = xt::view(new_bounds, e);
+
+      // divide by volume of mesh elements
+      for (int i = 0; i < group_view.size(); i++) {
+        if (e == 0 && i == 0) {
+          printf("Max flux = %.3le, local flux = %.3le, new value = %.3le\n",
+            max_flux, group_view[i], max_flux / (30000.0 * group_view[i]));
+        }
+        group_view[i] = max_flux / (30000.0 * group_view[i]);
+      }
+    }
 
     // FW-CADIS weight window computation
     // xt::noalias(new_bounds) = max_flux / (1000.0 * new_bounds);
-    xt::noalias(new_bounds) = max_flux / (new_bounds);
+    // xt::noalias(new_bounds) = max_flux / (30.0*new_bounds);
+    //  30k works nicely for 1cm^3 mesh
+    //  3 works nicely for 1000 cm^3 mesh
 
+    xt::noalias(new_bounds) = max_flux / (3.0 * new_bounds);
+
+    // xt::noalias(new_bounds) = max_flux / (1000.0 * new_bounds);
+*/
     int e_bins = new_bounds.shape()[0];
     for (int e = 0; e < e_bins; e++) {
       // select all
@@ -640,9 +665,15 @@ void WeightWindows::update_magic(
       // divide by volume of mesh elements
       for (int i = 0; i < group_view.size(); i++) {
         group_view[i] /= mesh_vols[i];
-        printf("dividing by mesh_vols %.3le\n", mesh_vols[i]);
+        //printf("Mesh volume: %.3le\n", mesh_vols[i]);
       }
     }
+
+    xt::noalias(new_bounds) = 1.0 / new_bounds;
+
+    auto max_val = xt::amax(new_bounds)();
+
+    xt::noalias(new_bounds) = new_bounds / (2.0*max_val);
 
   } else {
     int e_bins = new_bounds.shape()[0];
