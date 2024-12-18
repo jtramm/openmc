@@ -1037,9 +1037,96 @@ void FlatSourceDomain::convert_external_sources()
     }
   }
 }
+
 void FlatSourceDomain::flux_swap()
 {
   scalar_flux_old_.swap(scalar_flux_new_);
+}
+
+void FlatSourceDomain::flatten_xs()
+{
+  // Temperature and angle indices, if using multiple temperature
+  // data sets and/or anisotropic data sets.
+  // TODO: Currently assumes we are only using single temp/single angle data.
+  const int t = 0;
+  const int a = 0;
+
+  n_materials_ = data::mg.macro_xs_.size();
+  for (auto& m : data::mg.macro_xs_) {
+    for (int g_out = 0; g_out < negroups_; g_out++) {
+      if (m.exists_in_model) {
+        double sigma_t =
+          m.get_xs(MgxsType::TOTAL, g_out, NULL, NULL, NULL, t, a);
+        sigma_t_.push_back(sigma_t);
+
+        double nu_Sigma_f =
+          m.get_xs(MgxsType::NU_FISSION, g_out, NULL, NULL, NULL, t, a);
+        nu_sigma_f_.push_back(nu_Sigma_f);
+
+        double sigma_f =
+          m.get_xs(MgxsType::FISSION, g_out, NULL, NULL, NULL, t, a);
+        sigma_f_.push_back(sigma_f);
+
+        double chi =
+          m.get_xs(MgxsType::CHI_PROMPT, g_out, &g_out, NULL, NULL, t, a);
+        chi_.push_back(chi);
+
+        for (int g_in = 0; g_in < negroups_; g_in++) {
+          double sigma_s =
+            m.get_xs(MgxsType::NU_SCATTER, g_in, &g_out, NULL, NULL, t, a);
+          sigma_s_.push_back(sigma_s);
+        }
+      } else {
+        sigma_t_.push_back(0);
+        nu_sigma_f_.push_back(0);
+        sigma_f_.push_back(0);
+        chi_.push_back(0);
+        for (int g_in = 0; g_in < negroups_; g_in++) {
+          sigma_s_.push_back(0);
+        }
+      }
+    }
+  }
+}
+
+void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
+{
+  // Set the external source to 1/forward_flux
+  // The forward flux is given in terms of total for the forward simulation
+  // so we must convert it to a "per batch" quantity
+#pragma omp parallel for
+  for (int64_t se = 0; se < n_source_elements_; se++) {
+    external_source_[se] = 1.0 / forward_flux[se];
+  }
+
+  // Divide the fixed source term by sigma t (to save time when applying each
+  // iteration)
+#pragma omp parallel for
+  for (int sr = 0; sr < n_source_regions_; sr++) {
+    int material = material_[sr];
+    for (int g = 0; g < negroups_; g++) {
+      double sigma_t = sigma_t_[material * negroups_ + g];
+      external_source_[sr * negroups_ + g] /= sigma_t;
+    }
+  }
+}
+
+void FlatSourceDomain::transpose_scattering_matrix()
+{
+  // Transpose the inner two dimensions for each material
+  for (int m = 0; m < n_materials_; ++m) {
+    int material_offset = m * negroups_ * negroups_;
+    for (int i = 0; i < negroups_; ++i) {
+      for (int j = i + 1; j < negroups_; ++j) {
+        // Calculate indices of the elements to swap
+        int idx1 = material_offset + i * negroups_ + j;
+        int idx2 = material_offset + j * negroups_ + i;
+
+        // Swap the elements to transpose the matrix
+        std::swap(sigma_s_[idx1], sigma_s_[idx2]);
+      }
+    }
+  }
 }
 
 void FlatSourceDomain::flatten_xs()
