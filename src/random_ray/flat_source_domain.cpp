@@ -141,6 +141,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
     }
     for (int g_out = 0; g_out < negroups_; g_out++) {
       double sigma_t = sigma_t_[material * negroups_ + g_out];
+
       double scatter_source = 0.0;
       double fission_source = 0.0;
 
@@ -153,6 +154,7 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
         scatter_source += sigma_s * scalar_flux;
         fission_source += nu_sigma_f * scalar_flux * chi;
+
       }
       source_regions_.source(sr, g_out) =
         (scatter_source + fission_source * inverse_k_eff) / sigma_t;
@@ -833,6 +835,8 @@ void FlatSourceDomain::output_to_vtk() const
     std::fprintf(plot, "POINT_DATA %d\n", Nx * Ny * Nz);
 
     int64_t num_neg = 0;
+    int64_t num_nan = 0;
+    int64_t num_zero = 0;
     int64_t num_samples = 0;
     float min_flux = 0.0;
     float max_flux = -1.0e20;
@@ -850,6 +854,9 @@ void FlatSourceDomain::output_to_vtk() const
             flux = FlatSourceDomain::evaluate_flux_at_point(
               voxel_positions[i], fsr, g);
         }
+        if (flux == 0.0) {
+          num_zero++;
+        }
         if (flux < 0.0) {
           num_neg++;
           if (flux < min_flux) {
@@ -858,6 +865,9 @@ void FlatSourceDomain::output_to_vtk() const
         }
         if (flux > max_flux)
           max_flux = flux;
+        if (!isfinite(flux)) {
+          num_nan++;
+        }
         num_samples++;
         flux = convert_to_big_endian<float>(flux);
         std::fwrite(&flux, sizeof(float), 1, plot);
@@ -871,6 +881,14 @@ void FlatSourceDomain::output_to_vtk() const
       warning(fmt::format("{} plot samples ({:.4f}%) contained negative fluxes "
                           "(minumum found = {:.2e} maximum_found = {:.2e})",
         num_neg, (100.0 * num_neg) / num_samples, min_flux, max_flux));
+    }
+    if (num_nan > 0) {
+      warning(fmt::format("{} plot samples ({:.4f}%) contained Non-Finite fluxes",
+        num_nan, (100.0 * num_nan) / num_samples));
+    }
+    if (num_zero > 0) {
+      warning(fmt::format("{} plot samples ({:.4f}%) contained zero fluxes",
+        num_zero, (100.0 * num_zero) / num_samples));
     }
 
     // Plot FSRs
@@ -1157,6 +1175,9 @@ void FlatSourceDomain::flatten_xs()
 
         double chi =
           m.get_xs(MgxsType::CHI_PROMPT, g_out, &g_out, NULL, NULL, t, a);
+        if (!std::isfinite(chi)) {
+          chi = 0.0;
+        }
         chi_.push_back(chi);
 
         for (int g_in = 0; g_in < negroups_; g_in++) {

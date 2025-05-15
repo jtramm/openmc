@@ -1,5 +1,6 @@
 #include "openmc/random_ray/random_ray.h"
 
+#include "openmc/cell.h"
 #include "openmc/constants.h"
 #include "openmc/geometry.h"
 #include "openmc/message_passing.h"
@@ -827,7 +828,14 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   if (!srh.is_numerical_fp_artifact_) {
     for (int g = 0; g < negroups_; g++) {
+      if (!std::isfinite(srh.source(g))) {
+        fatal_error("Non-finite source term detected for particle " +
+                    std::to_string(id()));
+      }
       angular_flux_[g] = srh.source(g);
+      if (angular_flux_[g] < 0.0) {
+        angular_flux_[g] = 0.0;
+      }
     }
   }
 }
