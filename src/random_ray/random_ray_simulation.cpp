@@ -464,7 +464,8 @@ void RandomRaySimulation::simulate()
 
       // Start timer for transport
       simulation::time_transport.start();
-
+fmt::print("Beginning Transport\n");
+std::cout.flush();
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
@@ -473,14 +474,23 @@ void RandomRaySimulation::simulate()
         total_geometric_intersections_ +=
           ray.transport_history_based_single_ray();
       }
+      fmt::print("Transport Ended\n");
+      std::cout.flush();
+
 
       simulation::time_transport.stop();
+
+      fmt::print("Finalizing Discovered Src Regions Starting...\n");
+      std::cout.flush();
 
       // If using mesh subdivision, add any newly discovered source regions
       // to the main source region container.
       if (RandomRay::mesh_subdivision_enabled_) {
         domain_->finalize_discovered_source_regions();
       }
+
+      fmt::print("Finalizing Discovered Src Regions Ended...\n");
+      std::cout.flush();
 
       // Normalize scalar flux and update volumes
       domain_->normalize_scalar_flux_and_volumes(
@@ -508,7 +518,7 @@ void RandomRaySimulation::simulate()
         domain_->accumulate_iteration_flux();
 
         // Generate mapping between source regions and tallies
-        if (!domain_->mapped_all_tallies_) {
+        if (!domain_->mapped_all_tallies_ && !RandomRay::mesh_subdivision_enabled_) {
           domain_->convert_source_regions_to_tallies();
         }
 

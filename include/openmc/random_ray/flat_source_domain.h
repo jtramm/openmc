@@ -35,6 +35,7 @@ public:
   int64_t add_source_to_scalar_flux();
   virtual void batch_reset();
   void convert_source_regions_to_tallies();
+  void map_source_region_to_tallies(int64_t sr);
   void reset_tally_volumes();
   void random_ray_tally();
   virtual void accumulate_iteration_flux();

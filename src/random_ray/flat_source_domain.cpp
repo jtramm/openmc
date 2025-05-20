@@ -154,7 +154,6 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 
         scatter_source += sigma_s * scalar_flux;
         fission_source += nu_sigma_f * scalar_flux * chi;
-
       }
       source_regions_.source(sr, g_out) =
         (scatter_source + fission_source * inverse_k_eff) / sigma_t;
@@ -416,6 +415,73 @@ double FlatSourceDomain::compute_k_eff(double k_eff_old) const
 // be passed back to the caller to alert them that this function doesn't
 // need to be called for the remainder of the simulation.
 
+void FlatSourceDomain::map_source_region_to_tallies(int64_t sr)
+{
+  // A particle located at the recorded midpoint of a ray
+  // crossing through this source region is used to estabilish
+  // the spatial location of the source region
+  Particle p;
+  p.r() = source_regions_.position(sr);
+  p.r_last() = source_regions_.position(sr);
+  p.u() = {1.0, 0.0, 0.0};
+  bool found = exhaustive_find_cell(p);
+
+  // Loop over energy groups (so as to support energy filters)
+  for (int g = 0; g < negroups_; g++) {
+
+    // Set particle to the current energy
+    p.g() = g;
+    p.g_last() = g;
+    p.E() = data::mg.energy_bin_avg_[p.g()];
+    p.E_last() = p.E();
+
+    int64_t source_element = sr * negroups_ + g;
+
+    // If this task has already been populated, we don't need to do
+    // it again.
+    if (source_regions_.tally_task(sr, g).size() > 0) {
+      continue;
+    }
+
+    // Loop over all active tallies. This logic is essentially identical
+    // to what happens when scanning for applicable tallies during
+    // MC transport.
+    for (auto i_tally : model::active_tallies) {
+      Tally& tally {*model::tallies[i_tally]};
+
+      // Initialize an iterator over valid filter bin combinations.
+      // If there are no valid combinations, use a continue statement
+      // to ensure we skip the assume_separate break below.
+      auto filter_iter = FilterBinIter(tally, p);
+      auto end = FilterBinIter(tally, true, &p.filter_matches());
+      if (filter_iter == end)
+        continue;
+
+      // Loop over filter bins.
+      for (; filter_iter != end; ++filter_iter) {
+        auto filter_index = filter_iter.index_;
+        auto filter_weight = filter_iter.weight_;
+
+        // Loop over scores
+        for (int score = 0; score < tally.scores_.size(); score++) {
+          auto score_bin = tally.scores_[score];
+          // If a valid tally, filter, and score combination has been found,
+          // then add it to the list of tally tasks for this source element.
+          TallyTask task(i_tally, filter_index, score, score_bin);
+          source_regions_.tally_task(sr, g).push_back(task);
+
+          // Also add this task to the list of volume tasks for this source
+          // region.
+          source_regions_.volume_task(sr).insert(task);
+        }
+      }
+    }
+    // Reset all the filter matches for the next tally event.
+    for (auto& match : p.filter_matches())
+      match.bins_present_ = false;
+  }
+}
+
 void FlatSourceDomain::convert_source_regions_to_tallies()
 {
   openmc::simulation::time_tallies.start();
@@ -433,70 +499,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies()
       all_source_regions_mapped = false;
       continue;
     }
-
-    // A particle located at the recorded midpoint of a ray
-    // crossing through this source region is used to estabilish
-    // the spatial location of the source region
-    Particle p;
-    p.r() = source_regions_.position(sr);
-    p.r_last() = source_regions_.position(sr);
-    p.u() = {1.0, 0.0, 0.0};
-    bool found = exhaustive_find_cell(p);
-
-    // Loop over energy groups (so as to support energy filters)
-    for (int g = 0; g < negroups_; g++) {
-
-      // Set particle to the current energy
-      p.g() = g;
-      p.g_last() = g;
-      p.E() = data::mg.energy_bin_avg_[p.g()];
-      p.E_last() = p.E();
-
-      int64_t source_element = sr * negroups_ + g;
-
-      // If this task has already been populated, we don't need to do
-      // it again.
-      if (source_regions_.tally_task(sr, g).size() > 0) {
-        continue;
-      }
-
-      // Loop over all active tallies. This logic is essentially identical
-      // to what happens when scanning for applicable tallies during
-      // MC transport.
-      for (auto i_tally : model::active_tallies) {
-        Tally& tally {*model::tallies[i_tally]};
-
-        // Initialize an iterator over valid filter bin combinations.
-        // If there are no valid combinations, use a continue statement
-        // to ensure we skip the assume_separate break below.
-        auto filter_iter = FilterBinIter(tally, p);
-        auto end = FilterBinIter(tally, true, &p.filter_matches());
-        if (filter_iter == end)
-          continue;
-
-        // Loop over filter bins.
-        for (; filter_iter != end; ++filter_iter) {
-          auto filter_index = filter_iter.index_;
-          auto filter_weight = filter_iter.weight_;
-
-          // Loop over scores
-          for (int score = 0; score < tally.scores_.size(); score++) {
-            auto score_bin = tally.scores_[score];
-            // If a valid tally, filter, and score combination has been found,
-            // then add it to the list of tally tasks for this source element.
-            TallyTask task(i_tally, filter_index, score, score_bin);
-            source_regions_.tally_task(sr, g).push_back(task);
-
-            // Also add this task to the list of volume tasks for this source
-            // region.
-            source_regions_.volume_task(sr).insert(task);
-          }
-        }
-      }
-      // Reset all the filter matches for the next tally event.
-      for (auto& match : p.filter_matches())
-        match.bins_present_ = false;
-    }
+    map_source_region_to_tallies(sr);
   }
   openmc::simulation::time_tallies.stop();
 
@@ -883,8 +886,9 @@ void FlatSourceDomain::output_to_vtk() const
         num_neg, (100.0 * num_neg) / num_samples, min_flux, max_flux));
     }
     if (num_nan > 0) {
-      warning(fmt::format("{} plot samples ({:.4f}%) contained Non-Finite fluxes",
-        num_nan, (100.0 * num_nan) / num_samples));
+      warning(
+        fmt::format("{} plot samples ({:.4f}%) contained Non-Finite fluxes",
+          num_nan, (100.0 * num_nan) / num_samples));
     }
     if (num_zero > 0) {
       warning(fmt::format("{} plot samples ({:.4f}%) contained zero fluxes",
@@ -1224,6 +1228,23 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source_present(sr) = 1;
       }
     }
+
+    // If a tally is present in this SR, the we leave the adjoint source
+    // as 1/forward flux. If not, set to zero.
+    bool is_tally = false;
+    for (int g = 0; g < negroups_; g++) {
+      if (source_regions_.tally_task(sr, g).size() != 0) {
+        is_tally = true;
+      }
+    }
+    if (is_tally) {
+      source_regions_.external_source_present(sr) = 1;
+    } else {
+      source_regions_.external_source_present(sr) = 0;
+      for (int g = 0; g < negroups_; g++) {
+        source_regions_.external_source(sr, g) = 0.0;
+      }
+    }
   }
 
   // Divide the fixed source term by sigma t (to save time when applying each
@@ -1508,6 +1529,8 @@ void FlatSourceDomain::finalize_discovered_source_regions()
     }
   }
 
+  int first_sr = source_regions_.n_source_regions();
+
   if (!keys.empty()) {
     // Sort the keys, so as to ensure reproducible ordering given that source
     // regions may have been added to discovered_source_regions_ in an arbitrary
@@ -1519,6 +1542,7 @@ void FlatSourceDomain::finalize_discovered_source_regions()
       const SourceRegion& sr = discovered_source_regions_[key];
       source_region_map_[key] = source_regions_.n_source_regions();
       source_regions_.push_back(sr);
+      map_source_region_to_tallies(source_regions_.n_source_regions() - 1);
     }
 
     // If any new source regions were discovered, we need to update the
@@ -1527,6 +1551,13 @@ void FlatSourceDomain::finalize_discovered_source_regions()
   }
 
   discovered_source_regions_.clear();
+
+  openmc::simulation::time_tallies.start();
+#pragma omp parallel for
+  for (int sr = first_sr; sr < source_regions_.n_source_regions(); sr++) {
+    map_source_region_to_tallies(sr);
+  }
+  openmc::simulation::time_tallies.stop();
 }
 
 // This is the "diagonal stabilization" technique developed by Gunow et al. in:

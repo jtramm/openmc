@@ -262,6 +262,15 @@ uint64_t RandomRay::transport_history_based_single_ray()
 {
   using namespace openmc;
   while (alive()) {
+    if(n_event() > 10000)
+    {
+      fmt::print("Particle {} alive, in cell {}.\n", id(), model::cells[lowest_coord().cell]->id_);
+      fmt::print("Particle {} has travelled {} cm.\n", id(), distance_travelled_);
+      fmt::print("Particle {} is at location: {}.\n", id(), r());
+      fmt::print("Particle {} is at direction: {}.\n", id(), u());
+
+      std::cout.flush();
+    }
     event_advance_ray();
     if (!alive())
       break;
@@ -277,6 +286,12 @@ void RandomRay::event_advance_ray()
   // Find the distance to the nearest boundary
   boundary() = distance_to_boundary(*this);
   double distance = boundary().distance;
+
+  if (n_event() > 10000) {
+    fmt::print("distance = {} cm\n", distance);
+
+    std::cout.flush();
+  }
 
   if (distance < 0.0) {
     mark_as_lost("Negative transport distance detected for particle " +
