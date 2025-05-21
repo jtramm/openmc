@@ -1542,7 +1542,6 @@ void FlatSourceDomain::finalize_discovered_source_regions()
       const SourceRegion& sr = discovered_source_regions_[key];
       source_region_map_[key] = source_regions_.n_source_regions();
       source_regions_.push_back(sr);
-      map_source_region_to_tallies(source_regions_.n_source_regions() - 1);
     }
 
     // If any new source regions were discovered, we need to update the
