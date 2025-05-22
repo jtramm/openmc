@@ -270,6 +270,9 @@ uint64_t RandomRay::transport_history_based_single_ray()
       fmt::print("Particle {} is at direction: {}.\n", id(), u());
 
       std::cout.flush();
+      warning("Particle has exceeded maximum number of events");
+      wgt() = 0.0;
+      return n_event();
     }
     event_advance_ray();
     if (!alive())

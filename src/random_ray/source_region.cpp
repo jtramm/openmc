@@ -277,9 +277,9 @@ void SourceRegionContainer::adjoint_reset()
   std::fill(flux_moments_t_.begin(), flux_moments_t_.end(),
     MomentArray {0.0, 0.0, 0.0});
 
-  for (auto& task_set : tally_task_) {
-    task_set.clear();
-  }
+  //for (auto& task_set : tally_task_) {
+  //  task_set.clear();
+  //}
 }
 
 } // namespace openmc

@@ -1228,6 +1228,7 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source_present(sr) = 1;
       }
     }
+    
 
     // If a tally is present in this SR, the we leave the adjoint source
     // as 1/forward flux. If not, set to zero.
@@ -1245,6 +1246,8 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source(sr, g) = 0.0;
       }
     }
+          
+
   }
 
   // Divide the fixed source term by sigma t (to save time when applying each
@@ -1258,6 +1261,9 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
     for (int g = 0; g < negroups_; g++) {
       double sigma_t = sigma_t_[material * negroups_ + g];
       source_regions_.external_source(sr, g) /= sigma_t;
+      //if (source_regions_.external_source(sr, g) > 0.0) {
+       // fmt::print("Adjoint source: {}\n", source_regions_.external_source(sr, 0));
+      //}
     }
   }
 }
