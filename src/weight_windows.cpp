@@ -731,6 +731,36 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
       // group
       if (group_max > 0.0)
         group_view /= 2.0 * group_max;
+        
+      // Compress the distribution so minimum non-zero value is 1e-5
+      // while preserving the maximum value at 0.5
+      if (group_max > 0.0) {
+        double min_non_zero = std::numeric_limits<double>::max();
+        // Find minimum non-zero value
+        for (auto& val : group_view) {
+          if (val > 0.0 && val < min_non_zero) {
+            min_non_zero = val;
+          }
+        }
+        
+        // If minimum is below threshold, compress the distribution
+        if (min_non_zero < 1e-5 && min_non_zero > 0.0) {
+          double log_min = std::log10(min_non_zero);
+          double log_target = std::log10(1e-5);
+          double log_max = std::log10(0.5);
+          double scale = (log_max - log_target) / (log_max - log_min);
+          
+          // Apply logarithmic compression to bring min value to 1e-5
+          for (auto& val : group_view) {
+            if (val > 0.0) {
+              double log_val = std::log10(val);
+              // Scale the logarithm to compress range
+              double new_log_val = log_target + (log_val - log_min) * scale;
+              val = std::pow(10.0, new_log_val);
+            }
+          }
+        }
+      }
     }
   } else {
     // If we are computing weight windows with adjoint fluxes derived from an
@@ -749,6 +779,45 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
     // mesh bins are not reachable in the physical geometry.
     xt::noalias(new_bounds) =
       xt::where(xt::not_equal(new_bounds, 0.0), 1.0 / new_bounds, 0.0);
+
+    // Find global max for normalization
+    double global_max = 0.0;
+    for (auto val : new_bounds) {
+      if (val > global_max) {
+        global_max = val;
+      }
+    }
+
+    // Normalize so maximum value is 0.5
+    if (global_max > 0.0) {
+      new_bounds *= 0.5 / global_max;
+      
+      // Find minimum non-zero value
+      double min_non_zero = std::numeric_limits<double>::max();
+      for (auto val : new_bounds) {
+        if (val > 0.0 && val < min_non_zero) {
+          min_non_zero = val;
+        }
+      }
+      
+      // Compress distribution to ensure minimum non-zero value is 1e-5
+      if (min_non_zero < 1e-5 && min_non_zero > 0.0) {
+        double log_min = std::log10(min_non_zero);
+        double log_target = std::log10(1e-5);
+        double log_max = std::log10(0.5);
+        double scale = (log_max - log_target) / (log_max - log_min);
+        
+        // Apply logarithmic compression to non-zero values
+        for (auto& val : new_bounds) {
+          if (val > 0.0) {
+            double log_val = std::log10(val);
+            // Scale the logarithm to compress range
+            double new_log_val = log_target + (log_val - log_min) * scale;
+            val = std::pow(10.0, new_log_val);
+          }
+        }
+      }
+    }
       
     // Print information about the new_bounds array
     {
