@@ -165,6 +165,9 @@ void FlatSourceDomain::update_neutron_source(double k_eff)
 #pragma omp parallel for
     for (int64_t se = 0; se < n_source_elements(); se++) {
       source_regions_.source(se) += source_regions_.external_source(se);
+      if (!std::isfinite(source_regions_.source(se))) {
+        source_regions_.source(se) = 0.0;
+      }
     }
   }
 
@@ -446,7 +449,10 @@ void FlatSourceDomain::map_source_region_to_tallies(int64_t sr)
     // Loop over all active tallies. This logic is essentially identical
     // to what happens when scanning for applicable tallies during
     // MC transport.
-    for (auto i_tally : model::active_tallies) {
+
+    // Actually, let's loop over all tallies, not just the active ones.
+    for ( int i_tally = 0; i_tally < model::tallies.size(); i_tally++) {
+      // Get the tally
       Tally& tally {*model::tallies[i_tally]};
 
       // Initialize an iterator over valid filter bin combinations.
@@ -651,6 +657,8 @@ void FlatSourceDomain::random_ray_tally()
 #pragma omp atomic
         tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
           score;
+        //fmt::print("Tally {}: {} {} {} {}\n", task.tally_idx,
+        //  task.filter_idx, task.score_idx, task.score_type, score);
       }
     }
 
@@ -690,6 +698,31 @@ void FlatSourceDomain::random_ray_tally()
       }
     }
   }
+
+  // Determine how many tallies are zero, how many are positive, and how many are negative
+  size_t zero_count = 0;
+  size_t positive_count = 0;
+  size_t negative_count = 0;
+
+  for (const auto& tally : model::tallies) {
+    //if (tally->id() != 3) {
+    //  continue;
+    //}
+    for (int bin = 0; bin < tally->n_filter_bins(); bin++) {
+      for (int score_idx = 0; score_idx < tally->n_scores(); score_idx++) {
+        double value = tally->results_(bin, score_idx, TallyResult::VALUE);
+        if (value == 0.0) {
+          zero_count++;
+        } else if (value > 0.0) {
+          positive_count++;
+        } else {
+          negative_count++;
+        }
+      }
+    }
+  }
+  fmt::print("Tally: {} zero, {} positive, {} negative\n",
+    zero_count, positive_count, negative_count);
 
   openmc::simulation::time_tallies.stop();
 }
@@ -1232,9 +1265,11 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
 
     // If a tally is present in this SR, the we leave the adjoint source
     // as 1/forward flux. If not, set to zero.
+    
     bool is_tally = false;
     for (int g = 0; g < negroups_; g++) {
-      if (source_regions_.tally_task(sr, g).size() != 0) {
+      if (source_regions_.tally_task(sr, g).size() != 0 && 
+          source_regions_.tally_task(sr, g)[0].tally_idx == 0) {
         is_tally = true;
       }
     }
@@ -1246,6 +1281,7 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source(sr, g) = 0.0;
       }
     }
+      
           
 
   }

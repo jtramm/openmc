@@ -485,6 +485,7 @@ void WeightWindows::set_bounds(span<const double> lower_bounds, double ratio)
 void WeightWindows::update_weights(const Tally* tally, const std::string& value,
   double threshold, double ratio, WeightWindowUpdateMethod method)
 {
+  fmt::print("Tally for WW is id: {}\n", tally->id());
   ///////////////////////////
   // Setup and checks
   ///////////////////////////
@@ -591,6 +592,50 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
   // down-select data based on particle and score
   auto sum = xt::view(transposed_view, particle_idx, xt::all(), xt::all(),
     score_index, static_cast<int>(TallyResult::SUM));
+
+ // Print information about the new_bounds array
+    {
+      size_t total_size = sum.size();
+      size_t zero_count = 0;
+      size_t positive_count = 0;
+      size_t negative_count = 0;
+      double min_val = std::numeric_limits<double>::max();
+      double max_val = std::numeric_limits<double>::lowest();
+      
+      // Loop through array to gather statistics
+      for (auto val : sum) {
+        if (val == 0.0) {
+          zero_count++;
+        } else if (val > 0.0) {
+          positive_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        } else {
+          negative_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        }
+      }
+      
+      // Calculate percentage of zeros
+      double zero_percent = static_cast<double>(zero_count) / total_size * 100.0;
+      
+      // If we didn't find any non-zero values, adjust min/max
+      if (zero_count == total_size) {
+        min_val = 0.0;
+        max_val = 0.0;
+      }
+      
+      std::cout << "\n=== Weight Windows Array Statistics ===\n";
+      std::cout << "Total elements: " << total_size << "\n";
+      std::cout << "Zero values: " << zero_count << " (" << zero_percent << "%)\n";
+      std::cout << "Positive values: " << positive_count << "\n";
+      std::cout << "Negative values: " << negative_count << "\n";
+      std::cout << "Minimum non-zero value: " << min_val << "\n";
+      std::cout << "Maximum value: " << max_val << "\n";
+      std::cout << "=====================================\n\n";
+    }
+    
   auto sum_sq = xt::view(transposed_view, particle_idx, xt::all(), xt::all(),
     score_index, static_cast<int>(TallyResult::SUM_SQ));
   int n = tally->n_realizations_;
@@ -612,6 +657,49 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
 
   // noalias avoids memory allocation here
   xt::noalias(new_bounds) = sum / n;
+
+   // Print information about the new_bounds array
+    {
+      size_t total_size = new_bounds.size();
+      size_t zero_count = 0;
+      size_t positive_count = 0;
+      size_t negative_count = 0;
+      double min_val = std::numeric_limits<double>::max();
+      double max_val = std::numeric_limits<double>::lowest();
+      
+      // Loop through array to gather statistics
+      for (auto val : new_bounds) {
+        if (val == 0.0) {
+          zero_count++;
+        } else if (val > 0.0) {
+          positive_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        } else {
+          negative_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        }
+      }
+      
+      // Calculate percentage of zeros
+      double zero_percent = static_cast<double>(zero_count) / total_size * 100.0;
+      
+      // If we didn't find any non-zero values, adjust min/max
+      if (zero_count == total_size) {
+        min_val = 0.0;
+        max_val = 0.0;
+      }
+      
+      std::cout << "\n=== Weight Windows Array Statistics ===\n";
+      std::cout << "Total elements: " << total_size << "\n";
+      std::cout << "Zero values: " << zero_count << " (" << zero_percent << "%)\n";
+      std::cout << "Positive values: " << positive_count << "\n";
+      std::cout << "Negative values: " << negative_count << "\n";
+      std::cout << "Minimum non-zero value: " << min_val << "\n";
+      std::cout << "Maximum value: " << max_val << "\n";
+      std::cout << "=====================================\n\n";
+    }
 
   xt::noalias(rel_err) =
     xt::sqrt(((sum_sq / n) - xt::square(new_bounds)) / (n - 1)) / new_bounds;
@@ -661,6 +749,50 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
     // mesh bins are not reachable in the physical geometry.
     xt::noalias(new_bounds) =
       xt::where(xt::not_equal(new_bounds, 0.0), 1.0 / new_bounds, 0.0);
+      
+    // Print information about the new_bounds array
+    {
+      size_t total_size = new_bounds.size();
+      size_t zero_count = 0;
+      size_t positive_count = 0;
+      size_t negative_count = 0;
+      double min_val = std::numeric_limits<double>::max();
+      double max_val = std::numeric_limits<double>::lowest();
+      
+      // Loop through array to gather statistics
+      for (auto val : new_bounds) {
+        if (val == 0.0) {
+          zero_count++;
+        } else if (val > 0.0) {
+          positive_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        } else {
+          negative_count++;
+          min_val = std::min(min_val, val);
+          max_val = std::max(max_val, val);
+        }
+      }
+      
+      // Calculate percentage of zeros
+      double zero_percent = static_cast<double>(zero_count) / total_size * 100.0;
+      
+      // If we didn't find any non-zero values, adjust min/max
+      if (zero_count == total_size) {
+        min_val = 0.0;
+        max_val = 0.0;
+      }
+      
+      std::cout << "\n=== Weight Windows Array Statistics ===\n";
+      std::cout << "Total elements: " << total_size << "\n";
+      std::cout << "Zero values: " << zero_count << " (" << zero_percent << "%)\n";
+      std::cout << "Positive values: " << positive_count << "\n";
+      std::cout << "Negative values: " << negative_count << "\n";
+      std::cout << "Minimum non-zero value: " << min_val << "\n";
+      std::cout << "Maximum value: " << max_val << "\n";
+      std::cout << "=====================================\n\n";
+    }
+    
     auto max_val = xt::amax(new_bounds)();
     xt::noalias(new_bounds) = new_bounds / (2.0 * max_val);
 
