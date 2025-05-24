@@ -901,7 +901,7 @@ void FlatSourceDomain::output_to_vtk() const
         }
         if (flux > max_flux)
           max_flux = flux;
-        if (!isfinite(flux)) {
+        if (!std::isfinite(flux)) {
           num_nan++;
         }
         num_samples++;
