@@ -631,6 +631,9 @@ void initialize_history(Particle& p, int64_t index_source)
   // Prepare to write out particle track.
   if (p.write_track())
     add_particle_track(p);
+
+  p.wgt_born_ww() = -1;
+  apply_weight_windows(p);
 }
 
 int overall_generation()

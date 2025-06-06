@@ -422,6 +422,10 @@ void Particle::event_revive_from_secondary()
 
     from_source(&secondary_bank().back());
     secondary_bank().pop_back();
+
+    //wgt_born_ww() = -1;
+    //apply_weight_windows(*this);
+
     n_event() = 0;
     bank_second_E() = 0.0;
 

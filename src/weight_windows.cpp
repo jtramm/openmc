@@ -80,11 +80,26 @@ void apply_weight_windows(Particle& p)
   // get the paramters
   double weight = p.wgt();
 
+  // Set the weight at birth for weight windows, if not already set
+  if (p.wgt_born_ww() == -1.0) {
+    p.wgt_born_ww() = weight_window.lower_weight;
+    if (p.id() < 10) {
+      fmt::print("Particle {}: Born weight window weight = {}\n",
+                 p.id(), p.wgt_born_ww());
+    }
+  }
+
+  // Adjust weight windows by ratio of current particle weight to born weight
+  weight_window.scale(1.0/p.wgt_born_ww());
+
   // first check to see if particle should be killed for weight cutoff
   if (p.wgt() < weight_window.weight_cutoff) {
     p.wgt() = 0.0;
     return;
   }
+
+ 
+
 
   // check if particle is far above current weight window
   // only do this if the factor is not already set on the particle and a
@@ -98,6 +113,7 @@ void apply_weight_windows(Particle& p)
   // move weight window closer to the particle weight if needed
   if (p.ww_factor() > 1.0)
     weight_window.scale(p.ww_factor());
+    
 
   // if particle's weight is above the weight window split until they are within
   // the window
@@ -107,7 +123,8 @@ void apply_weight_windows(Particle& p)
       return;
 
     double n_split = std::ceil(weight / weight_window.upper_weight);
-    double max_split = weight_window.max_split;
+    //double max_split = weight_window.max_split;
+    double max_split = 1000000000000000000;
     n_split = std::min(n_split, max_split);
 
     p.n_split() += n_split;
@@ -120,7 +137,7 @@ void apply_weight_windows(Particle& p)
     // remaining weight is applied to current particle
     p.wgt() = weight / n_split;
 
-  } else if (weight <= weight_window.lower_weight) {
+  } else if (weight < weight_window.lower_weight) {
     // if the particle weight is below the window, play Russian roulette
     double weight_survive =
       std::min(weight * weight_window.max_split, weight_window.survival_weight);
