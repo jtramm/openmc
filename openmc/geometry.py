@@ -257,6 +257,9 @@ class Geometry:
         # child of any other object
         for u in universes.values():
             if not child_of[u]:
+                # Update auto ID counters to prevent conflicts with all loaded objects
+                from .mixin import update_auto_ids
+                update_auto_ids()
                 return cls(u)
         else:
             raise ValueError('Error determining root universe.')

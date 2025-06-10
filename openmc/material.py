@@ -1895,6 +1895,10 @@ class Materials(cv.CheckedList):
         if xs is not None:
             materials.cross_sections = xs.text
 
+        # Update auto ID counters to prevent conflicts with loaded materials
+        from .mixin import update_auto_ids
+        update_auto_ids()
+
         return materials
 
     @classmethod
