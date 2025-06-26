@@ -533,7 +533,7 @@ void read_settings_xml(pugi::xml_node root)
       fatal_error("Number of active batches must be greater than zero.");
     } else if (n_inactive < 0) {
       fatal_error("Number of inactive batches must be non-negative.");
-    } else if (n_particles <= 0) {
+    } else if (n_particles <= 0 && solver_type != SolverType::RANDOM_RAY) {
       fatal_error("Number of particles must be greater than zero.");
     } else if (max_lost_particles <= 0) {
       fatal_error("Number of max lost particles must be greater than zero.");

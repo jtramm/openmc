@@ -616,6 +616,7 @@ public:
   const bool is_linear() const { return is_linear_; }
   SourceRegionHandle get_source_region_handle(int64_t sr);
   void adjoint_reset();
+  void redo_batch_reset();
 
 private:
   //----------------------------------------------------------------------------

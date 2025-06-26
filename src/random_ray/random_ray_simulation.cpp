@@ -431,99 +431,119 @@ void RandomRaySimulation::prepare_fixed_sources_adjoint(
 
 void RandomRaySimulation::simulate()
 {
+  bool ray_density_search_enabled = settings::n_particles < 0;
+  if (ray_density_search_enabled) {
+    settings::n_particles = 100;
+  }
+
+  bool base_srs_prepared = false;
+
   // Random ray power iteration loop
   while (simulation::current_batch < settings::n_batches) {
     // Initialize the current batch
     initialize_batch();
     initialize_generation();
 
-    // MPI not supported in random ray solver, so all work is done by rank 0
-    // TODO: Implement domain decomposition for MPI parallelism
-    if (mpi::master) {
+    bool redo_batch = true;
 
-      // Reset total starting particle weight used for normalizing tallies
-      simulation::total_weight = 1.0;
+    while (redo_batch) {
+      // MPI not supported in random ray solver, so all work is done by rank 0
+      // TODO: Implement domain decomposition for MPI parallelism
+      if (mpi::master) {
 
-      // Update source term (scattering + fission)
-      domain_->update_neutron_source(k_eff_);
+        // Reset total starting particle weight used for normalizing tallies
+        simulation::total_weight = 1.0;
 
-      // Reset scalar fluxes, iteration volume tallies, and region hit flags to
-      // zero
-      domain_->batch_reset();
+        // Update source term (scattering + fission)
+        domain_->update_neutron_source(k_eff_);
 
-      // At the beginning of the simulation, if mesh subvivision is in use, we
-      // need to swap the main source region container into the base container,
-      // as the main source region container will be used to hold the true
-      // subdivided source regions. The base container will therefore only
-      // contain the external source region information, the mesh indices,
-      // material properties, and initial guess values for the flux/source.
-      if (RandomRay::mesh_subdivision_enabled_ &&
-          simulation::current_batch == 1 && !FlatSourceDomain::adjoint_) {
-        domain_->prepare_base_source_regions();
-      }
+        // Reset scalar fluxes, iteration volume tallies, and region hit flags
+        // to zero
+        domain_->batch_reset();
 
-      // Start timer for transport
-      simulation::time_transport.start();
+        // At the beginning of the simulation, if mesh subvivision is in use, we
+        // need to swap the main source region container into the base
+        // container, as the main source region container will be used to hold
+        // the true subdivided source regions. The base container will therefore
+        // only contain the external source region information, the mesh
+        // indices, material properties, and initial guess values for the
+        // flux/source.
+        if (RandomRay::mesh_subdivision_enabled_ && !base_srs_prepared &&
+            !FlatSourceDomain::adjoint_) {
+          domain_->prepare_base_source_regions();
+          base_srs_prepared = true;
+        }
+
+        // Start timer for transport
+        simulation::time_transport.start();
 
 // Transport sweep over all random rays for the iteration
 #pragma omp parallel for schedule(dynamic)                                     \
   reduction(+ : total_geometric_intersections_)
-      for (int i = 0; i < settings::n_particles; i++) {
-        RandomRay ray(i, domain_.get());
-        total_geometric_intersections_ +=
-          ray.transport_history_based_single_ray();
-      }
-
-      simulation::time_transport.stop();
-
-      // If using mesh subdivision, add any newly discovered source regions
-      // to the main source region container.
-      if (RandomRay::mesh_subdivision_enabled_) {
-        domain_->finalize_discovered_source_regions();
-      }
-
-      // Normalize scalar flux and update volumes
-      domain_->normalize_scalar_flux_and_volumes(
-        settings::n_particles * RandomRay::distance_active_);
-
-      // Add source to scalar flux, compute number of FSR hits
-      int64_t n_hits = domain_->add_source_to_scalar_flux();
-
-      // Apply transport stabilization factors
-      domain_->apply_transport_stabilization();
-
-      if (settings::run_mode == RunMode::EIGENVALUE) {
-        // Compute random ray k-eff
-        k_eff_ = domain_->compute_k_eff(k_eff_);
-
-        // Store random ray k-eff into OpenMC's native k-eff variable
-        global_tally_tracklength = k_eff_;
-      }
-
-      // Execute all tallying tasks, if this is an active batch
-      if (simulation::current_batch > settings::n_inactive) {
-
-        // Add this iteration's scalar flux estimate to final accumulated
-        // estimate
-        domain_->accumulate_iteration_flux();
-
-        // Generate mapping between source regions and tallies
-        if (!domain_->mapped_all_tallies_ &&
-            !RandomRay::mesh_subdivision_enabled_) {
-          domain_->convert_source_regions_to_tallies(0);
+        for (int i = 0; i < settings::n_particles; i++) {
+          RandomRay ray(i, domain_.get());
+          total_geometric_intersections_ +=
+            ray.transport_history_based_single_ray();
         }
 
-        // Use above mapping to contribute FSR flux data to appropriate
-        // tallies
-        domain_->random_ray_tally();
-      }
+        simulation::time_transport.stop();
 
-      // Set phi_old = phi_new
-      domain_->flux_swap();
+        // If using mesh subdivision, add any newly discovered source regions
+        // to the main source region container.
+        if (RandomRay::mesh_subdivision_enabled_) {
+          domain_->finalize_discovered_source_regions();
+        }
 
-      // Check for any obvious insabilities/nans/infs
-      instability_check(n_hits, k_eff_, avg_miss_rate_);
-    } // End MPI master work
+        // Normalize scalar flux and update volumes
+        domain_->normalize_scalar_flux_and_volumes(
+          settings::n_particles * RandomRay::distance_active_);
+
+        // Add source to scalar flux, compute number of FSR hits
+        int64_t n_hits = domain_->add_source_to_scalar_flux();
+
+        // Apply transport stabilization factors
+        domain_->apply_transport_stabilization();
+
+        if (settings::run_mode == RunMode::EIGENVALUE) {
+          // Compute random ray k-eff
+          k_eff_ = domain_->compute_k_eff(k_eff_);
+
+          // Store random ray k-eff into OpenMC's native k-eff variable
+          global_tally_tracklength = k_eff_;
+        }
+
+        // Execute all tallying tasks, if this is an active batch
+        if (simulation::current_batch > settings::n_inactive) {
+
+          // Add this iteration's scalar flux estimate to final accumulated
+          // estimate
+          domain_->accumulate_iteration_flux();
+
+          // Generate mapping between source regions and tallies
+          if (!domain_->mapped_all_tallies_ &&
+              !RandomRay::mesh_subdivision_enabled_) {
+            domain_->convert_source_regions_to_tallies(0);
+          }
+
+          // Use above mapping to contribute FSR flux data to appropriate
+          // tallies
+          domain_->random_ray_tally();
+        }
+
+        // Check for any obvious insabilities/nans/infs
+        redo_batch = instability_check(n_hits, k_eff_, avg_miss_rate_);
+
+        if (redo_batch) {
+          // If we are redoing the batch, we need to reset everything and start
+          // again
+          domain_->source_regions_.redo_batch_reset();
+          simulation::current_batch = 0;
+        } else {
+          // Set phi_old = phi_new
+          domain_->flux_swap();
+        }
+      } // End MPI master work
+    } // End redo batch loop
 
     // Finalize the current batch
     finalize_generation();
@@ -548,13 +568,23 @@ void RandomRaySimulation::output_simulation_results() const
 
 // Apply a few sanity checks to catch obvious cases of numerical instability.
 // Instability typically only occurs if ray density is extremely low.
-void RandomRaySimulation::instability_check(
+// Returns true if we need to redo this batch due to low ray density.
+bool RandomRaySimulation::instability_check(
   int64_t n_hits, double k_eff, double& avg_miss_rate) const
 {
   double percent_missed = ((domain_->n_source_regions() - n_hits) /
                             static_cast<double>(domain_->n_source_regions())) *
                           100.0;
   avg_miss_rate += percent_missed;
+
+  if (percent_missed > 10.0) {
+    settings::n_particles *= 2;
+    if (mpi::master) {
+      fmt::print("Increasing ray count to {} rays and restarting simulation.\n",
+        settings::n_particles);
+    }
+    return true;
+  }
 
   if (mpi::master) {
     if (percent_missed > 10.0) {
@@ -574,6 +604,7 @@ void RandomRaySimulation::instability_check(
       fatal_error("Instability detected");
     }
   }
+  return false;
 }
 
 // Print random ray simulation results

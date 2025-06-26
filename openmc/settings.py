@@ -517,7 +517,7 @@ class Settings:
     @particles.setter
     def particles(self, particles: int):
         cv.check_type('particles', particles, Integral)
-        cv.check_greater_than('particles', particles, 0)
+        #cv.check_greater_than('particles', particles, 0)
         self._particles = particles
 
     @property
