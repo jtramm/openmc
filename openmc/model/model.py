@@ -1665,15 +1665,19 @@ class Model:
         """Create a geometry representing a stochastic "sandwich" of materials in a
         layered slab geometry. To reduce the impact of the order of materials in
         the slab, the materials are applied to 'num_repeats' different randomly
-        positioned layers of 'cell_thickness' each.
+        positioned layers with thickenesses proportional to the `volumes` of
+        each material.
 
         Parameters
         ----------
+        volumes : Iterable[float]
+            Iterable of volumes for each material in the slab. Zero volumes will
+            be converted to a small non-zero volume to ensure that MGXS can be
+            generated for these materials. The volumes should be in the same
+            order as the `materials` list.
         materials : list of openmc.Material
             List of materials to assign. Each material will appear exactly num_repeats times,
             then the ordering is randomly shuffled.
-        cell_thickness : float, optional
-            Thickness of each lattice cell in x (default 1.0 cm).
         num_repeats : int, optional
             Number of repeats for each material (default 100).
 
@@ -1686,59 +1690,43 @@ class Model:
         """
         if not materials:
             raise ValueError("At least one material must be provided.")
-        
-        # Filter out any materials with zero volumes
-        # nonzero_materials = []
-        # nonzero_volumes = []
-        # for i in range(len(volumes)):
-        #     if volumes[i] > 0:
-        #         nonzero_materials.append(materials[i])
-        #         nonzero_volumes.append(volumes[i])
-        # volumes = nonzero_volumes
-        # materials = nonzero_materials
-        # if not nonzero_materials:
-        #     raise ValueError("All material volumes are zero. At least one "
-        #                      "non-zero volume is required.")
 
         # Convert materials with zero volumes to have small but non-zero volumes, so as not to affect
-        # the simulation flux by much but still get tallies
+        # the simulation flux by much but still get MGXS in these materials.
         volumes = [v if v > 0 else 1e-1 for v in volumes]
 
-        num_materials = len(materials)
-
         # Make a list of randomized material idx assignments for the stochastic slab
+        num_materials = len(materials)
         assignments = list(range(num_materials)) * num_repeats
         random.seed(42)
         random.shuffle(assignments)
 
-        cells = []
-
-        # Create cells, starting with an x-plane at x = 0.0 and extending
-        # to the right in the positive x-direction.
+        # Reflective y and z boundaries for all cells
         y_low = openmc.YPlane(y0=-1000.0, boundary_type='reflective')
         y_high = openmc.YPlane(y0=1000.0, boundary_type='reflective')
         z_low = openmc.ZPlane(z0=-1000.0, boundary_type='reflective')
         z_high = openmc.ZPlane(z0=1000.0, boundary_type='reflective')
+
+        # Create cells, starting with an x-plane at x = 0.0 and extending
+        # to the right in the positive x-direction.
         prev_x_high = openmc.XPlane(x0=0.0, boundary_type='reflective')
         x_extent = 0.0
+        cells = []
         for i in range(len(assignments)):
             mat_idx = assignments[i]
             x_low = prev_x_high
+            # We set the width of each cell proportional to the cube root of the volume
+            # to ensure that the relative volumes of the materials are preserved.
             width = math.pow(volumes[mat_idx], 1.0 / 3.0) / num_repeats
             x_extent += width
             if i == len(assignments) - 1:
-                # If this is the last cell, then extend to the right
-                # infinitely in the x-direction.
+                # If this is the last cell, then bound it with a reflective plane
                 x_high = openmc.XPlane(x0=x_extent, boundary_type='reflective')
             else:
                 x_high = openmc.XPlane(x0=x_extent)
             cell = openmc.Cell(fill=materials[mat_idx], region=+x_low & -x_high & +y_low & -y_high & +z_low & -z_high)
             cells.append(cell)
             prev_x_high = x_high
-            print(f"Cell {i}: Material {materials[mat_idx].name}, "
-                  f"Volume {volumes[mat_idx]:.3f} cm^3, "
-                  f"Width {width:.3f} cm, "
-                  f"X-extent {x_low.x0:.3f} to {x_high.x0:.3f} cm")
 
         # Build the geometry
         geometry = openmc.Geometry(cells)
@@ -1787,9 +1775,10 @@ class Model:
 
         # Perform a quick volume calculation to determine the relative
         # volumes of all the different materials in the model
+        
+        # If either z dimension is infinite, set it to -1.0 and 1.0
         lower_left = self.bounding_box.lower_left
         upper_right = self.bounding_box.upper_right
-        # If either z dimension is infinite, set it to -1.0 and 1.0
         if lower_left[2] == -np.inf:
             lower_left = (lower_left[0], lower_left[1], -1.0)
         if upper_right[2] == np.inf:
@@ -1797,7 +1786,6 @@ class Model:
         
         vol_calc = openmc.VolumeCalculation(self.materials, 10000000, lower_left=lower_left,
                                             upper_right=upper_right)
-        #vol_calc.set_trigger(1.0e-1, 'rel_err')
         settings = openmc.Settings()
         settings.volume_calculations = [vol_calc]
         model.settings = settings
