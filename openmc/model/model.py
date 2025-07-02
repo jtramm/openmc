@@ -1785,22 +1785,11 @@ class Model:
         # volumes of all the different materials in the model
         lower_left = self.bounding_box.lower_left
         upper_right = self.bounding_box.upper_right
-        # If there is only one dimension that is infinite, then convert it
-        # to a +/- 1.0 in each direction
-        if lower_left[0] == -np.inf and upper_right[0] == np.inf:
-            lower_left = (-1.0, lower_left[1], lower_left[2])
-            upper_right = (1.0, upper_right[1], upper_right[2])
-        elif lower_left[1] == -np.inf and upper_right[1] == np.inf:
-            lower_left = (lower_left[0], -1.0, lower_left[2])
-            upper_right = (upper_right[0], 1.0, upper_right[2])
-        elif lower_left[2] == -np.inf and upper_right[2] == np.inf:
+        # If either z dimension is infinite, set it to -1.0 and 1.0
+        if lower_left[2] == -np.inf:
             lower_left = (lower_left[0], lower_left[1], -1.0)
+        if upper_right[2] == np.inf:
             upper_right = (upper_right[0], upper_right[1], 1.0)
-        elif (lower_left[0] == -np.inf or upper_right[0] == np.inf) and \
-                (lower_left[1] == -np.inf or upper_right[1] == np.inf) and \
-                (lower_left[2] == -np.inf or upper_right[2] == np.inf):
-            # If all dimensions are infinite, then give an error
-            raise ValueError("Cannot perform volume calculation on an infinite geometry!")
         
         vol_calc = openmc.VolumeCalculation(self.materials, 1000000, lower_left=lower_left,
                                             upper_right=upper_right)
@@ -1809,12 +1798,13 @@ class Model:
         settings.volume_calculations = [vol_calc]
         model.settings = settings
         model.export_to_model_xml(path=directory+'/model.xml')
-
         openmc.calculate_volumes(cwd=directory)
         vol_calc.load_results(directory+'/volume_1.h5')
         vol_dict = vol_calc.volumes
         volumes = [vol_dict[mat.id].nominal_value for mat in self.materials]
 
+        # With the volumes calculated, we can now build a stochastic slab geometry
+        # that preserves the relative volumes of the materials in the model.
 
         # Settings
         model.settings.batches = 100
