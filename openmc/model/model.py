@@ -1688,17 +1688,21 @@ class Model:
             raise ValueError("At least one material must be provided.")
         
         # Filter out any materials with zero volumes
-        nonzero_materials = []
-        nonzero_volumes = []
-        for i in range(len(volumes)):
-            if volumes[i] > 0:
-                nonzero_materials.append(materials[i])
-                nonzero_volumes.append(volumes[i])
-        volumes = nonzero_volumes
-        materials = nonzero_materials
-        if not nonzero_materials:
-            raise ValueError("All material volumes are zero. At least one "
-                             "non-zero volume is required.")
+        # nonzero_materials = []
+        # nonzero_volumes = []
+        # for i in range(len(volumes)):
+        #     if volumes[i] > 0:
+        #         nonzero_materials.append(materials[i])
+        #         nonzero_volumes.append(volumes[i])
+        # volumes = nonzero_volumes
+        # materials = nonzero_materials
+        # if not nonzero_materials:
+        #     raise ValueError("All material volumes are zero. At least one "
+        #                      "non-zero volume is required.")
+
+        # Convert materials with zero volumes to have small but non-zero volumes, so as not to affect
+        # the simulation flux by much but still get tallies
+        volumes = [v if v > 0 else 1e-1 for v in volumes]
 
         num_materials = len(materials)
 
@@ -1791,9 +1795,9 @@ class Model:
         if upper_right[2] == np.inf:
             upper_right = (upper_right[0], upper_right[1], 1.0)
         
-        vol_calc = openmc.VolumeCalculation(self.materials, 1000000, lower_left=lower_left,
+        vol_calc = openmc.VolumeCalculation(self.materials, 10000000, lower_left=lower_left,
                                             upper_right=upper_right)
-        vol_calc.set_trigger(1.0e-1, 'rel_err')
+        #vol_calc.set_trigger(1.0e-1, 'rel_err')
         settings = openmc.Settings()
         settings.volume_calculations = [vol_calc]
         model.settings = settings
