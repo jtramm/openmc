@@ -365,6 +365,9 @@ vector<VolumeCalculation::Result> VolumeCalculation::execute() const
     if (trigger_val < threshold_) {
       return results;
     }
+    write_message(4, fmt::format(
+      "Trigger value {} is above threshold {}, continuing calculation...\n",
+      trigger_val, threshold_));
 
 #ifdef OPENMC_MPI
     // if iterating in an MPI run, need to zero indices and hits so they aren't
