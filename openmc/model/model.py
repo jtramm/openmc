@@ -1658,6 +1658,7 @@ class Model:
 
     @staticmethod
     def _create_stochastic_slab_geometry(
+        volumes: Iterable[float],
         materials: Sequence[openmc.Material],
         cell_thickness: float = 1.0,
         num_repeats: int = 100,
@@ -1687,30 +1688,38 @@ class Model:
         if not materials:
             raise ValueError("At least one material must be provided.")
 
+        # Compute number of materials 
+        cell_thickness = 1.0
+        total_width = len(materials) * num_repeats
+
+        # Determine the number of each material type based on its volume as a fraciton of the whole
         num_materials = len(materials)
-        total_cells = num_materials * num_repeats
-        total_width = total_cells * cell_thickness
+        total_volume = sum(volumes)
+        fractional_volumes = [vol / total_volume for vol in volumes]
 
-        # Generate an infinite cell/universe for each material
-        universes = []
-        for i in range(num_materials):
-            cell = openmc.Cell(fill=materials[i])
-            universes.append(openmc.Universe(cells=[cell]))
+        # The fractional volumes are now a PDF. Convert it to a CDF
+        cdf = np.cumsum(fractional_volumes)
 
-        # Make a list of randomized material idx assignments for the stochastic slab
-        assignments = list(range(num_materials)) * num_repeats
+        # Now we can determine how many of each material to use by sampling the CDF
         random.seed(42)
-        random.shuffle(assignments)
-
-        # Create a list of the (randomized) universe assignments to be used
-        # when defining the problem lattice.
-        lattice_entries = [universes[m] for m in assignments]
+        universes = []
+        for _ in range(num_materials):
+            # Sample a random number between 0 and 1
+            rand_num = random.random()
+            # Find the first index where the CDF is greater than the random number
+            idx = np.searchsorted(cdf, rand_num)
+            # If the index is out of bounds, use the last material
+            if idx >= num_materials:
+                idx = num_materials - 1
+            # Create a cell and universe for the material and append 
+            cell = openmc.Cell(fill=materials[idx])
+            universes.append(openmc.Universe(cells=[cell]))
 
         # Create the RectLattice for the 1D material variation in x.
         lattice = openmc.RectLattice()
         lattice.pitch = (cell_thickness, total_width, total_width)
         lattice.lower_left = (0.0, 0.0, 0.0)
-        lattice.universes = [[lattice_entries]]
+        lattice.universes = [[universes]]
         lattice.outer = universes[0]
 
         # Define the six outer surfaces with reflective boundary conditions
@@ -1764,17 +1773,52 @@ class Model:
         """
         model = openmc.Model()
         model.materials = self.materials
+        model.geometry = self.geometry
+
+        # Perform a quick volume calculation to determine the relative
+        # volumes of all the different materials in the model
+        lower_left = self.bounding_box.lower_left
+        upper_right = self.bounding_box.upper_right
+        # If there is only one dimension that is infinite, then convert it
+        # to a +/- 1.0 in each direction
+        if lower_left[0] == -np.inf and upper_right[0] == np.inf:
+            lower_left = (-1.0, lower_left[1], lower_left[2])
+            upper_right = (1.0, upper_right[1], upper_right[2])
+        elif lower_left[1] == -np.inf and upper_right[1] == np.inf:
+            lower_left = (lower_left[0], -1.0, lower_left[2])
+            upper_right = (upper_right[0], 1.0, upper_right[2])
+        elif lower_left[2] == -np.inf and upper_right[2] == np.inf:
+            lower_left = (lower_left[0], lower_left[1], -1.0)
+            upper_right = (upper_right[0], upper_right[1], 1.0)
+        elif (lower_left[0] == -np.inf or upper_right[0] == np.inf) and \
+                (lower_left[1] == -np.inf or upper_right[1] == np.inf) and \
+                (lower_left[2] == -np.inf or upper_right[2] == np.inf):
+            # If all dimensions are infinite, then give an error
+            raise ValueError("Cannot perform volume calculation on an infinite geometry!")
+        
+        vol_calc = openmc.VolumeCalculation(self.materials, 1000000, lower_left=lower_left,
+                                            upper_right=upper_right)
+        vol_calc.set_trigger(1.0e-1, 'rel_err')
+        settings = openmc.Settings()
+        settings.volume_calculations = [vol_calc]
+        model.settings = settings
+        model.export_to_model_xml(path=directory+'/model.xml')
+
+        openmc.calculate_volumes(cwd=directory)
+        vol_calc.load_results(directory+'/volume_1.h5')
+        vol_dict = vol_calc.volumes
+        volumes = [vol_dict[mat.id] for mat in self.materials]
+
 
         # Settings
-        model.settings.batches = 200
-        model.settings.inactive = 100
+        model.settings.batches = 100
         model.settings.particles = nparticles
         model.settings.output = {'summary': True, 'tallies': False}
         model.settings.run_mode = self.settings.run_mode
 
         # Stochastic slab geometry
-        model.geometry, spatial_distribution = Model._create_stochastic_slab_geometry(
-            model.materials)
+        model.geometry, spatial_distribution = Model._create_stochastic_slab_geometry(volumes=volumes,
+            materials=model.materials)
 
         # Make a discrete source that is uniform over the bins of the group structure
         n_groups = groups.num_groups
