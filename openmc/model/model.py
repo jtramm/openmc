@@ -1660,8 +1660,7 @@ class Model:
     def _create_stochastic_slab_geometry(
         volumes: Iterable[float],
         materials: Sequence[openmc.Material],
-        cell_thickness: float = 1.0,
-        num_repeats: int = 100,
+        num_repeats: int = 10,
     ) -> tuple[openmc.Geometry, openmc.stats.Box]:
         """Create a geometry representing a stochastic "sandwich" of materials in a
         layered slab geometry. To reduce the impact of the order of materials in
@@ -1687,55 +1686,62 @@ class Model:
         """
         if not materials:
             raise ValueError("At least one material must be provided.")
+        
+        # Filter out any materials with zero volumes
+        nonzero_materials = []
+        nonzero_volumes = []
+        for i in range(len(volumes)):
+            if volumes[i] > 0:
+                nonzero_materials.append(materials[i])
+                nonzero_volumes.append(volumes[i])
+        volumes = nonzero_volumes
+        materials = nonzero_materials
+        if not nonzero_materials:
+            raise ValueError("All material volumes are zero. At least one "
+                             "non-zero volume is required.")
 
-        # Compute number of materials 
-        cell_thickness = 1.0
-        total_width = len(materials) * num_repeats
-
-        # Determine the number of each material type based on its volume as a fraciton of the whole
         num_materials = len(materials)
-        total_volume = sum(volumes)
-        fractional_volumes = [vol / total_volume for vol in volumes]
 
-        # The fractional volumes are now a PDF. Convert it to a CDF
-        cdf = np.cumsum(fractional_volumes)
-
-        # Now we can determine how many of each material to use by sampling the CDF
+        # Make a list of randomized material idx assignments for the stochastic slab
+        assignments = list(range(num_materials)) * num_repeats
         random.seed(42)
-        universes = []
-        for _ in range(num_materials):
-            # Sample a random number between 0 and 1
-            rand_num = random.random()
-            # Find the first index where the CDF is greater than the random number
-            idx = np.searchsorted(cdf, rand_num)
-            # If the index is out of bounds, use the last material
-            if idx >= num_materials:
-                idx = num_materials - 1
-            # Create a cell and universe for the material and append 
-            cell = openmc.Cell(fill=materials[idx])
-            universes.append(openmc.Universe(cells=[cell]))
+        random.shuffle(assignments)
 
-        # Create the RectLattice for the 1D material variation in x.
-        lattice = openmc.RectLattice()
-        lattice.pitch = (cell_thickness, total_width, total_width)
-        lattice.lower_left = (0.0, 0.0, 0.0)
-        lattice.universes = [[universes]]
-        lattice.outer = universes[0]
+        cells = []
 
-        # Define the six outer surfaces with reflective boundary conditions
-        rpp = openmc.model.RectangularParallelepiped(
-            0.0, total_width, 0.0, total_width, 0.0, total_width,
-            boundary_type='reflective'
-        )
-
-        # Create an outer cell that fills with the lattice.
-        outer_cell = openmc.Cell(fill=lattice, region=-rpp)
+        # Create cells, starting with an x-plane at x = 0.0 and extending
+        # to the right in the positive x-direction.
+        y_low = openmc.YPlane(y0=-1000.0, boundary_type='reflective')
+        y_high = openmc.YPlane(y0=1000.0, boundary_type='reflective')
+        z_low = openmc.ZPlane(z0=-1000.0, boundary_type='reflective')
+        z_high = openmc.ZPlane(z0=1000.0, boundary_type='reflective')
+        prev_x_high = openmc.XPlane(x0=0.0, boundary_type='reflective')
+        x_extent = 0.0
+        for i in range(len(assignments)):
+            mat_idx = assignments[i]
+            x_low = prev_x_high
+            width = math.pow(volumes[mat_idx], 1.0 / 3.0) / num_repeats
+            x_extent += width
+            if i == len(assignments) - 1:
+                # If this is the last cell, then extend to the right
+                # infinitely in the x-direction.
+                x_high = openmc.XPlane(x0=x_extent, boundary_type='reflective')
+            else:
+                x_high = openmc.XPlane(x0=x_extent)
+            cell = openmc.Cell(fill=materials[mat_idx], region=+x_low & -x_high & +y_low & -y_high & +z_low & -z_high)
+            cells.append(cell)
+            prev_x_high = x_high
+            print(f"Cell {i}: Material {materials[mat_idx].name}, "
+                  f"Volume {volumes[mat_idx]:.3f} cm^3, "
+                  f"Width {width:.3f} cm, "
+                  f"X-extent {x_low.x0:.3f} to {x_high.x0:.3f} cm")
 
         # Build the geometry
-        geometry = openmc.Geometry([outer_cell])
+        geometry = openmc.Geometry(cells)
 
         # Define the spatial distribution that covers the full cubic domain
-        box = openmc.stats.Box(*outer_cell.bounding_box)
+        box = openmc.stats.Box(lower_left=geometry.bounding_box.lower_left,
+                               upper_right=geometry.bounding_box.upper_right)
 
         return geometry, box
 
@@ -1807,7 +1813,7 @@ class Model:
         openmc.calculate_volumes(cwd=directory)
         vol_calc.load_results(directory+'/volume_1.h5')
         vol_dict = vol_calc.volumes
-        volumes = [vol_dict[mat.id] for mat in self.materials]
+        volumes = [vol_dict[mat.id].nominal_value for mat in self.materials]
 
 
         # Settings
