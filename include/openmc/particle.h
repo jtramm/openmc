@@ -50,6 +50,10 @@ public:
   //! \return Whether a secondary particle was created
   bool create_secondary(double wgt, Direction u, double E, ParticleType type);
 
+  void store_secondary(SourceSite& site);
+  bool retrieve_secondary(SourceSite& site);
+
+
   //! split a particle
   //
   //! creates a new particle with weight wgt

@@ -95,9 +95,57 @@ bool Particle::create_secondary(
   return true;
 }
 
+void Particle::store_secondary(SourceSite& new_site)
+{
+  if (secondary_bank().size() >= MAX_LOCAL_SECONDARY_BANK_SIZE) {
+// Transfer local bank into shared bank
+#pragma omp critical(openmc_shared_secondary_bank)
+    {
+      for (auto& site : secondary_bank()) {
+        simulation::shared_secondary_bank.emplace_back(site);
+      }
+      secondary_bank().clear();
+    }
+  }
+  // Now store the new site in the local secondary bank
+  secondary_bank().emplace_back(new_site);
+}
+
+bool Particle::retrieve_secondary(SourceSite& site)
+{
+  // If there's nothing in the local secondary bank, clear out some items from
+  // the shared secondar bank
+  if (secondary_bank().empty()) {
+#pragma omp critical(openmc_shared_secondary_bank)
+    {
+      if (simulation::shared_secondary_bank.empty()) {
+        return false; // No secondary sites available
+      }
+      // Move MAX_LOCAL_SECONDARY_BANK_SIZE items from the shared bank to the
+      // local bank
+      int n_to_move =
+        std::min(static_cast<int>(simulation::shared_secondary_bank.size()),
+          MAX_LOCAL_SECONDARY_BANK_SIZE/2);
+      secondary_bank().reserve(n_to_move);
+      for (int i = 0; i < n_to_move; ++i) {
+        secondary_bank().emplace_back(simulation::shared_secondary_bank.back());
+        simulation::shared_secondary_bank.pop_back();
+      }
+    }
+  }
+  if (secondary_bank().empty()) {
+    return false; // No secondary sites available
+  }
+
+  site = secondary_bank().back();
+  secondary_bank().pop_back();
+  return true;
+}
+
 void Particle::split(double wgt)
 {
-  auto& bank = secondary_bank().emplace_back();
+  // auto& bank = secondary_bank().emplace_back();
+  SourceSite bank;
   bank.particle = type();
   bank.wgt = wgt;
   bank.r = r();
@@ -112,6 +160,7 @@ void Particle::split(double wgt)
     int surf_id = model::surfaces[surface_index()]->id_;
     bank.surf_id = (surface() > 0) ? surf_id : -surf_id;
   }
+  store_secondary(bank);
 }
 
 void Particle::from_source(const SourceSite* src)
@@ -434,8 +483,14 @@ void Particle::event_revive_from_secondary()
     if (secondary_bank().empty())
       return;
 
-    from_source(&secondary_bank().back());
-    secondary_bank().pop_back();
+    SourceSite site;
+    bool found = retrieve_secondary(site);
+    if (!found) {
+      // If no secondary particles, break out of event loop
+      return;
+    }
+
+    from_source(&site);
     n_event() = 0;
     bank_second_E() = 0.0;
 

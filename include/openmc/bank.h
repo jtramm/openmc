@@ -32,6 +32,8 @@ extern vector<vector<double>> ifp_fission_lifetime_bank;
 
 extern vector<int64_t> progeny_per_particle;
 
+extern vector<SourceSite> shared_secondary_bank;
+
 } // namespace simulation
 
 //==============================================================================

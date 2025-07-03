@@ -40,6 +40,9 @@ vector<vector<double>> ifp_fission_lifetime_bank;
 // used to efficiently sort the fission bank after each iteration.
 vector<int64_t> progeny_per_particle;
 
+// Shared secondary bank
+vector<SourceSite> shared_secondary_bank;
+
 } // namespace simulation
 
 //==============================================================================

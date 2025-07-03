@@ -68,6 +68,8 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // prevent extremely large adjoint source terms from being generated.
 constexpr double ZERO_FLUX_CUTOFF {1e-22};
 
+constexpr int MAX_LOCAL_SECONDARY_BANK_SIZE {100};
+
 // ============================================================================
 // MATH AND PHYSICAL CONSTANTS
 
