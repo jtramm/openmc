@@ -796,9 +796,16 @@ void transport_history_based_single_particle(Particle& p)
         p.event_collide();
       }
     }
+    // If particle has too many events, display warning and kill it
+    p.n_event()++;
+    if (p.n_event() == settings::max_particle_events) {
+      warning("Particle " + std::to_string(p.id()) +
+              " underwent maximum number of events.");
+      p.wgt() = 0.0;
+    }
     p.event_revive_from_secondary();
   }
-  //p.event_death();
+  // p.event_death();
 }
 
 void transport_history_based()
@@ -812,22 +819,22 @@ void transport_history_based()
   //   }
 
   int64_t n_finished = 0;
-  #pragma omp parallel
+#pragma omp parallel
   {
     Particle p;
-    #pragma omp for schedule(dynamic) nowait
+#pragma omp for schedule(dynamic) nowait
     for (int64_t i_work = 1; i_work <= simulation::work_per_rank; ++i_work) {
       initialize_history(p, i_work);
-      transport_history_based_single_particle(p); 
-      #pragma omp atomic
+      transport_history_based_single_particle(p);
+#pragma omp atomic
       n_finished++;
     }
 
-    while(n_finished < simulation::work_per_rank) {
+    while (n_finished < simulation::work_per_rank) {
       p.event_revive_from_secondary();
       if (p.alive()) {
-        transport_history_based_single_particle(p); 
-        #pragma omp atomic
+        transport_history_based_single_particle(p);
+#pragma omp atomic
         n_finished++;
       }
     }
