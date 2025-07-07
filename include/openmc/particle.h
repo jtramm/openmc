@@ -51,7 +51,7 @@ public:
   bool create_secondary(double wgt, Direction u, double E, ParticleType type);
 
   void store_secondary(SourceSite& site);
-  bool retrieve_secondary(SourceSite& site);
+  bool retrieve_secondary(SourceSite& site, bool only_local);
 
 
   //! split a particle
@@ -73,7 +73,7 @@ public:
   void event_advance();
   void event_cross_surface();
   void event_collide();
-  void event_revive_from_secondary();
+  void event_revive_from_secondary(int64_t shared_bank_idx);
   void event_death();
 
   //! pulse-height recording

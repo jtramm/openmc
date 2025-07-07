@@ -104,18 +104,18 @@ void Particle::store_secondary(SourceSite& new_site)
       for (auto& site : secondary_bank()) {
         simulation::shared_secondary_bank.emplace_back(site);
       }
-      secondary_bank().clear();
+      secondary_bank().resize(0);
     }
   }
   // Now store the new site in the local secondary bank
   secondary_bank().emplace_back(new_site);
 }
 
-bool Particle::retrieve_secondary(SourceSite& site)
+bool Particle::retrieve_secondary(SourceSite& site, bool only_local)
 {
   // If there's nothing in the local secondary bank, clear out some items from
   // the shared secondar bank
-  if (secondary_bank().empty()) {
+  if (secondary_bank().empty() && !only_local) {
 #pragma omp critical(openmc_shared_secondary_bank)
     {
       if (simulation::shared_secondary_bank.empty()) {
@@ -125,7 +125,7 @@ bool Particle::retrieve_secondary(SourceSite& site)
       // local bank
       int n_to_move =
         std::min(static_cast<int>(simulation::shared_secondary_bank.size()),
-          MAX_LOCAL_SECONDARY_BANK_SIZE/2);
+          MAX_LOCAL_SECONDARY_BANK_SIZE / 2);
       secondary_bank().reserve(n_to_move);
       for (int i = 0; i < n_to_move; ++i) {
         secondary_bank().emplace_back(simulation::shared_secondary_bank.back());
@@ -462,10 +462,8 @@ void Particle::event_collide()
 #endif
 }
 
-void Particle::event_revive_from_secondary()
+void Particle::event_revive_from_secondary(int64_t shared_bank_idx)
 {
-
-
   // Check for secondary particles if this particle is dead
   if (!alive()) {
     // Write final position for this particle
@@ -474,14 +472,15 @@ void Particle::event_revive_from_secondary()
     }
 
     // If no secondary particles, break out of event loop
-    if (secondary_bank().empty())
+    if (secondary_bank().empty() && shared_bank_idx < 0) 
       return;
 
     SourceSite site;
-    bool found = retrieve_secondary(site);
-    if (!found) {
-      // If no secondary particles, break out of event loop
-      return;
+    if (shared_bank_idx >= 0) {
+      site = simulation::shared_secondary_bank_execute[shared_bank_idx];
+    } else {
+      site = secondary_bank().back();
+      secondary_bank().pop_back();
     }
 
     from_source(&site);

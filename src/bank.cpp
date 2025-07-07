@@ -42,6 +42,7 @@ vector<int64_t> progeny_per_particle;
 
 // Shared secondary bank
 vector<SourceSite> shared_secondary_bank;
+vector<SourceSite> shared_secondary_bank_execute;
 
 } // namespace simulation
 

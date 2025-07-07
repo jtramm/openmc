@@ -803,7 +803,7 @@ void transport_history_based_single_particle(Particle& p)
               " underwent maximum number of events.");
       p.wgt() = 0.0;
     }
-    p.event_revive_from_secondary();
+    p.event_revive_from_secondary(-1);
   }
   // p.event_death();
 }
@@ -817,26 +817,46 @@ void transport_history_based()
   //     initialize_history(p, i_work);
   //     transport_history_based_single_particle(p);
   //   }
+  simulation::shared_secondary_bank.resize(0);
+  simulation::shared_secondary_bank_execute.resize(0);
 
-  int64_t n_finished = 0;
 #pragma omp parallel
   {
+    int n_generation_depth = 0;
     Particle p;
-#pragma omp for schedule(dynamic) nowait
+#pragma omp for schedule(dynamic)
     for (int64_t i_work = 1; i_work <= simulation::work_per_rank; ++i_work) {
       initialize_history(p, i_work);
       transport_history_based_single_particle(p);
-#pragma omp atomic
-      n_finished++;
     }
+#pragma omp single
+    {
+    std::swap(simulation::shared_secondary_bank,
+              simulation::shared_secondary_bank_execute);
+    }
+    
+    int64_t n_secondary = simulation::shared_secondary_bank_execute.size();
 
-    while (n_finished < simulation::work_per_rank) {
-      p.event_revive_from_secondary();
-      if (p.alive()) {
-        transport_history_based_single_particle(p);
-#pragma omp atomic
-        n_finished++;
+    while (n_secondary > 0) {
+#pragma omp for schedule(dynamic)
+      for (int64_t i = 0; i < n_secondary; i++) {
+        p.event_revive_from_secondary(i);
+        if (p.alive()) {
+          transport_history_based_single_particle(p);
+        }
       }
+#pragma omp single
+      {
+        simulation::shared_secondary_bank_execute.resize(0);
+        std::swap(simulation::shared_secondary_bank,
+                  simulation::shared_secondary_bank_execute);
+        fmt::print(
+          "Generation depth: {}, secondary bank size: {}\n",
+          n_generation_depth, n_secondary);
+          fflush(stdout);
+        n_generation_depth++;
+      }
+      n_secondary = simulation::shared_secondary_bank_execute.size();
     }
     p.event_death();
   }
