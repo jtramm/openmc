@@ -803,22 +803,12 @@ void transport_history_based_single_particle(Particle& p)
               " underwent maximum number of events.");
       p.wgt() = 0.0;
     }
-    p.event_revive_from_secondary(-1);
   }
-  // p.event_death();
 }
 
 void transport_history_based()
 {
-  //   int64_t n_finished = 0;
-  // #pragma omp parallel for schedule(runtime)
-  //   for (int64_t i_work = 1; i_work <= simulation::work_per_rank; ++i_work) {
-  //     Particle p;
-  //     initialize_history(p, i_work);
-  //     transport_history_based_single_particle(p);
-  //   }
   simulation::shared_secondary_bank.resize(0);
-  simulation::shared_secondary_bank_execute.resize(0);
 
 #pragma omp parallel
   {
@@ -829,37 +819,74 @@ void transport_history_based()
       initialize_history(p, i_work);
       transport_history_based_single_particle(p);
     }
-#pragma omp single
-    {
-    std::swap(simulation::shared_secondary_bank,
-              simulation::shared_secondary_bank_execute);
-    }
-    
-    int64_t n_secondary = simulation::shared_secondary_bank_execute.size();
+
+    // Now we loop over any secondary generations until complete
+    int64_t n_secondary = 1;
 
     while (n_secondary > 0) {
+
+      // Transfer all secondary particles to the shared secondary bank
+#pragma omp critical(shared_secondary_bank)
+      {
+        for (auto& site : p.secondary_bank()) {
+          simulation::shared_secondary_bank.push_back(site);
+        }
+        p.secondary_bank().resize(0);
+      }
+#pragma omp barrier
+
+#pragma omp single
+      {
+        // Sort the secondary bank by parent ID then progeny ID
+        std::sort(simulation::shared_secondary_bank.begin(),
+          simulation::shared_secondary_bank.end(),
+          [](const SourceSite& a, const SourceSite& b) {
+            return a.parent_id < b.parent_id ||
+                   (a.parent_id == b.parent_id && a.progeny_id < b.progeny_id);
+          });
+
+        // Validate that the secondary bank is actually sorted
+        for (int i = 1; i < simulation::shared_secondary_bank.size(); ++i) {
+          if (simulation::shared_secondary_bank[i].parent_id <
+                simulation::shared_secondary_bank[i - 1].parent_id ||
+              (simulation::shared_secondary_bank[i].parent_id ==
+                  simulation::shared_secondary_bank[i - 1].parent_id &&
+                simulation::shared_secondary_bank[i].progeny_id <=
+                  simulation::shared_secondary_bank[i - 1].progeny_id)) {
+            fatal_error("Secondary bank is not sorted correctly.");
+          }
+        }
+      }
+
+      n_secondary = simulation::shared_secondary_bank.size();
+
 #pragma omp for schedule(dynamic)
       for (int64_t i = 0; i < n_secondary; i++) {
-        p.event_revive_from_secondary(i);
+        SourceSite& site = simulation::shared_secondary_bank[i];
+        // TODO: Control the seed so as to be reproducible
+        // set random number seed
+        // p.id() = ... + i
+        // int64_t particle_seed =
+        //  (simulation::total_gen + overall_generation() - 1) *
+        //    settings::n_particles +
+        //  p.id();
+        // init_particle_seeds(particle_seed, p.seeds());
+        p.event_revive_from_secondary(site);
         if (p.alive()) {
           transport_history_based_single_particle(p);
         }
       }
 #pragma omp single
       {
-        simulation::shared_secondary_bank_execute.resize(0);
-        std::swap(simulation::shared_secondary_bank,
-                  simulation::shared_secondary_bank_execute);
-        fmt::print(
-          "Generation depth: {}, secondary bank size: {}\n",
+        simulation::shared_secondary_bank.resize(0);
+        fmt::print("Generation depth: {}, secondary bank size: {}\n",
           n_generation_depth, n_secondary);
-          fflush(stdout);
+        fflush(stdout);
       }
       n_generation_depth++;
-      n_secondary = simulation::shared_secondary_bank_execute.size();
-    }
+    } // End of secondary generation loop
     p.event_death();
-  }
+  } // End of parallel region
 }
 
 void transport_event_based()

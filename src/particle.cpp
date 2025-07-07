@@ -92,50 +92,10 @@ bool Particle::create_secondary(
   bank.E = settings::run_CE ? E : g();
   bank.time = time();
   bank_second_E() += bank.E;
-  return true;
-}
-
-void Particle::store_secondary(SourceSite& new_site)
-{
-  if (secondary_bank().size() >= MAX_LOCAL_SECONDARY_BANK_SIZE) {
-// Transfer local bank into shared bank
-#pragma omp critical(openmc_shared_secondary_bank)
-    {
-      for (auto& site : secondary_bank()) {
-        simulation::shared_secondary_bank.emplace_back(site);
-      }
-      secondary_bank().resize(0);
-    }
-  }
-  // Now store the new site in the local secondary bank
-  secondary_bank().emplace_back(new_site);
-}
-
-bool Particle::retrieve_secondary(SourceSite& site, bool only_local)
-{
-  // If there's nothing in the local secondary bank, clear out some items from
-  // the shared secondar bank
-  if (secondary_bank().empty() && !only_local) {
-#pragma omp critical(openmc_shared_secondary_bank)
-    {
-      // Move MAX_LOCAL_SECONDARY_BANK_SIZE items from the shared bank to the
-      // local bank
-      int n_to_move =
-        std::min(static_cast<int>(simulation::shared_secondary_bank.size()),
-          MAX_LOCAL_SECONDARY_BANK_SIZE / 2);
-      secondary_bank().reserve(n_to_move);
-      for (int i = 0; i < n_to_move; ++i) {
-        secondary_bank().emplace_back(simulation::shared_secondary_bank.back());
-        simulation::shared_secondary_bank.pop_back();
-      }
-    }
-  }
-  if (secondary_bank().empty()) {
-    return false; // No secondary sites available
-  }
-
-  site = secondary_bank().back();
-  secondary_bank().pop_back();
+  bank.parent_id = id();
+  bank.progeny_id = n_progeny()++;
+  bank.wgt_born = wgt_born();
+  bank.wgt_ww_born = wgt_ww_born();
   return true;
 }
 
@@ -145,10 +105,14 @@ void Particle::split(double wgt)
   SourceSite bank;
   bank.particle = type();
   bank.wgt = wgt;
+  bank.wgt_born = wgt_born();
+  bank.wgt_ww_born = wgt_ww_born();
   bank.r = r();
   bank.u = u();
   bank.E = settings::run_CE ? E() : g();
   bank.time = time();
+  bank.parent_id = id();
+  bank.progeny_id = n_progeny()++;
 
   // Convert signed index to a singed surface ID
   if (surface() == SURFACE_NONE) {
@@ -157,7 +121,7 @@ void Particle::split(double wgt)
     int surf_id = model::surfaces[surface_index()]->id_;
     bank.surf_id = (surface() > 0) ? surf_id : -surf_id;
   }
-  store_secondary(bank);
+  secondary_bank().emplace_back(bank);
 }
 
 void Particle::from_source(const SourceSite* src)
@@ -176,6 +140,8 @@ void Particle::from_source(const SourceSite* src)
   type() = src->particle;
   wgt() = src->wgt;
   wgt_last() = src->wgt;
+  wgt_born() = src->wgt_born;
+  wgt_ww_born() = src->wgt_ww_born;
   r() = src->r;
   u() = src->u;
   r_born() = src->r;
@@ -459,25 +425,13 @@ void Particle::event_collide()
 #endif
 }
 
-void Particle::event_revive_from_secondary(int64_t shared_bank_idx)
+void Particle::event_revive_from_secondary(SourceSite& site)
 {
   // Check for secondary particles if this particle is dead
   if (!alive()) {
     // Write final position for this particle
     if (write_track()) {
       write_particle_track(*this);
-    }
-
-    // If no secondary particles, break out of event loop
-    if (secondary_bank().empty() && shared_bank_idx < 0) 
-      return;
-
-    SourceSite site;
-    if (shared_bank_idx >= 0) {
-      site = simulation::shared_secondary_bank_execute[shared_bank_idx];
-    } else {
-      site = secondary_bank().back();
-      secondary_bank().pop_back();
     }
 
     from_source(&site);
