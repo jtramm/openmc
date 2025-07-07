@@ -118,9 +118,6 @@ bool Particle::retrieve_secondary(SourceSite& site, bool only_local)
   if (secondary_bank().empty() && !only_local) {
 #pragma omp critical(openmc_shared_secondary_bank)
     {
-      if (simulation::shared_secondary_bank.empty()) {
-        return false; // No secondary sites available
-      }
       // Move MAX_LOCAL_SECONDARY_BANK_SIZE items from the shared bank to the
       // local bank
       int n_to_move =
