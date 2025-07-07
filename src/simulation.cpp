@@ -854,8 +854,8 @@ void transport_history_based()
           "Generation depth: {}, secondary bank size: {}\n",
           n_generation_depth, n_secondary);
           fflush(stdout);
-        n_generation_depth++;
       }
+      n_generation_depth++;
       n_secondary = simulation::shared_secondary_bank_execute.size();
     }
     p.event_death();
