@@ -26,6 +26,7 @@
 #include "openmc/timer.h"
 #include "openmc/track_output.h"
 #include "openmc/weight_windows.h"
+#include <random>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -835,6 +836,12 @@ void transport_history_based()
       }
 #pragma omp barrier
 
+      n_secondary = simulation::shared_secondary_bank.size();
+      if (n_secondary == 0) {
+        // If there are no secondaries, we can exit the loop
+        break;
+      }
+
 #pragma omp single
       {
         // Sort the secondary bank by parent ID then progeny ID
@@ -858,7 +865,81 @@ void transport_history_based()
         }
       }
 
-      n_secondary = simulation::shared_secondary_bank.size();
+      int64_t n_target = simulation::work_per_rank;
+
+      // If there's too many secondaries, we need to roulette them down
+      if (n_secondary > n_target) {
+
+        double roulette_factor = n_secondary / static_cast<double>(n_target);
+
+#pragma omp single
+        {
+          // Shuffle with a good random number generator
+          std::mt19937 rng(*p.current_seed());
+          prn(p.current_seed());
+
+          // Shuffle the secondary bank
+          std::shuffle(simulation::shared_secondary_bank.begin(),
+            simulation::shared_secondary_bank.end(), rng);
+        }
+        double all_weight = 0.0;
+        for (int64_t i = 0; i < n_secondary; i++) {
+          SourceSite& site = simulation::shared_secondary_bank[i];
+          all_weight += site.wgt;
+        }
+        // Sum the weights of the particles we are killing
+        double killed_weight = 0.0;
+        for (int64_t i = n_target; i < n_secondary; i++) {
+          SourceSite& site = simulation::shared_secondary_bank[i];
+          killed_weight += site.wgt;
+        }
+        double weight_delta = killed_weight / (n_secondary - n_target);
+        double all_weight_delta = all_weight / (n_secondary - n_target);
+#pragma omp single
+        {
+          // Roulette the secondary bank down to the target size
+          simulation::shared_secondary_bank.resize(n_target);
+        }
+
+        // Now we need to apply the roulette factor to the weights of
+        // the secondary particles
+#pragma omp for schedule(static)
+        for (int64_t i = 0; i < n_target; i++) {
+          SourceSite& site = simulation::shared_secondary_bank[i];
+          double old_wgt = site.wgt;
+          // Roulette the weight of the secondary particle
+          //site.wgt += weight_delta;
+          //site.wgt = all_weight_delta;
+          site.wgt *= roulette_factor;
+          site.wgt_ww_born *= old_wgt / site.wgt;
+        }
+      } else if (n_secondary < n_target) {
+// If there are not enough secondaries, we need to split
+// a random selection of particles to fill to the target size
+// This is done by randomly selecting particles and splitting them
+// until we reach the target size.
+#pragma omp single
+        {
+          for (int64_t i = n_secondary; i < n_target; i++) {
+            // Randomly select a particle to split
+            int64_t index = (*p.current_seed()) % n_secondary;
+            prn(p.current_seed());
+            SourceSite& site = simulation::shared_secondary_bank[index];
+            site.wgt *= 0.5;
+            //site.wgt_ww_born *= 0.5;
+            simulation::shared_secondary_bank.push_back(site);
+          }
+        }
+      }
+
+#pragma omp master
+      {
+        fmt::print(
+          "Generation depth: {}, secondary bank size: {}, target size: {}\n",
+          n_generation_depth, n_secondary, n_target);
+        fflush(stdout);
+      }
+      n_secondary = n_target;
 
 #pragma omp for schedule(dynamic)
       for (int64_t i = 0; i < n_secondary; i++) {
@@ -879,9 +960,6 @@ void transport_history_based()
 #pragma omp single
       {
         simulation::shared_secondary_bank.resize(0);
-        fmt::print("Generation depth: {}, secondary bank size: {}\n",
-          n_generation_depth, n_secondary);
-        fflush(stdout);
       }
       n_generation_depth++;
     } // End of secondary generation loop
