@@ -917,7 +917,10 @@ void transport_history_based()
           //site.wgt_ww_born *= site.wgt / old_wgt; // BAD
 
         }
+              n_secondary = n_target;
+
       } else if (n_secondary < n_target) {
+        /*
 // If there are not enough secondaries, we need to split
 // a random selection of particles to fill to the target size
 // This is done by randomly selecting particles and splitting them
@@ -934,6 +937,9 @@ void transport_history_based()
             simulation::shared_secondary_bank.push_back(site);
           }
         }
+                n_secondary = n_target;
+
+          */
       }
 
 #pragma omp master
@@ -943,7 +949,6 @@ void transport_history_based()
           n_generation_depth, n_secondary, n_target);
         fflush(stdout);
       }
-      n_secondary = n_target;
 
 #pragma omp for schedule(dynamic)
       for (int64_t i = 0; i < n_secondary; i++) {
