@@ -911,7 +911,11 @@ void transport_history_based()
           //site.wgt += weight_delta;
           //site.wgt = all_weight_delta;
           site.wgt *= roulette_factor;
-          site.wgt_ww_born *= old_wgt / site.wgt;
+          //site.wgt_ww_born *= old_wgt / site.wgt; //GOOD
+          site.wgt_ww_born /= roulette_factor; //GOOD
+
+          //site.wgt_ww_born *= site.wgt / old_wgt; // BAD
+
         }
       } else if (n_secondary < n_target) {
 // If there are not enough secondaries, we need to split
