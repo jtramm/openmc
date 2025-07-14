@@ -115,8 +115,8 @@ void sample_neutron_reaction(Particle& p)
 
       // Make sure particle population doesn't grow out of control for
       // subcritical multiplication problems.
-      if (p.secondary_bank().size() >= 10000) {
-        fatal_error(
+      if (p.secondary_bank().size() >= 100000000) {
+        warning(
           "The secondary particle bank appears to be growing without "
           "bound. You are likely running a subcritical multiplication problem "
           "with k-effective close to or greater than one.");

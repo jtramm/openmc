@@ -50,6 +50,7 @@ struct SourceSite {
   double wgt_ww_born {-1.0};
   int delayed_group {0};
   int surf_id {SURFACE_NONE};
+  int n_split {0};
   ParticleType particle;
 
   // Extra attributes that don't show up in source written to file

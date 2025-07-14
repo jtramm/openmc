@@ -113,6 +113,7 @@ void Particle::split(double wgt)
   bank.time = time();
   bank.parent_id = id();
   bank.progeny_id = n_progeny()++;
+  bank.n_split = n_split();
 
   // Convert signed index to a singed surface ID
   if (surface() == SURFACE_NONE) {
@@ -436,6 +437,7 @@ void Particle::event_revive_from_secondary(SourceSite& site)
 
     from_source(&site);
     n_event() = 0;
+    n_split() = site.n_split;
     bank_second_E() = 0.0;
 
     // Subtract secondary particle energy from interim pulse-height results
