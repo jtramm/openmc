@@ -66,7 +66,7 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
 // prevent extremely large adjoint source terms from being generated.
-constexpr double ZERO_FLUX_CUTOFF {1e-22};
+constexpr double ZERO_FLUX_CUTOFF {1e-50};
 
 constexpr int MAX_LOCAL_SECONDARY_BANK_SIZE {100};
 

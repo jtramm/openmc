@@ -1208,6 +1208,8 @@ void FlatSourceDomain::flatten_xs()
 
 void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
 {
+  bool is_cadis = false;
+
   // Set the adjoint external source to 1/forward_flux. If the forward flux is
   // negative, zero, or extremely close to zero, set the adjoint source to zero,
   // as this is likely a very small source region that we don't need to bother
@@ -1235,6 +1237,10 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source(sr, g) = 0.0;
       } else {
         source_regions_.external_source(sr, g) = 1.0 / flux;
+        if (!std::isfinite(source_regions_.external_source(sr, g))) {
+          // If the flux is NaN or Inf, set the adjoint source to zero
+          source_regions_.external_source(sr, g) = 0.0;
+        } 
       }
       if (flux > 0.0) {
         source_regions_.external_source_present(sr) = 1;
@@ -1256,13 +1262,15 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
   // set its adjoint source to zero. This adds negligible bias to the adjoint
   // flux solution, as the true total adjoint source contribution from small
   // regions is likely to be negligible.
+  if (!is_cadis) {
 #pragma omp parallel for
-  for (int64_t sr = 0; sr < n_source_regions(); sr++) {
-    if (source_regions_.is_small(sr)) {
-      for (int g = 0; g < negroups_; g++) {
-        source_regions_.external_source(sr, g) = 0.0;
+    for (int64_t sr = 0; sr < n_source_regions(); sr++) {
+      if (source_regions_.is_small(sr)) {
+        for (int g = 0; g < negroups_; g++) {
+          source_regions_.external_source(sr, g) = 0.0;
+        }
+        source_regions_.external_source_present(sr) = 0;
       }
-      source_regions_.external_source_present(sr) = 0;
     }
   }
 
@@ -1279,6 +1287,81 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
       source_regions_.external_source(sr, g) /= sigma_t;
     }
   }
+
+  if (is_cadis) {
+// Only external sources that have a non-mesh type tally task should remain
+// non-zero. Everything else gets zero'd out.
+#pragma omp parallel for
+    for (int64_t sr = 0; sr < n_source_regions(); sr++) {
+
+      // If there is already no external source, don't need to do anything
+      if (source_regions_.external_source_present(sr) == 0) {
+        continue;
+      }
+
+      // If there is an adjoint source term here, then we need to check it.
+
+      // We will track if ANY group has a valid CADIS source term
+      bool has_any_sources = false;
+
+      // Now, loop over groups
+      for (int g = 0; g < negroups_; g++) {
+
+        // If there are no tally tasks associated with this source element
+        // then it is not a CADIS source, so we continue to the next group
+        if (source_regions_.tally_task(sr, g).empty()) {
+          source_regions_.external_source(sr, g) = 0.0;
+          continue;
+        }
+
+        // If there are tally tasks, we can through them and check if
+        // any of them have a non-mesh filter type.
+
+        // We track if ANY of the tasks have a non-mesh filter
+        bool has_non_mesh_filter = false;
+
+        // Now we loop through
+        for (const auto& task : source_regions_.tally_task(sr, g)) {
+          Tally& tally {*model::tallies[task.tally_idx]};
+          auto filter_types = tally.filter_types();
+
+          // For each tally, we loop through the filter types array.
+          // If any of them have a CADIS-compatible filter type,
+          // then this source element is a valid CADIS source
+          for (const auto& filter_type : filter_types) {
+            if (filter_type == FilterType::CELL ||
+                filter_type == FilterType::UNIVERSE ||
+                filter_type == FilterType::MATERIAL) {
+              has_non_mesh_filter = true;
+              break;
+            }
+          }
+        }
+
+        // If ANY of the tasks has a non-mesh filter type,
+        // Then we keep the source term and set that this
+        // source region has a valid CADIS source term.
+        // Otherwise, we zero out the source term.
+        if (has_non_mesh_filter) {
+          has_any_sources = true;
+          // print external source term
+          fmt::print(
+            "External source term for source region {} group {}: {}\n", sr, g,
+            source_regions_.external_source(sr, g));
+        } else {
+          source_regions_.external_source(sr, g) = 0.0;
+        }
+      } // End loop over groups
+
+      // If there were any valid CADIS source terms for any
+      // of the groups, then the SR as a whole counts as a source
+      if (has_any_sources) {
+        source_regions_.external_source_present(sr) = 1;
+      } else {
+        source_regions_.external_source_present(sr) = 0;
+      }
+    } // End loop over source regions
+  } // End CADIS logic
 }
 
 void FlatSourceDomain::transpose_scattering_matrix()
