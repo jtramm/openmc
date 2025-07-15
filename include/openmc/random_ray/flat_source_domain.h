@@ -72,6 +72,7 @@ public:
   // Static Data members
   static bool volume_normalized_flux_tallies_;
   static bool adjoint_; // If the user wants outputs based on the adjoint flux
+  static bool cadis_; // If using CADIS instead of FW-CADIS
   static double
     diagonal_stabilization_rho_; // Adjusts strength of diagonal stabilization
                                  // for transport corrected MGXS data

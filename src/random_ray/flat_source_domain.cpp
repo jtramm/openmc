@@ -30,6 +30,7 @@ RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
   RandomRayVolumeEstimator::HYBRID};
 bool FlatSourceDomain::volume_normalized_flux_tallies_ {false};
 bool FlatSourceDomain::adjoint_ {false};
+bool FlatSourceDomain::cadis_ {false};
 double FlatSourceDomain::diagonal_stabilization_rho_ {1.0};
 std::unordered_map<int, vector<std::pair<Source::DomainType, int>>>
   FlatSourceDomain::mesh_domain_map_;
@@ -1240,7 +1241,7 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         if (!std::isfinite(source_regions_.external_source(sr, g))) {
           // If the flux is NaN or Inf, set the adjoint source to zero
           source_regions_.external_source(sr, g) = 0.0;
-        } 
+        }
       }
       if (flux > 0.0) {
         source_regions_.external_source_present(sr) = 1;
@@ -1262,7 +1263,7 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
   // set its adjoint source to zero. This adds negligible bias to the adjoint
   // flux solution, as the true total adjoint source contribution from small
   // regions is likely to be negligible.
-  if (!is_cadis) {
+  if (!cadis_) {
 #pragma omp parallel for
     for (int64_t sr = 0; sr < n_source_regions(); sr++) {
       if (source_regions_.is_small(sr)) {
@@ -1285,10 +1286,14 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
     for (int g = 0; g < negroups_; g++) {
       double sigma_t = sigma_t_[material * negroups_ + g];
       source_regions_.external_source(sr, g) /= sigma_t;
+      if (!std::isfinite(source_regions_.external_source(sr, g))) {
+        // If the flux is NaN or Inf, set the adjoint source to zero
+        source_regions_.external_source(sr, g) = 0.0;
+      }
     }
   }
 
-  if (is_cadis) {
+  if (cadis_) {
 // Only external sources that have a non-mesh type tally task should remain
 // non-zero. Everything else gets zero'd out.
 #pragma omp parallel for
@@ -1330,6 +1335,8 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
           // then this source element is a valid CADIS source
           for (const auto& filter_type : filter_types) {
             if (filter_type == FilterType::CELL ||
+                filter_type == FilterType::CELL_INSTANCE ||
+                filter_type == FilterType::DISTRIBCELL ||
                 filter_type == FilterType::UNIVERSE ||
                 filter_type == FilterType::MATERIAL) {
               has_non_mesh_filter = true;
@@ -1345,9 +1352,8 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         if (has_non_mesh_filter) {
           has_any_sources = true;
           // print external source term
-          fmt::print(
-            "External source term for source region {} group {}: {}\n", sr, g,
-            source_regions_.external_source(sr, g));
+          fmt::print("External source term for source region {} group {}: {}\n",
+            sr, g, source_regions_.external_source(sr, g));
         } else {
           source_regions_.external_source(sr, g) = 0.0;
         }
