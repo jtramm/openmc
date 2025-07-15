@@ -1208,7 +1208,7 @@ void FlatSourceDomain::flatten_xs()
 
 void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
 {
-  bool is_cadis = false;
+  bool is_cadis = true;
 
   // Set the adjoint external source to 1/forward_flux. If the forward flux is
   // negative, zero, or extremely close to zero, set the adjoint source to zero,
