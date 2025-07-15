@@ -1780,10 +1780,19 @@ class Model:
         n_groups = groups.num_groups
         midpoints = []
         strengths = []
+        src = 2449632.3
+        #src = 6.88E+05
         for i in range(n_groups):
             bounds = groups.get_group_bounds(i+1)
-            midpoints.append((bounds[0] + bounds[1]) / 2.0)
-            strengths.append(1.0)
+            midpoint = (bounds[0] + bounds[1]) / 2.0
+            if (src > bounds[0] and src < bounds[1]):
+                midpoints.append(src)
+                strengths.append(1.0)
+            else:
+                midpoints.append(midpoint)
+                strengths.append(0.01)
+        #midpoints = [src]
+        #strengths = [1.0]
 
         energy_distribution = openmc.stats.Discrete(x=midpoints, p=strengths)
         model.settings.source = [openmc.IndependentSource(
