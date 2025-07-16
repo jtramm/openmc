@@ -1237,10 +1237,6 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
         source_regions_.external_source(sr, g) = 0.0;
       } else {
         source_regions_.external_source(sr, g) = 1.0 / flux;
-        if (!std::isfinite(source_regions_.external_source(sr, g))) {
-          // If the flux is NaN or Inf, set the adjoint source to zero
-          source_regions_.external_source(sr, g) = 0.0;
-        } 
       }
       if (flux > 0.0) {
         source_regions_.external_source_present(sr) = 1;
@@ -1285,6 +1281,10 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
     for (int g = 0; g < negroups_; g++) {
       double sigma_t = sigma_t_[material * negroups_ + g];
       source_regions_.external_source(sr, g) /= sigma_t;
+      if (!std::isfinite(source_regions_.external_source(sr, g))) {
+        // If the flux is NaN or Inf, set the adjoint source to zero
+        source_regions_.external_source(sr, g) = 0.0;
+      } 
     }
   }
 
@@ -1331,6 +1331,8 @@ void FlatSourceDomain::set_adjoint_sources(const vector<double>& forward_flux)
           for (const auto& filter_type : filter_types) {
             if (filter_type == FilterType::CELL ||
                 filter_type == FilterType::UNIVERSE ||
+                filter_type == FilterType::CELL_INSTANCE ||
+                filter_type == FilterType::DISTRIBCELL ||
                 filter_type == FilterType::MATERIAL) {
               has_non_mesh_filter = true;
               break;
