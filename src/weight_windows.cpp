@@ -695,8 +695,8 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
       }
     }
   } else {
-    // For FW-CADIS, weight windows are inversely proportional to the adjoint
-    // fluxes. We normalize the weight windows across all energy groups.
+    // For CADIS and FW-CADIS, weight windows are inversely proportional to the
+    // adjoint fluxes. We normalize the weight windows across all energy groups.
 #pragma omp parallel for collapse(2) schedule(static)
     for (int e = 0; e < e_bins; e++) {
       for (int64_t m = 0; m < mesh_bins; m++) {
@@ -873,6 +873,13 @@ WeightWindowsGenerator::WeightWindowsGenerator(pugi::xml_node node)
       fatal_error("FW-CADIS can only be run in random ray solver mode.");
     }
     FlatSourceDomain::adjoint_ = true;
+  } else if (method_string == "cadis") {
+    method_ = WeightWindowUpdateMethod::CADIS;
+    if (settings::solver_type != SolverType::RANDOM_RAY) {
+      fatal_error("CADIS can only be run in random ray solver mode.");
+    }
+    FlatSourceDomain::adjoint_ = true;
+    FlatSourceDomain::cadis_ = true;
   } else {
     fatal_error(fmt::format(
       "Unknown weight window update method '{}' specified", method_string));
