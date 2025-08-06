@@ -835,6 +835,7 @@ void transport_history_based()
       }
 #pragma omp barrier
 
+      /*
 #pragma omp single
       {
         // Sort the secondary bank by parent ID then progeny ID
@@ -857,6 +858,7 @@ void transport_history_based()
           }
         }
       }
+      */
 
       n_secondary = simulation::shared_secondary_bank.size();
 
