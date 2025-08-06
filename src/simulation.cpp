@@ -26,6 +26,7 @@
 #include "openmc/timer.h"
 #include "openmc/track_output.h"
 #include "openmc/weight_windows.h"
+#include <random>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -810,6 +811,11 @@ void transport_history_based()
 {
   simulation::shared_secondary_bank.resize(0);
 
+  static uint64_t seed = 42;
+
+  // Setup C++ random engine for shuffling
+  std::mt19937 random_engine(seed);
+
 #pragma omp parallel
   {
     int n_generation_depth = 0;
@@ -817,6 +823,8 @@ void transport_history_based()
 #pragma omp for schedule(dynamic)
     for (int64_t i_work = 1; i_work <= simulation::work_per_rank; ++i_work) {
       initialize_history(p, i_work);
+      p.progenitor_id() = simulation::work_index[mpi::rank] + i_work;
+
       transport_history_based_single_particle(p);
     }
 
@@ -834,6 +842,81 @@ void transport_history_based()
         p.secondary_bank().resize(0);
       }
 #pragma omp barrier
+
+// Now, we need to perform lineage-based population control on the secondary bank.
+#pragma omp single
+{
+  
+  // We want to make sure that no progenitor ID has more than 1000 progency that
+  // are in flight at the same time (i.e., that are in the secondary bank).
+  const int64_t max_progeny_in_flight = 1000;
+  std::unordered_map<int64_t, int64_t> progeny_count;
+  std::unordered_map<int64_t, double> progeny_weight;
+  std::unordered_map<int64_t, int64_t> progeny_killed_count;
+  std::unordered_map<int64_t, double> progeny_killed_weight;
+
+  for (const auto& site : simulation::shared_secondary_bank) {
+    int64_t progenitor_id = site.progenitor_id;
+    if (progeny_count.find(progenitor_id) == progeny_count.end()) {
+      progeny_count[progenitor_id] = 0;
+      progeny_weight[progenitor_id] = 0.0;
+      progeny_killed_count[progenitor_id] = 0;
+      progeny_killed_weight[progenitor_id] = 0.0;
+    }
+    progeny_count[progenitor_id]++;
+    progeny_weight[progenitor_id] += site.wgt;
+  }
+
+  // Now we now the total number of progency alive from each OG progenitor.
+  // Let's scramble the secondary bank, and then we can select the first
+  // max_progeny_in_flight from each progenitor.
+  // First setup a random engine:
+  std::shuffle(simulation::shared_secondary_bank.begin(),
+    simulation::shared_secondary_bank.end(), random_engine);
+  
+    vector<SourceSite> new_secondary_bank;
+
+    for (const auto& site : simulation::shared_secondary_bank) {
+      int64_t progenitor_id = site.progenitor_id;
+      if (progeny_count[progenitor_id] - progeny_killed_count[progenitor_id] > max_progeny_in_flight) {
+        // If this progenitor has too many progency, we kill this one
+        progeny_killed_weight[progenitor_id] += site.wgt;
+        progeny_killed_count[progenitor_id]++;
+      } else {
+        // Otherwise, we keep this one
+        new_secondary_bank.push_back(site);
+      }
+    }
+
+    // Scan through and report the maximum number of progeny of any progenitor
+    int64_t max_progeny = 0;
+    for (const auto& pair : progeny_count) {
+      int64_t progenitor_id = pair.first;
+      int64_t count = pair.second;
+      if( count > max_progeny) {
+        max_progeny = count;
+      }
+    }
+    fmt::print("Maximum number of progeny in flight for any progenitor: {}\n",
+      max_progeny);
+    
+
+    // Now we need to scale all the weights of the surviving secondaries by the ratio of 
+    for (auto& site : new_secondary_bank) {
+      int64_t progenitor_id = site.progenitor_id;
+      double alive_weight = progeny_weight[progenitor_id] - progeny_killed_weight[progenitor_id];
+      site.wgt *= progeny_weight[progenitor_id] / alive_weight;
+      site.wgt_ww_born *= alive_weight / progeny_weight[progenitor_id];
+    }
+
+    fmt::print("Secondary bank of size {} has been pruned to {} surviving particles.\n",
+      simulation::shared_secondary_bank.size(), new_secondary_bank.size());
+
+    // Now replace everything in the shared secondary bank with the new secondary bank
+    simulation::shared_secondary_bank = std::move(new_secondary_bank);
+    
+  }
+
 
       /*
 #pragma omp single

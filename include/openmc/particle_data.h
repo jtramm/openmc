@@ -57,6 +57,7 @@ struct SourceSite {
   int parent_nuclide {-1};
   int64_t parent_id;
   int64_t progeny_id;
+  int64_t progenitor_id;
 };
 
 //! State of a particle used for particle track files
@@ -350,6 +351,9 @@ public:
   const double& sqrtkT() const { return sqrtkT_; }
   double& sqrtkT_last() { return sqrtkT_last_; }
 
+  int64_t& progenitor_id() { return progenitor_id_; }
+  const int64_t& progenitor_id() const { return progenitor_id_; }
+
 private:
   int64_t id_ {-1}; //!< Unique ID
 
@@ -366,6 +370,7 @@ private:
                             //!< current tallies
   Position r_last_;         //!< previous coordinates
   Direction u_last_;        //!< previous direction coordinates
+  int64_t progenitor_id_ {-1}; //!< ID of the progenitor particle
 
   int surface_ {
     SURFACE_NONE}; //!< surface token for surface the particle is currently on

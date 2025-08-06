@@ -114,6 +114,7 @@ void Particle::split(double wgt)
   bank.parent_id = id();
   bank.progeny_id = n_progeny()++;
   bank.n_split = n_split();
+  bank.progenitor_id = progenitor_id();
 
   // Convert signed index to a singed surface ID
   if (surface() == SURFACE_NONE) {
@@ -470,6 +471,7 @@ void Particle::event_revive_from_secondary(SourceSite& site)
     if (write_track())
       add_particle_track(*this);
   }
+  progenitor_id() = site.progenitor_id;
 }
 
 void Particle::event_death()
