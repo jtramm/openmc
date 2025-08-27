@@ -1737,6 +1737,7 @@ class Model:
         mgxs_path: PathLike,
         correction: str | None,
         directory: PathLike,
+        source_energy: float | None = None
     ) -> None:
         """Generate MGXS assuming a stochastic "sandwich" of materials in a layered
         slab geometry. While geometry-specific spatial shielding effects are not
@@ -1761,6 +1762,8 @@ class Model:
             "P0".
         directory : str
             Directory to run the simulation in, so as to contain XML files.
+        source_energy : float | None
+            Energy to sample source particles at.
         """
         model = openmc.Model()
         model.materials = self.materials
@@ -1780,19 +1783,16 @@ class Model:
         n_groups = groups.num_groups
         midpoints = []
         strengths = []
-        src = 2449632.3
-        #src = 6.88E+05
+
         for i in range(n_groups):
             bounds = groups.get_group_bounds(i+1)
             midpoint = (bounds[0] + bounds[1]) / 2.0
-            if (src > bounds[0] and src < bounds[1]):
-                midpoints.append(src)
+            if (source_energy is not None and source_energy > bounds[0] and source_energy < bounds[1]):
+                midpoints.append(source_energy)
                 strengths.append(1.0)
             else:
                 midpoints.append(midpoint)
                 strengths.append(0.01)
-        #midpoints = [src]
-        #strengths = [1.0]
 
         energy_distribution = openmc.stats.Discrete(x=midpoints, p=strengths)
         model.settings.source = [openmc.IndependentSource(
@@ -1954,6 +1954,7 @@ class Model:
         overwrite_mgxs_library: bool = False,
         mgxs_path: PathLike = "mgxs.h5",
         correction: str | None = None,
+        source_energy: float | None = None
     ):
         """Convert all materials from continuous energy to multigroup.
 
@@ -2007,7 +2008,7 @@ class Model:
                         groups, nparticles, mgxs_path, correction, tmpdir)
                 elif method == "stochastic_slab":
                     self._generate_stochastic_slab_mgxs(
-                        groups, nparticles, mgxs_path, correction, tmpdir)
+                        groups, nparticles, mgxs_path, correction, tmpdir, source_energy)
                 else:
                     raise ValueError(
                         f'MGXS generation method "{method}" not recognized')
