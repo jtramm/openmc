@@ -875,10 +875,10 @@ void transport_history_based()
           }
 
           // Calculate send counts and displacements
-          vector<int> send_counts(mpi::n_procs, 0);
-          vector<int> recv_counts(mpi::n_procs, 0);
-          vector<int> send_displs(mpi::n_procs, 0);
-          vector<int> recv_displs(mpi::n_procs, 0);
+          vector<int64_t> send_counts(mpi::n_procs, 0);
+          vector<int64_t> recv_counts(mpi::n_procs, 0);
+          vector<int64_t> send_displs(mpi::n_procs, 0);
+          vector<int64_t> recv_displs(mpi::n_procs, 0);
 
           // Size of each element in bytes
           size_t element_size = sizeof(SourceSite);
