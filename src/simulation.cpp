@@ -809,7 +809,7 @@ void transport_history_based_single_particle(Particle& p)
 void transport_history_based()
 {
   simulation::shared_secondary_bank.resize(0);
-    int64_t alive_secondary = 1;
+  int64_t alive_secondary = 1;
 
 #pragma omp parallel
   {
@@ -841,9 +841,12 @@ void transport_history_based()
 #ifdef OPENMC_MPI
 #pragma omp single
       {
-        // print rank and number of shared particles at start of exchange:
-        //fmt::print("Rank {} has {} shared particles\n", mpi::rank,
-        //  simulation::shared_secondary_bank.size());
+
+        // Create MPI datatype for SourceSite
+        MPI_Datatype MPI_SOURCESITE;
+        MPI_Type_contiguous(sizeof(SourceSite), MPI_BYTE, &MPI_SOURCESITE);
+        MPI_Type_commit(&MPI_SOURCESITE);
+
         // Get current size of local bank
         int64_t local_size =
           static_cast<int64_t>(simulation::shared_secondary_bank.size());
@@ -859,9 +862,8 @@ void transport_history_based()
           total += size;
         }
         alive_secondary = total;
-        //fmt::print("rank: {} has {} alive secondary particles\n", mpi::rank, alive_secondary);
 
-        // If no items to distribute, nothing to do
+        // If no items to distribute, clean up and return
         if (total != 0) {
 
           int64_t base_count = total / mpi::n_procs;
@@ -874,14 +876,12 @@ void transport_history_based()
             target_sizes[i] = base_count + (i < remainder ? 1 : 0);
           }
 
-          // Calculate send counts and displacements
-          vector<int64_t> send_counts(mpi::n_procs, 0);
-          vector<int64_t> recv_counts(mpi::n_procs, 0);
-          vector<int64_t> send_displs(mpi::n_procs, 0);
-          vector<int64_t> recv_displs(mpi::n_procs, 0);
-
-          // Size of each element in bytes
-          size_t element_size = sizeof(SourceSite);
+          // Calculate send and receive counts in terms of SourceSite objects
+          // (not bytes)
+          vector<int> send_counts(mpi::n_procs, 0);
+          vector<int> recv_counts(mpi::n_procs, 0);
+          vector<int> send_displs(mpi::n_procs, 0);
+          vector<int> recv_displs(mpi::n_procs, 0);
 
           // Calculate cumulative positions (starting index for each rank in the
           // global array)
@@ -907,8 +907,10 @@ void transport_history_based()
 
             if (overlap_start < overlap_end) {
               int64_t count = overlap_end - overlap_start;
-              send_counts[dest] = count * element_size;
-              send_displs[dest] = (overlap_start - my_start) * element_size;
+              send_counts[dest] =
+                static_cast<int>(count); // Count of SourceSite objects
+              send_displs[dest] = static_cast<int>(
+                overlap_start - my_start); // Displacement in SourceSite objects
             }
           }
 
@@ -927,9 +929,11 @@ void transport_history_based()
 
             if (overlap_start < overlap_end) {
               int64_t count = overlap_end - overlap_start;
-              recv_counts[src] = count * element_size;
-              recv_displs[src] =
-                (overlap_start - my_target_start) * element_size;
+              recv_counts[src] =
+                static_cast<int>(count); // Count of SourceSite objects
+              recv_displs[src] = static_cast<int>(
+                overlap_start -
+                my_target_start); // Displacement in SourceSite objects
             }
           }
 
@@ -947,14 +951,149 @@ void transport_history_based()
                              ? static_cast<void*>(new_bank.data())
                              : static_cast<void*>(&dummy);
 
-          // Perform all-to-all redistribution
+          // Perform all-to-all redistribution using the custom MPI type
           MPI_Alltoallv(send_ptr, send_counts.data(), send_displs.data(),
-            MPI_BYTE, recv_ptr, recv_counts.data(), recv_displs.data(),
-            MPI_BYTE, mpi::intracomm);
+            MPI_SOURCESITE, recv_ptr, recv_counts.data(), recv_displs.data(),
+            MPI_SOURCESITE, mpi::intracomm);
 
           // Replace old bank with redistributed data
           simulation::shared_secondary_bank = std::move(new_bank);
         }
+        // Free the MPI type
+        MPI_Type_free(&MPI_SOURCESITE);
+
+        /*
+
+
+
+
+
+
+
+                // print rank and number of shared particles at start of
+           exchange:
+                //fmt::print("Rank {} has {} shared particles\n", mpi::rank,
+                //  simulation::shared_secondary_bank.size());
+                // Get current size of local bank
+                int64_t local_size =
+                  static_cast<int64_t>(simulation::shared_secondary_bank.size());
+
+                // Gather all sizes to all ranks
+                vector<int64_t> all_sizes(mpi::n_procs);
+                MPI_Allgather(&local_size, 1, MPI_INT64_T, all_sizes.data(), 1,
+                  MPI_INT64_T, mpi::intracomm);
+
+                // Calculate total and check for empty case
+                int64_t total = 0;
+                for (int64_t size : all_sizes) {
+                  total += size;
+                }
+                alive_secondary = total;
+                //fmt::print("rank: {} has {} alive secondary particles\n",
+           mpi::rank, alive_secondary);
+
+                // If no items to distribute, nothing to do
+                if (total != 0) {
+
+                  int64_t base_count = total / mpi::n_procs;
+                  int64_t remainder = total % mpi::n_procs;
+
+                  // Calculate target size for each rank
+                  // First 'remainder' ranks get base_count + 1, rest get
+           base_count vector<int64_t> target_sizes(mpi::n_procs); for (int i =
+           0; i < mpi::n_procs; ++i) { target_sizes[i] = base_count + (i <
+           remainder ? 1 : 0);
+                  }
+
+                  // Calculate send counts and displacements
+                  vector<int> send_counts(mpi::n_procs, 0);
+                  vector<int> recv_counts(mpi::n_procs, 0);
+                  vector<int> send_displs(mpi::n_procs, 0);
+                  vector<int> recv_displs(mpi::n_procs, 0);
+
+                  // Size of each element in bytes
+                  size_t element_size = sizeof(SourceSite);
+
+                  // Calculate cumulative positions (starting index for each
+           rank in the
+                  // global array)
+                  vector<int64_t> cumulative_before(mpi::n_procs + 1, 0);
+                  vector<int64_t> cumulative_target(mpi::n_procs + 1, 0);
+                  for (int i = 0; i < mpi::n_procs; ++i) {
+                    cumulative_before[i + 1] = cumulative_before[i] +
+           all_sizes[i]; cumulative_target[i + 1] = cumulative_target[i] +
+           target_sizes[i];
+                  }
+
+                  // Determine send amounts from this rank to others
+                  int64_t my_start = cumulative_before[mpi::rank];
+                  int64_t my_end = cumulative_before[mpi::rank + 1];
+
+                  for (int dest = 0; dest < mpi::n_procs; ++dest) {
+                    int64_t dest_start = cumulative_target[dest];
+                    int64_t dest_end = cumulative_target[dest + 1];
+
+                    // Calculate overlap between my current range and
+           destination's
+                    // target range
+                    int64_t overlap_start = std::max(my_start, dest_start);
+                    int64_t overlap_end = std::min(my_end, dest_end);
+
+                    if (overlap_start < overlap_end) {
+                      int64_t count = overlap_end - overlap_start;
+                      send_counts[dest] = count * element_size;
+                      send_displs[dest] = (overlap_start - my_start) *
+           element_size;
+                    }
+                  }
+
+                  // Determine receive amounts from other ranks
+                  int64_t my_target_start = cumulative_target[mpi::rank];
+                  int64_t my_target_end = cumulative_target[mpi::rank + 1];
+
+                  for (int src = 0; src < mpi::n_procs; ++src) {
+                    int64_t src_start = cumulative_before[src];
+                    int64_t src_end = cumulative_before[src + 1];
+
+                    // Calculate overlap between source's current range and my
+           target
+                    // range
+                    int64_t overlap_start = std::max(src_start,
+           my_target_start); int64_t overlap_end = std::min(src_end,
+           my_target_end);
+
+                    if (overlap_start < overlap_end) {
+                      int64_t count = overlap_end - overlap_start;
+                      recv_counts[src] = count * element_size;
+                      recv_displs[src] =
+                        (overlap_start - my_target_start) * element_size;
+                    }
+                  }
+
+                  // Prepare receive buffer with target size
+                  vector<SourceSite> new_bank(target_sizes[mpi::rank]);
+
+                  // Handle empty vector edge cases for MPI_Alltoallv
+                  // Create dummy data to avoid nullptr issues
+                  SourceSite dummy;
+                  void* send_ptr =
+                    local_size > 0
+                      ?
+           static_cast<void*>(simulation::shared_secondary_bank.data()) :
+           static_cast<void*>(&dummy); void* recv_ptr = target_sizes[mpi::rank]
+           > 0 ? static_cast<void*>(new_bank.data()) :
+           static_cast<void*>(&dummy);
+
+                  // Perform all-to-all redistribution
+                  MPI_Alltoallv(send_ptr, send_counts.data(),
+           send_displs.data(), MPI_BYTE, recv_ptr, recv_counts.data(),
+           recv_displs.data(), MPI_BYTE, mpi::intracomm);
+
+                  // Replace old bank with redistributed data
+                  simulation::shared_secondary_bank = std::move(new_bank);
+                }
+              }
+                */
       }
 #endif
 
@@ -966,7 +1105,8 @@ void transport_history_based()
           simulation::shared_secondary_bank.end(),
           [](const SourceSite& a, const SourceSite& b) {
             return a.parent_id < b.parent_id ||
-                   (a.parent_id == b.parent_id && a.progeny_id < b.progeny_id);
+                   (a.parent_id == b.parent_id && a.progeny_id <
+b.progeny_id);
           });
 
         // Validate that the secondary bank is actually sorted
@@ -1025,10 +1165,11 @@ void transport_event_based()
   int64_t source_offset = 0;
 
   // To cap the total amount of memory used to store particle object data, the
-  // number of particles in flight at any point in time can bet set. In the case
-  // that the maximum in flight particle count is lower than the total number
-  // of particles that need to be run this iteration, the event-based transport
-  // loop is executed multiple times until all particles have been completed.
+  // number of particles in flight at any point in time can bet set. In the
+  // case that the maximum in flight particle count is lower than the total
+  // number of particles that need to be run this iteration, the event-based
+  // transport loop is executed multiple times until all particles have been
+  // completed.
   while (remaining_work > 0) {
     // Figure out # of particles to run for this subiteration
     int64_t n_particles =
