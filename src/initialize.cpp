@@ -157,26 +157,52 @@ void initialize_mpi(MPI_Comm intracomm)
 
   // Create bank datatype
   SourceSite b;
-  MPI_Aint disp[11];
-  MPI_Get_address(&b.r, &disp[0]);
-  MPI_Get_address(&b.u, &disp[1]);
-  MPI_Get_address(&b.E, &disp[2]);
-  MPI_Get_address(&b.time, &disp[3]);
-  MPI_Get_address(&b.wgt, &disp[4]);
-  MPI_Get_address(&b.delayed_group, &disp[5]);
-  MPI_Get_address(&b.surf_id, &disp[6]);
-  MPI_Get_address(&b.particle, &disp[7]);
-  MPI_Get_address(&b.parent_nuclide, &disp[8]);
-  MPI_Get_address(&b.parent_id, &disp[9]);
-  MPI_Get_address(&b.progeny_id, &disp[10]);
-  for (int i = 10; i >= 0; --i) {
+  MPI_Aint disp[14];
+
+  // Get addresses of all fields in order
+  MPI_Get_address(&b.r, &disp[0]);           // Position (3 doubles)
+  MPI_Get_address(&b.u, &disp[1]);           // Direction (3 doubles)
+  MPI_Get_address(&b.E, &disp[2]);           // double
+  MPI_Get_address(&b.time, &disp[3]);        // double
+  MPI_Get_address(&b.wgt, &disp[4]);         // double
+  MPI_Get_address(&b.wgt_born, &disp[5]);    // double
+  MPI_Get_address(&b.wgt_ww_born, &disp[6]); // double 
+  MPI_Get_address(&b.delayed_group, &disp[7]); // int
+  MPI_Get_address(&b.surf_id, &disp[8]);       // int
+  MPI_Get_address(&b.n_split, &disp[9]);       // int 
+  MPI_Get_address(&b.particle, &disp[10]);     // enum (int)
+  MPI_Get_address(&b.parent_nuclide, &disp[11]); // int
+  MPI_Get_address(&b.parent_id, &disp[12]);      // int64_t
+  MPI_Get_address(&b.progeny_id, &disp[13]);     // int64_t
+
+  // Convert to relative displacements
+  for (int i = 13; i >= 0; --i) {
     disp[i] -= disp[0];
   }
 
-  int blocks[] {3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-  MPI_Datatype types[] {MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE,
-    MPI_DOUBLE, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_LONG, MPI_LONG};
-  MPI_Type_create_struct(11, blocks, disp, types, &mpi::source_site);
+  // Block counts for each field
+  int blocks[] = {3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+  // Types for each field (note: using MPI_INT64_T instead of MPI_LONG for
+  // portability)
+  MPI_Datatype types[] = {
+    MPI_DOUBLE,  // r (3 doubles)
+    MPI_DOUBLE,  // u (3 doubles)
+    MPI_DOUBLE,  // E
+    MPI_DOUBLE,  // time
+    MPI_DOUBLE,  // wgt
+    MPI_DOUBLE,  // wgt_born
+    MPI_DOUBLE,  // wgt_ww_born
+    MPI_INT,     // delayed_group
+    MPI_INT,     // surf_id
+    MPI_INT,     // n_split
+    MPI_INT,     // particle (enum)
+    MPI_INT,     // parent_nuclide
+    MPI_INT64_T, // parent_id (should be MPI_INT64_T not MPI_LONG)
+    MPI_INT64_T  // progeny_id (should be MPI_INT64_T not MPI_LONG)
+  };
+
+  MPI_Type_create_struct(14, blocks, disp, types, &mpi::source_site);
   MPI_Type_commit(&mpi::source_site);
 }
 #endif // OPENMC_MPI
