@@ -841,12 +841,6 @@ void transport_history_based()
 #ifdef OPENMC_MPI
 #pragma omp single
       {
-
-        // Create MPI datatype for SourceSite
-        MPI_Datatype MPI_SOURCESITE;
-        MPI_Type_contiguous(sizeof(SourceSite), MPI_BYTE, &MPI_SOURCESITE);
-        MPI_Type_commit(&MPI_SOURCESITE);
-
         // Get current size of local bank
         int64_t local_size =
           static_cast<int64_t>(simulation::shared_secondary_bank.size());
@@ -953,14 +947,12 @@ void transport_history_based()
 
           // Perform all-to-all redistribution using the custom MPI type
           MPI_Alltoallv(send_ptr, send_counts.data(), send_displs.data(),
-            MPI_SOURCESITE, recv_ptr, recv_counts.data(), recv_displs.data(),
-            MPI_SOURCESITE, mpi::intracomm);
+            mpi::source_site, recv_ptr, recv_counts.data(), recv_displs.data(),
+            mpi::source_site, mpi::intracomm);
 
           // Replace old bank with redistributed data
           simulation::shared_secondary_bank = std::move(new_bank);
         }
-        // Free the MPI type
-        MPI_Type_free(&MPI_SOURCESITE);
 
         /*
 
