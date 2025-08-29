@@ -811,11 +811,18 @@ void transport_history_based()
   simulation::shared_secondary_bank.resize(0);
   int64_t alive_secondary = 1;
 
+  if (simulation::work_per_rank < omp_get_num_threads()) { 
+    fatal_error("Number of particles per rank < number of threads. Increase particle count.\n");
+  }
+
 #pragma omp parallel
   {
     int n_generation_depth = 0;
     Particle p;
-#pragma omp for schedule(dynamic)
+    // Note: this loop needs to be static, so as to ensure that all threads initialize
+    // at least one particle. With dynamic, some threads may not initialize any even
+    // if there are far more particles than threads.
+#pragma omp for schedule(static)
     for (int64_t i_work = 1; i_work <= simulation::work_per_rank; ++i_work) {
       initialize_history(p, i_work);
       transport_history_based_single_particle(p);
@@ -985,7 +992,10 @@ b.progeny_id);
 
       n_secondary = simulation::shared_secondary_bank.size();
 #ifndef OPENMC_MPI
+      #pragma omp single
+      {
       alive_secondary = n_secondary;
+      }
 #endif
 
 #pragma omp for schedule(dynamic)
