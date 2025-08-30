@@ -12,6 +12,7 @@
 #include "openmc/mcpl_interface.h"
 #include "openmc/message_passing.h"
 #include "openmc/nuclide.h"
+#include "openmc/openmp_interface.h"
 #include "openmc/output.h"
 #include "openmc/particle.h"
 #include "openmc/photon.h"
@@ -811,7 +812,7 @@ void transport_history_based()
   simulation::shared_secondary_bank.resize(0);
   int64_t alive_secondary = 1;
 
-  if (simulation::work_per_rank < omp_get_num_threads()) { 
+  if (simulation::work_per_rank < num_threads()) { 
     fatal_error("Number of particles per rank < number of threads. Increase particle count.\n");
   }
 
