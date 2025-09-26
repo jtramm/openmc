@@ -142,6 +142,31 @@ IndependentSource::IndependentSource(pugi::xml_node node)
       energy_ = UPtrDist {new Watt(0.988e6, 2.249e-6)};
     }
   }
+  // Check for constraints node. For backwards compatibility, if no constraints
+  // node is given, still try searching for domain constraints from top-level
+  // node.
+  pugi::xml_node constraints_node = node.child("constraints");
+  if (constraints_node) {
+    node = constraints_node;
+  }
+
+  // Check for domains to reject from
+  if (check_for_node(node, "domain_type")) {
+    std::string domain_type = get_node_value(node, "domain_type");
+    if (domain_type == "cell") {
+      domain_type_ = DomainType::CELL;
+    } else if (domain_type == "material") {
+      domain_type_ = DomainType::MATERIAL;
+    } else if (domain_type == "universe") {
+      domain_type_ = DomainType::UNIVERSE;
+    } else {
+      fatal_error(
+        std::string("Unrecognized domain type for constraint: " + domain_type));
+    }
+
+    auto ids = get_node_array<int>(node, "domain_ids");
+    domain_ids_.insert(ids.begin(), ids.end());
+  }
 }
 
 Particle::Bank IndependentSource::sample(uint64_t* seed) const

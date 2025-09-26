@@ -1089,7 +1089,6 @@ void FlatSourceDomain::convert_external_sources()
 {
   fatal_error("Fixed source mode not yet supported in random ray");
   // TODO: Backport
-  /*
   // Loop over external sources
   for (int es = 0; es < model::external_sources.size(); es++) {
     Source* s = model::external_sources[es].get();
@@ -1115,7 +1114,7 @@ void FlatSourceDomain::convert_external_sources()
     } else if (is->domain_type() == Source::DomainType::UNIVERSE) {
       for (int32_t universe_id : domain_ids) {
         int32_t i_universe = model::universe_map[universe_id];
-        Universe& universe = *model::universes[i_universe];
+        Universe& universe = model::universes[i_universe];
         for (int32_t i_cell : universe.cells_) {
           apply_external_source_to_cell_and_children(
             i_cell, energy, strength_factor, C_NONE);
@@ -1141,7 +1140,6 @@ void FlatSourceDomain::convert_external_sources()
       external_source_[sr * negroups_ + e] /= sigma_t;
     }
   }
-  */
 }
 void FlatSourceDomain::flux_swap()
 {

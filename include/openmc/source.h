@@ -33,6 +33,8 @@ extern std::vector<std::unique_ptr<Source>> external_sources;
 
 class Source {
 public:
+    // Domain types
+  enum class DomainType { UNIVERSE, MATERIAL, CELL };
   virtual ~Source() = default;
 
   // Methods that must be implemented
@@ -66,9 +68,15 @@ public:
   UnitSphereDistribution* angle() const { return angle_.get(); }
   Distribution* energy() const { return energy_.get(); }
 
+  // Make domain type and ids available
+  DomainType domain_type() const { return domain_type_; }
+  const std::unordered_set<int32_t>& domain_ids() const { return domain_ids_; }
+
 private:
   Particle::Type particle_ {Particle::Type::neutron}; //!< Type of particle emitted
   double strength_ {1.0}; //!< Source strength
+  std::unordered_set<int32_t> domain_ids_; //!< Domains to reject from
+  DomainType domain_type_;                 //!< Domain type for rejection
   UPtrSpace space_; //!< Spatial distribution
   UPtrAngle angle_; //!< Angular distribution
   UPtrDist energy_; //!< Energy distribution
