@@ -400,6 +400,9 @@ void RandomRaySimulation::prepare_fixed_sources_adjoint()
   domain_->source_regions_.adjoint_reset();
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     domain_->set_adjoint_sources();
+  } else {
+    domain_->set_adjoint_sources();
+    settings::run_mode = RunMode::FIXED_SOURCE;
   }
 }
 

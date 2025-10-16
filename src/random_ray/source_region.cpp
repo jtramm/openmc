@@ -40,6 +40,7 @@ SourceRegion::SourceRegion(int negroups, bool is_linear)
   if (settings::run_mode == RunMode::EIGENVALUE) {
     // If in eigenvalue mode, set starting flux to guess of 1
     scalar_flux_old_.assign(negroups, 1.0);
+    external_source_.assign(negroups, 0.0);
   } else {
     // If in fixed source mode, set starting flux to guess of zero
     // and initialize external source arrays
@@ -100,9 +101,9 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
     scalar_flux_new_.push_back(sr.scalar_flux_new_[g]);
     scalar_flux_final_.push_back(sr.scalar_flux_final_[g]);
     source_.push_back(sr.source_[g]);
-    if (settings::run_mode == RunMode::FIXED_SOURCE) {
+    //if (settings::run_mode == RunMode::FIXED_SOURCE) {
       external_source_.push_back(sr.external_source_[g]);
-    }
+    //}
 
     // Only store these fields if is_linear_ is true
     if (is_linear_) {
@@ -198,11 +199,11 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   handle.scalar_flux_old_ = &scalar_flux_old(sr, 0);
   handle.scalar_flux_new_ = &scalar_flux_new(sr, 0);
   handle.source_ = &source(sr, 0);
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
+  //if (settings::run_mode == RunMode::FIXED_SOURCE) {
     handle.external_source_ = &external_source(sr, 0);
-  } else {
-    handle.external_source_ = nullptr;
-  }
+  //} else {
+   // handle.external_source_ = nullptr;
+  //}
   handle.scalar_flux_final_ = &scalar_flux_final(sr, 0);
   handle.tally_task_ = &tally_task(sr, 0);
 
