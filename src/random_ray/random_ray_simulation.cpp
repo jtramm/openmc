@@ -418,7 +418,6 @@ void RandomRaySimulation::prepare_fixed_sources_adjoint(
   std::unordered_map<SourceRegionKey, int64_t, SourceRegionKey::HashFunctor>&
     forward_source_region_map)
 {
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
     if (RandomRay::mesh_subdivision_enabled_) {
       domain_->source_regions_ = forward_source_regions;
       domain_->source_region_map_ = forward_source_region_map;
@@ -426,6 +425,8 @@ void RandomRaySimulation::prepare_fixed_sources_adjoint(
       domain_->source_regions_.adjoint_reset();
     }
     domain_->set_adjoint_sources(forward_flux);
+    if (settings::run_mode == RunMode::EIGENVALUE) {
+      settings::run_mode = RunMode::FIXED_SOURCE;
   }
 }
 

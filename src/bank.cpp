@@ -116,6 +116,7 @@ void sort_fission_bank()
   }
 
   // Use parent and progeny indices to sort fission bank
+  /*
   for (int64_t i = 0; i < simulation::fission_bank.size(); i++) {
     const auto& site = simulation::fission_bank[i];
     int64_t offset = site.parent_id - 1 - simulation::work_index[mpi::rank];
@@ -134,6 +135,7 @@ void sort_fission_bank()
   // Copy sorted bank into the fission bank
   std::copy(sorted_bank, sorted_bank + simulation::fission_bank.size(),
     simulation::fission_bank.data());
+    */
   if (settings::ifp_on) {
     copy_ifp_data_to_fission_banks(
       sorted_ifp_delayed_group_bank.data(), sorted_ifp_lifetime_bank.data());

@@ -24,6 +24,7 @@
 #include "openmc/particle_data.h"
 #include "openmc/physics_common.h"
 #include "openmc/random_ray/flat_source_domain.h"
+#include "openmc/simulation.h"
 #include "openmc/search.h"
 #include "openmc/settings.h"
 #include "openmc/tallies/filter_energy.h"
@@ -55,6 +56,10 @@ openmc::vector<unique_ptr<WeightWindowsGenerator>> weight_windows_generators;
 void apply_weight_windows(Particle& p)
 {
   if (!settings::weight_windows_on)
+    return;
+
+  //fmt::print("Mode: {} current_batch: {} n_inactive: {}\n", static_cast<int>(settings::run_mode), simulation::current_batch, settings::n_inactive);
+  if (settings::run_mode == RunMode::EIGENVALUE && simulation::current_batch <= settings::n_inactive)
     return;
 
   // WW on photon and neutron only
