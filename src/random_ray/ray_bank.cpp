@@ -153,6 +153,13 @@ void RayBank::communicate_rays(){
         exchange_data.is_active = rays[i].is_active;
         exchange_data.ray_id = rays[i].ray_id;
         exchange_data.surface = rays[i].surface;
+        #ifdef OPENMC_DAGMC_ENABLED
+          exchange_data.n_handles = rays[i].n_handles;
+          for (int j = 0; j < rays[i].n_handles; j++) {
+            exchange_data.handles[j] = rays[i].handles[j];
+          }
+          exchange_data.last_dir = rays[i].last_dir;
+        #endif
         ray_data[vector_send_idx + i] = exchange_data;
         // Angular flux array
         for (int g = 0; g < negroups_; g++){
@@ -167,6 +174,7 @@ void RayBank::communicate_rays(){
           // }
         }
         // simulation::time_test.stop();
+
       }
 
       MPI_Isend(&ray_data[vector_send_idx], num_rays_sending * sizeof(RayExchangeData), MPI_BYTE, receiving_rank, 1, mpi::intracomm, &requests[req_idx]);

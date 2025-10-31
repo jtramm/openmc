@@ -10,6 +10,7 @@
 #include "openmc/geometry_aux.h"
 #include "openmc/hdf5_interface.h"
 #include "openmc/material.h"
+#include "openmc/message_passing.h"
 #include "openmc/settings.h"
 #include "openmc/string_utils.h"
 
@@ -669,10 +670,15 @@ std::pair<double, int32_t> DAGCell::distance(
   // if we've changed direction or we're not on a surface,
   // reset the history and update last direction
   if (u != p->last_dir()) {
+    printf("rank %d RESETTING HISTORY (u != last_dir)\n", mpi::rank);
+    fflush(stdout);
+
     p->last_dir() = u;
     p->history().reset();
   }
   if (on_surface == SURFACE_NONE) {
+    printf("rank %d RESETTING HISTORY (not on surface)\n", mpi::rank);
+    fflush(stdout);
     p->history().reset();
   }
 
@@ -715,6 +721,8 @@ std::pair<double, int32_t> DAGCell::distance(
       p->material() == MATERIAL_VOID
         ? "-1 (VOID)"
         : std::to_string(model::materials[p->material()]->id());
+    printf("LOST ON RANK %d\n", mpi::rank);
+    fflush(stdout);
     p->mark_as_lost(fmt::format(
       "No intersection found with DAGMC cell {}, filled with material {}", id_,
       material_id));

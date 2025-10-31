@@ -297,6 +297,17 @@ void RandomRay::event_advance_ray()
   boundary() = distance_to_boundary(*this);
   double distance = boundary().distance();
 
+  if (wgt() == 0)
+  {
+    int i_cell = lowest_coord().cell();
+    // The base source region is the spatial region index
+    int64_t sr = domain_->source_region_offsets_[i_cell] + cell_instance();
+    printf("rank %d killed sr %ld\n", mpi::rank, sr);
+    fflush(stdout);
+    return;
+
+  }
+
   //TODO: Is that good location?
   if (mpi::n_procs > 1) {
     // Determine source region index etc.   //TODO: This is repeated in attenuate_flux
@@ -436,6 +447,8 @@ void RandomRay::attenuate_flux(double distance, double offset)
             mpi::decomp_map.num_mesh_bin_RT_batch_[sr] += 1;
         }
         double physical_length = reduced_distance * mesh_fractional_lengths_[b];
+        //printf(" rank %d: considering sr %ld bin %d of %d with length %.3le\n", mpi::rank, sr, b, mesh_bins_.size(), physical_length);
+        //  fflush(stdout);
         attenuate_flux_inner(
           physical_length, sr, mesh_bins_[b], start);
 
@@ -453,6 +466,8 @@ void RandomRay::attenuate_flux(double distance, double offset)
         // If ray has left my subdomain, stop transport
         // and correct position
         if(has_left_subdomain()){
+          //printf(" rank %d: sr %ld bin %d of %d with length %.3le has left subdomain\n", mpi::rank, sr, b, mesh_bins_.size(), physical_length);
+          //fflush(stdout);
           // for (int i = 0; i <= b; i++) {
           for (int i = 0; i <= b - 1; i++) {
             mesh_partial_length += mesh_fractional_lengths_[i];
@@ -484,6 +499,7 @@ void RandomRay::attenuate_flux(double distance, double offset)
     Position position_buffer =  r() + (offset + mesh_partial_length) * u();
     double distance_buffer = distance_travelled_ + mesh_partial_length;
     // double distance_buffer = distance_travelled_ + offset + mesh_partial_length;
+    history_.rollback_last_intersection();
     pack_ray_for_buffer(distance_buffer, position_buffer); //, SourceRegionKey(sr, mesh_bin), sr);
     wgt() = 0.0;
     // if (id() == 6543){
@@ -520,6 +536,9 @@ void RandomRay::attenuate_flux_inner(
    owner_rank_ = owner;
    return;
   }
+  
+  //printf("Rank %d: Moving through SR: %ld Bin: %d for distance %.5le at location {%.2le, %.2le, %.2le} last surface: %d\n", owner, sr, mesh_bin, distance, r.x, r.y, r.z, surface());
+  //fflush(stdout);
 
   // If ray is in subdomain continue as normal
 
@@ -947,7 +966,15 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, vec
 
   // reinitialize last surface that was crossed
   surface() = data.surface;
-  // printf("RANK %d: Restart ray %ld, last surface crossed: %d \n", mpi::rank, id(), surface());
+  printf("RANK %d: Restart ray %ld, last surface crossed: %d \n", mpi::rank, id(), surface());
+
+#ifdef OPENMC_DAGMC_ENABLED 
+  last_dir_ = data.last_dir;
+  for (int i = data.n_handles-1; i >= 0; i--) {
+    history_.add_entity(data.handles[i]);
+  }
+  #endif
+  
 
   // Locate ray
   if (lowest_coord().cell() == C_NONE) {
@@ -961,10 +988,12 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, vec
       cell_born() = lowest_coord().cell();
   }
 
+
   // Initialize ray's starting angular flux to starting location's isotropic
   // source
   int i_cell = lowest_coord().cell();
   int64_t sr = domain_->source_region_offsets_[i_cell] + cell_instance();
+  printf("RANK %d: Restart ray %ld, last surface crossed: %d, %d, cell: %d, source region %ld \n", mpi::rank, id(), exchange_data_.surface, surface(), i_cell, sr);
 
   // if (id() == 6543){
   //   printf("RANK %d: Restart ray %ld, last surface crossed: %d, %d, cell: %d, source region %ld \n", mpi::rank, id(), exchange_data_.surface, surface(), i_cell, sr);
@@ -1011,6 +1040,8 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, vec
       }
     }
   }
+
+
 
   // printf("RANK %d: Restart ray %ld, position: %f, %f, %f, angular flux: %f, distance travlled: %f, rank %d\n", mpi::rank, id(), r().x, r().y, r().z, angular_flux_[0], distance_travelled_, mpi::rank);
 
@@ -1180,6 +1211,27 @@ void RandomRay::pack_ray_for_buffer(double distance_buffer, Position position_bu
 //  exchange_data_.receiving_rank = owner_rank_;
 
 //  is_buffered_ = true; 
+
+  #ifdef OPENMC_DAGMC_ENABLED
+  exchange_data_.last_dir = last_dir_;
+  exchange_data_.n_handles = history_.size();
+  if (exchange_data_.n_handles > MAX_N_HANDLES) {
+    exchange_data_.n_handles = MAX_N_HANDLES;
+  }
+  /*
+  if (history_.size() > 5) {
+    fatal_error(fmt::format("Ray history size {} exceeds allocated handle "
+                            "buffer size 5 for ray {}.",
+                            history_.size(), id()));
+  }
+  */
+  for (int i = 0; i < exchange_data_.n_handles; i++) {
+    moab::EntityHandle handle;
+    history_.get_last_intersection(handle);
+    exchange_data_.handles[i] = handle;
+    history_.rollback_last_intersection();
+  }
+  #endif
 }
 
 int RandomRay::get_energy_groups() {

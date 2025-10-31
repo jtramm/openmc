@@ -7,6 +7,9 @@
 #include "openmc/random_ray/moment_matrix.h"
 #include "openmc/source.h"
 // #include "openmc/random_ray/ray_bank.h"
+//
+
+#define MAX_N_HANDLES 5
 
 namespace openmc {
 
@@ -22,6 +25,11 @@ struct RayBufferContainer {
   // int receiving_rank;
   bool is_active;
   uint64_t ray_id; 
+  #ifdef OPENMC_DAGMC_ENABLED
+  int n_handles {0}; // will populate as history_.size()
+  moab::EntityHandle handles[MAX_N_HANDLES];
+  Direction last_dir; // Can read/assign from rays directly (if DAGMC macro is defined)
+  #endif
 };
 
 // Container for MPI exchange
@@ -31,7 +39,12 @@ struct RayExchangeData {
   double distance_travelled;
   int surface;
   bool is_active;
-  uint64_t ray_id; 
+  uint64_t ray_id;
+  #ifdef OPENMC_DAGMC_ENABLED
+  int n_handles {0}; // will populate as history_.size()
+  moab::EntityHandle handles[MAX_N_HANDLES];
+  Direction last_dir; // Can read/assign from rays directly (if DAGMC macro is defined)
+  #endif
 };
 
 // Forward declare

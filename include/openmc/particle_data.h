@@ -389,6 +389,11 @@ public:
   const double& sqrtkT() const { return sqrtkT_; }
   double& sqrtkT_last() { return sqrtkT_last_; }
 
+#ifdef OPENMC_DAGMC_ENABLED
+  moab::DagMC::RayHistory history_;
+  Direction last_dir_;
+#endif
+
 private:
   int64_t id_ {-1}; //!< Unique ID
 
@@ -417,11 +422,9 @@ private:
   double sqrtkT_ {-1.0};     //!< sqrt(k_Boltzmann * temperature) in eV
   double sqrtkT_last_ {0.0}; //!< last temperature
 
-#ifdef OPENMC_DAGMC_ENABLED
-  moab::DagMC::RayHistory history_;
-  Direction last_dir_;
-#endif
 };
+
+
 
 //============================================================================
 //! Defines how particle data is laid out in memory
