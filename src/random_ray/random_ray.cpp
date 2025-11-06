@@ -950,10 +950,14 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
     cell_last(i) = cell_last_data[i];
   }
   
-  // Override the position and direction in coord_[0] with the buffered values
+  // Override the position and direction at ALL coordinate levels with the buffered values
   // These may have been adjusted when the ray left the previous subdomain
-  r() = data.position;
-  u() = data.direction;
+  // We need to update all levels to maintain consistency in the coordinate hierarchy
+  Position delta_r = data.position - r();
+  for (int i = 0; i < n_coord(); i++) {
+    this->coord(i).r() += delta_r;
+    this->coord(i).u() = data.direction;
+  }
   
 #ifdef OPENMC_DAGMC_ENABLED
   // Restore DAGMC fields
