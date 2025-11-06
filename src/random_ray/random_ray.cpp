@@ -950,6 +950,11 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
     cell_last(i) = cell_last_data[i];
   }
   
+  // Override the position and direction in coord_[0] with the buffered values
+  // These may have been adjusted when the ray left the previous subdomain
+  r() = data.position;
+  u() = data.direction;
+  
   // Set particle type and energy (for random ray, these are not actually used)
   type() = ParticleType::neutron;
   E() = 0.0;
