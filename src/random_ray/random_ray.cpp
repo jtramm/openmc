@@ -955,6 +955,15 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
   r() = data.position;
   u() = data.direction;
   
+#ifdef OPENMC_DAGMC_ENABLED
+  // Restore DAGMC fields
+  // Restore last_dir and rebuild the history by adding entities in reverse order
+  last_dir() = data.last_dir;
+  for (int i = data.n_handles - 1; i >= 0; i--) {
+    history().add_entity(data.handles[i]);
+  }
+#endif
+  
   // Set particle type and energy (for random ray, these are not actually used)
   type() = ParticleType::neutron;
   E() = 0.0;
@@ -1201,6 +1210,25 @@ void RandomRay::pack_ray_for_buffer(double distance_buffer, Position position_bu
    exchange_data_.coord[i] = coord(i);
    exchange_data_.cell_last[i] = cell_last(i);
  }
+
+#ifdef OPENMC_DAGMC_ENABLED
+ // Pack DAGMC fields
+ // Extract up to MAX_N_HANDLES from the ray history by rolling back
+ exchange_data_.last_dir = last_dir();
+ exchange_data_.n_handles = 0;
+ 
+ for (int i = 0; i < MAX_N_HANDLES; i++) {
+   moab::EntityHandle handle;
+   if (history().get_last_intersection(handle) == moab::MB_SUCCESS) {
+     exchange_data_.handles[i] = handle;
+     exchange_data_.n_handles++;
+     history().rollback_last_intersection();
+   } else {
+     // No more handles in history
+     break;
+   }
+ }
+#endif
 
 //  is_buffered_ = true; 
 }

@@ -6,6 +6,10 @@
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/moment_matrix.h"
 #include "openmc/source.h"
+
+#ifdef OPENMC_DAGMC_ENABLED
+#include "DagMC.hpp"
+#endif
 // #include "openmc/random_ray/ray_bank.h"
 
 namespace openmc {
@@ -38,6 +42,13 @@ struct RayBufferContainer {
   
   // cell_last_ array
   vector<int> cell_last;
+  
+#ifdef OPENMC_DAGMC_ENABLED
+  // DAGMC fields - fixed-size array to avoid variable-length vector
+  Direction last_dir;
+  moab::EntityHandle handles[MAX_N_HANDLES];
+  int n_handles;  // Actual number of valid handles (may be less than MAX_N_HANDLES)
+#endif
 };
 
 // Container for MPI exchange
@@ -57,6 +68,13 @@ struct RayExchangeData {
   int material_last;
   double sqrtkT;
   double sqrtkT_last;
+  
+#ifdef OPENMC_DAGMC_ENABLED
+  // DAGMC fields - fixed-size array to avoid variable-length vector
+  Direction last_dir;
+  moab::EntityHandle handles[MAX_N_HANDLES];
+  int n_handles;  // Actual number of valid handles (may be less than MAX_N_HANDLES)
+#endif
 };
 
 // Forward declare

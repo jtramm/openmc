@@ -68,6 +68,11 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // prevent extremely large adjoint source terms from being generated.
 constexpr double ZERO_FLUX_CUTOFF {1e-22};
 
+// Maximum number of DAGMC entity handles to send when exchanging rays
+// between MPI ranks. This caps the RayHistory length to avoid sending
+// variable-length vectors.
+constexpr int MAX_N_HANDLES {5};
+
 // ============================================================================
 // MATH AND PHYSICAL CONSTANTS
 
