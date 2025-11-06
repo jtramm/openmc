@@ -85,6 +85,7 @@ extern bool weight_window_checkpoint_collision; //!< enable weight window check
                                                 //!< upon collision?
 extern bool write_all_tracks;     //!< write track files for every particle?
 extern bool write_initial_source; //!< write out initial source file?
+extern bool load_balance;
 
 // Paths to various files
 extern std::string path_cross_sections; //!< path to cross_sections.xml

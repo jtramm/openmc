@@ -552,9 +552,11 @@ void RandomRaySimulation::simulate()
 
     // TODO: limit load calulateion to first 5 batches as well
     if (mpi::n_procs > 1 && simulation::current_batch <= 5) {// && mpi::decomp_map.load_balanced() == false){
+	if (settings::load_balance) {
       simulation::time_load_balance.start();
       mpi::decomp_map.balance_load(domain_.get());
       simulation::time_load_balance.stop();
+	}
     }
 
     // Add source to scalar flux, compute number of FSR hits

@@ -197,6 +197,8 @@ int parse_command_line(int argc, char* argv[])
 
       } else if (arg == "-e" || arg == "--event") {
         settings::event_based = true;
+      } else if (arg == "-b") {
+	settings::load_balance = true;
       } else if (arg == "-r" || arg == "--restart") {
         i += 1;
         // Check what type of file this is
