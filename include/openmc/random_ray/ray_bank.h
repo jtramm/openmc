@@ -64,6 +64,10 @@ private:
   // vectors that received ray data
   vector<RayExchangeData> received_ray_data_;
   vector<float> received_angular_flux_data_;
+  
+  // Vectors for LocalCoord and cell_last_ data (POD types sent as contiguous bytes)
+  vector<LocalCoord> received_coord_;
+  vector<int> received_cell_last_;
 
 }; // class DecompositionMap
 

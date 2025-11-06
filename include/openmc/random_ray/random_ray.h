@@ -21,7 +21,23 @@ struct RayBufferContainer {
   // int sr;
   // int receiving_rank;
   bool is_active;
-  uint64_t ray_id; 
+  uint64_t ray_id;
+  
+  // GeometryState scalar fields
+  int n_coord;
+  int cell_instance;
+  int n_coord_last;
+  int material;
+  int material_last;
+  double sqrtkT;
+  double sqrtkT_last;
+  
+  // GeometryState vector fields (sized to model::n_coord_levels at runtime)
+  // LocalCoord is POD, so we can send it as contiguous bytes
+  vector<LocalCoord> coord;
+  
+  // cell_last_ array
+  vector<int> cell_last;
 };
 
 // Container for MPI exchange
@@ -31,7 +47,16 @@ struct RayExchangeData {
   double distance_travelled;
   int surface;
   bool is_active;
-  uint64_t ray_id; 
+  uint64_t ray_id;
+  
+  // GeometryState scalar fields
+  int n_coord;
+  int cell_instance;
+  int n_coord_last;
+  int material;
+  int material_last;
+  double sqrtkT;
+  double sqrtkT_last;
 };
 
 // Forward declare
@@ -49,8 +74,8 @@ public:
   // Constructors
   RandomRay();
   RandomRay(uint64_t ray_id, FlatSourceDomain* domain);
-  RandomRay(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux); //TODO: obsolete
-  // RandomRay(FlatSourceDomain* domain, RayExchangeData& data, vector<float> angular_flux);
+  // Obsolete constructor removed - use restart_ray() directly with full geometry state
+  // RandomRay(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux);
   // RandomRay(uint64_t ray_id, FlatSourceDomain* domain, RayBank RB);
 
   //----------------------------------------------------------------------------
@@ -69,7 +94,8 @@ public:
     SourceRegionHandle& srh, double distance, Position r);
 
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
-  void restart_ray(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux);
+  void restart_ray(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux,
+                   LocalCoord* coord, int* cell_last_data);
   // void restart_ray(FlatSourceDomain* domain, RayExchangeData& data, vector<float>& angular_flux);
   // void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain, RayBank RB);
   uint64_t transport_history_based_single_ray();

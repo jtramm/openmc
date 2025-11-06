@@ -262,11 +262,12 @@ RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
   initialize_ray(ray_id, domain);
 }
 
-// RandomRay::RandomRay(FlatSourceDomain* domain, RayExchangeData& data, vector<float> angular_flux) : RandomRay() //TODO: obsolete, delete
-RandomRay::RandomRay(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux) : RandomRay()
-{
-  restart_ray(domain, data, angular_flux);
-}
+// Obsolete constructor - kept for backwards compatibility but not functional
+// Use restart_ray() directly with full geometry state data instead
+// RandomRay::RandomRay(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux) : RandomRay()
+// {
+//   restart_ray(domain, data, angular_flux, ...);
+// }
 
 // Transports ray until termination criteria are met
 uint64_t RandomRay::transport_history_based_single_ray()
@@ -911,7 +912,8 @@ void RandomRay::attenuate_flux_linear_source_void(
 }
 
 // void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, vector<float>& angular_flux)
-void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux)
+void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, float* angular_flux,
+                             LocalCoord* coord, int* cell_last_data)
 {
 
   domain_ = domain;
@@ -926,60 +928,55 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
 
   wgt() = 1.0;
 
-  // is_local_ = true;
-
   // set identifier for particle
   id() = data.ray_id;
 
-  // generate source site using sample method
-  SourceSite site;
-
-  // Set location and direction as in previous subdomain
-  site.r = data.position;
-
-  // if (id() == 2){
-  //   printf("RANK %d: Restart ray, position: %f, %f, %f\n", mpi::rank, site.r.x, site.r.y, site.r.z);
-  // }
-
-  // angle
-  site.u = data.direction;
-
-  site.E = 0.0;
-  this->from_source(&site);
-
-  // reinitialize last surface that was crossed
+  // Restore GeometryState scalar fields
+  n_coord() = data.n_coord;
+  cell_instance() = data.cell_instance;
+  n_coord_last() = data.n_coord_last;
+  material() = data.material;
+  material_last() = data.material_last;
+  sqrtkT() = data.sqrtkT;
+  sqrtkT_last() = data.sqrtkT_last;
   surface() = data.surface;
-  // printf("RANK %d: Restart ray %ld, last surface crossed: %d \n", mpi::rank, id(), surface());
+  
+  // Restore LocalCoord vector data (coord_)
+  // The vectors were already sized to model::n_coord_levels in the GeometryState constructor
+  // LocalCoord is POD so we can just copy the entire structure
+  const int n_coord_max = model::n_coord_levels;
+  for (int i = 0; i < n_coord_max; i++) {
+    this->coord(i) = coord[i];
+    cell_last(i) = cell_last_data[i];
+  }
+  
+  // Set particle type and energy (for random ray, these are not actually used)
+  type() = ParticleType::neutron;
+  E() = 0.0;
 
-  // Locate ray
+  // No need to call exhaustive_find_cell() since we have the full geometry state!
+  // Just verify we have valid cell information
   if (lowest_coord().cell() == C_NONE) {
-    if (!exhaustive_find_cell(*this)) {
-      this->mark_as_lost(
-        "Could not find the cell containing particle " + std::to_string(id()));
-    }
-
-    // Set birth cell attribute
-    if (cell_born() == C_NONE)
-      cell_born() = lowest_coord().cell();
+    this->mark_as_lost(
+      "Received particle " + std::to_string(id()) + " with invalid cell information");
   }
 
-  // Initialize ray's starting angular flux to starting location's isotropic
-  // source
+  // Set birth cell attribute if not set
+  if (cell_born() == C_NONE)
+    cell_born() = lowest_coord().cell();
+
+  // Get source region for this cell
   int i_cell = lowest_coord().cell();
   int64_t sr = domain_->source_region_offsets_[i_cell] + cell_instance();
-
-  // if (id() == 6543){
-  //   printf("RANK %d: Restart ray %ld, last surface crossed: %d, %d, cell: %d, source region %ld \n", mpi::rank, id(), exchange_data_.surface, surface(), i_cell, sr);
-  // }
 
   if (sr == C_NONE || sr < 0){
     std::string err_msg = "ERROR: Cell " + std::to_string(sr) + 
                           " not found when restarting ray " + std::to_string(id()) + 
-                          "at position: (" + std::to_string(site.r.x) + ", " +
-                          std::to_string(site.r.y) + ", " +
-                          std::to_string(site.r.z) + ")";
+                          " at position: (" + std::to_string(data.position.x) + ", " +
+                          std::to_string(data.position.y) + ", " +
+                          std::to_string(data.position.z) + ")";
     fatal_error(err_msg);
- }
+  }
 
   // Set ray's angular flux to value before subdomain change
   if (distance_travelled_ > 0.0 || is_active_){
@@ -987,8 +984,7 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
       angular_flux_[g] = angular_flux[g];
     }
   } 
-  // Initialize ray's starting angular flux to starting location's isotropic
-  // source 
+  // Initialize ray's starting angular flux to starting location's isotropic source 
   else {
     SourceRegionHandle srh;
     if (mesh_subdivision_enabled_) {
@@ -1013,8 +1009,6 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
       }
     }
   }
-
-  // printf("RANK %d: Restart ray %ld, position: %f, %f, %f, angular flux: %f, distance travlled: %f, rank %d\n", mpi::rank, id(), r().x, r().y, r().z, angular_flux_[0], distance_travelled_, mpi::rank);
 
 }
 
@@ -1180,6 +1174,28 @@ void RandomRay::pack_ray_for_buffer(double distance_buffer, Position position_bu
  exchange_data_.is_active = is_active_;
  exchange_data_.ray_id = id();
 //  exchange_data_.receiving_rank = owner_rank_;
+
+ // Pack GeometryState scalar fields
+ exchange_data_.n_coord = n_coord();
+ exchange_data_.cell_instance = cell_instance();
+ exchange_data_.n_coord_last = n_coord_last();
+ exchange_data_.material = material();
+ exchange_data_.material_last = material_last();
+ exchange_data_.sqrtkT = sqrtkT();
+ exchange_data_.sqrtkT_last = sqrtkT_last();
+ 
+ // Pack GeometryState vector fields
+ // LocalCoord is POD, so we can just copy the entire vector
+ // We always pack model::n_coord_levels elements to ensure consistent sizes
+ const int n_coord_max = model::n_coord_levels;
+ 
+ exchange_data_.coord.resize(n_coord_max);
+ exchange_data_.cell_last.resize(n_coord_max);
+ 
+ for (int i = 0; i < n_coord_max; i++) {
+   exchange_data_.coord[i] = coord(i);
+   exchange_data_.cell_last[i] = cell_last(i);
+ }
 
 //  is_buffered_ = true; 
 }
