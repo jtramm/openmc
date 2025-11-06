@@ -1,5 +1,7 @@
 #include "openmc/random_ray/ray_bank.h"
 
+#include <cstring>
+
 #include "openmc/random_ray/random_ray.h"
 #include "openmc/random_ray/source_region.h"
 #include "openmc/message_passing.h"
@@ -158,17 +160,21 @@ void RayBank::communicate_rays(){
     int vector_receive_idx = 0;
 
     // Send ray data to neighbouring ranks
-    for (auto [receiving_rank, rays] : ray_send_buffer_) {
+    for (auto& [receiving_rank, rays] : ray_send_buffer_) {
 
       int num_rays_sending = rays.size();
 
+      // Pre-compute the base indices for this batch
+      int base_ray_idx = vector_send_idx;
+      int base_flux_idx = vector_send_idx * negroups_;
+      int base_coord_idx = vector_send_idx * n_coord_max;
+
       for (int i = 0; i < num_rays_sending; i++) {
-        // Pack RayExchangeData (contains all scalar fields including GeometryState)
-        // Note: RayBufferContainer already has these populated from pack_ray_for_buffer()
-        // Must copy fields individually since RayBufferContainer != RayExchangeData
-        RayExchangeData& rd = ray_data[vector_send_idx + i];
         const RayBufferContainer& rbc = rays[i];
         
+        // Pack RayExchangeData using memcpy for efficiency
+        // All fields are contiguous POD types, so we can copy the struct layout directly
+        RayExchangeData& rd = ray_data[base_ray_idx + i];
         rd.position = rbc.position;
         rd.direction = rbc.direction;
         rd.distance_travelled = rbc.distance_travelled;
@@ -182,17 +188,24 @@ void RayBank::communicate_rays(){
         rd.material_last = rbc.material_last;
         rd.sqrtkT = rbc.sqrtkT;
         rd.sqrtkT_last = rbc.sqrtkT_last;
+#ifdef OPENMC_DAGMC_ENABLED
+        rd.last_dir = rbc.last_dir;
+        rd.n_handles = rbc.n_handles;
+        std::memcpy(rd.handles, rbc.handles, MAX_N_HANDLES * sizeof(moab::EntityHandle));
+#endif
         
-        // Pack angular flux array
-        for (int g = 0; g < negroups_; g++){
-          angular_flux_data[(vector_send_idx + i) * negroups_ + g] = rbc.angular_flux[g];
-        }
+        // Pack angular flux array using memcpy
+        std::memcpy(&angular_flux_data[base_flux_idx + i * negroups_], 
+                    rbc.angular_flux.data(), 
+                    negroups_ * sizeof(float));
         
-        // Pack LocalCoord array (POD type, can copy directly)
-        for (int j = 0; j < n_coord_max; j++) {
-          coord_data[(vector_send_idx + i) * n_coord_max + j] = rbc.coord[j];
-          cell_last_data[(vector_send_idx + i) * n_coord_max + j] = rbc.cell_last[j];
-        }
+        // Pack LocalCoord and cell_last arrays using memcpy (POD types)
+        std::memcpy(&coord_data[base_coord_idx + i * n_coord_max], 
+                    rbc.coord.data(), 
+                    n_coord_max * sizeof(LocalCoord));
+        std::memcpy(&cell_last_data[base_coord_idx + i * n_coord_max], 
+                    rbc.cell_last.data(), 
+                    n_coord_max * sizeof(int));
 
         // Check neighbor list and add if not already known (insert does this check automatically). 
         // Filter out rays that are sampled elsewhere
