@@ -486,7 +486,10 @@ void RandomRay::attenuate_flux(double distance, double offset)
     Position position_buffer =  r() + (offset + mesh_partial_length) * u();
     double distance_buffer = distance_travelled_ + mesh_partial_length;
     // double distance_buffer = distance_travelled_ + offset + mesh_partial_length;
+    
+#ifdef OPENMC_DAGMC_ENABLED
     history().rollback_last_intersection();
+#endif
     pack_ray_for_buffer(distance_buffer, position_buffer); //, SourceRegionKey(sr, mesh_bin), sr);
     wgt() = 0.0;
     // if (id() == 6543){
