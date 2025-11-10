@@ -61,6 +61,7 @@ void RayBank::buffer_ray_data_to_send(RandomRay& ray, FlatSourceDomain* domain){
     rd.surface = rbc.surface;
     rd.is_active = rbc.is_active;
     rd.ray_id = rbc.ray_id;
+    rd.n_event = rbc.n_event;
     rd.n_coord = rbc.n_coord;
     rd.cell_instance = rbc.cell_instance;
     rd.n_coord_last = rbc.n_coord_last;

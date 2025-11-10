@@ -26,6 +26,7 @@ struct RayBufferContainer {
   // int receiving_rank;
   bool is_active;
   uint64_t ray_id;
+  int n_event;  // Number of events (surface crossings) the ray has undergone
   
   // GeometryState scalar fields
   int n_coord;
@@ -59,6 +60,7 @@ struct RayExchangeData {
   int surface;
   bool is_active;
   uint64_t ray_id;
+  int n_event;  // Number of events (surface crossings) the ray has undergone
   
   // GeometryState scalar fields
   int n_coord;

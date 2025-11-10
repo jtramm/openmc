@@ -921,9 +921,9 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
   distance_travelled_ = data.distance_travelled;
   owner_rank_ = mpi::rank;
 
-  // Reset particle event counter. I read out intersections after each ray transport, 
-  // so the reset to zero after transmission between ranks should be OK here.
-  n_event() = 0;
+  // Restore particle event counter from the transmitted ray
+  // This preserves the event count across MPI rank boundaries
+  n_event() = data.n_event;
 
   is_active_ = data.is_active;
 
@@ -1185,14 +1185,9 @@ void RandomRay::pack_ray_for_buffer(double distance_buffer, Position position_bu
  exchange_data_.angular_flux = angular_flux_;
  exchange_data_.distance_travelled = distance_buffer;
  exchange_data_.surface = surface();
-  // if (id() == 6543){
-  // printf("RANK: %d: Surface crossed: %d \n", mpi::rank, surface());
-  // }
-//  exchange_data_.sr_key = sr_key;
-//  exchange_data_.sr = sr;
  exchange_data_.is_active = is_active_;
  exchange_data_.ray_id = id();
-//  exchange_data_.receiving_rank = owner_rank_;
+ exchange_data_.n_event = n_event();
 
  // Pack GeometryState scalar fields
  exchange_data_.n_coord = n_coord();
