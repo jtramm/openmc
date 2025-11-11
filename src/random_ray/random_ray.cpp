@@ -926,7 +926,7 @@ void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data, flo
 
   // Restore particle event counter from the transmitted ray
   // This preserves the event count across MPI rank boundaries
-  n_event() = data.n_event;
+  n_event() = data.n_event + 1;
 
   is_active_ = data.is_active;
 
