@@ -445,7 +445,7 @@ void Material::normalize_density()
       int i_nuc = nuclide_[i];
       double awr = settings::run_CE ? data::nuclides[i_nuc]->awr_
                                     : data::mg.nuclides_[i_nuc].awr;
-      sum_percent += atom_density_(i) * awr;
+      sum_percent = std::fma(atom_density_(i), awr, sum_percent);
     }
     sum_percent = 1.0 / sum_percent;
     density_ = -density_ * N_AVOGADRO / MASS_NEUTRON * sum_percent;
