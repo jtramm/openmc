@@ -12,6 +12,7 @@
 #include "openmc/memory.h" // for unique_ptr
 #include "openmc/span.h"
 #include "openmc/vector.h" // for vector
+#include "openmc/coremath.h"
 
 namespace openmc {
 
@@ -185,7 +186,7 @@ class PowerLaw : public Distribution {
 public:
   explicit PowerLaw(pugi::xml_node node);
   PowerLaw(double a, double b, double n)
-    : offset_ {std::pow(a, n + 1)}, span_ {std::pow(b, n + 1) - offset_},
+    : offset_ {coremath::pow(a, n + 1)}, span_ {coremath::pow(b, n + 1) - offset_},
       ninv_ {1 / (n + 1)} {};
 
   //! Evaluate probability density, f(x), at a point
@@ -193,8 +194,8 @@ public:
   //! \return f(x)
   double evaluate(double x) const override;
 
-  double a() const { return std::pow(offset_, ninv_); }
-  double b() const { return std::pow(offset_ + span_, ninv_); }
+  double a() const { return coremath::pow(offset_, ninv_); }
+  double b() const { return coremath::pow(offset_ + span_, ninv_); }
   double n() const { return 1 / ninv_ - 1; }
 
 protected:

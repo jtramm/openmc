@@ -14,6 +14,7 @@
 #include "openmc/simulation.h"
 #include "openmc/string_utils.h"
 #include "openmc/thermal.h"
+#include "openmc/coremath.h"
 
 #include <fmt/core.h>
 
@@ -507,7 +508,7 @@ void Nuclide::init_grid()
   int M = settings::n_log_bins;
 
   // Determine equal-logarithmic energy spacing
-  double spacing = std::log(E_max / E_min) / M;
+  double spacing = coremath::log(E_max / E_min) / M;
 
   // Create equally log-spaced energy grid
   auto umesh = xt::linspace(0.0, M * spacing, M + 1);
@@ -520,7 +521,7 @@ void Nuclide::init_grid()
     // equal-logarithmic grid
     int j = 0;
     for (int k = 0; k <= M; ++k) {
-      while (std::log(grid.energy[j + 1] / E_min) <= umesh(k)) {
+      while (coremath::log(grid.energy[j + 1] / E_min) <= umesh(k)) {
         // Ensure that for isotopes where maxval(grid.energy) << E_max that
         // there are no out-of-bounds issues.
         if (j + 2 == grid.energy.size())
@@ -916,15 +917,15 @@ void Nuclide::calculate_urr_xs(int i_temp, Particle& p) const
               f * urr.xs_values_(i_energy + 1, i_up).n_gamma;
   } else if (urr.interp_ == Interpolation::log_log) {
     // Determine interpolation factor on the table
-    f = std::log(p.E() / urr.energy_[i_energy]) /
-        std::log(urr.energy_[i_energy + 1] / urr.energy_[i_energy]);
+    f = coremath::log(p.E() / urr.energy_[i_energy]) /
+        coremath::log(urr.energy_[i_energy + 1] / urr.energy_[i_energy]);
 
     // Calculate the elastic cross section/factor
     if ((urr.xs_values_(i_energy, i_low).elastic > 0.) &&
         (urr.xs_values_(i_energy + 1, i_up).elastic > 0.)) {
       elastic =
-        std::exp((1. - f) * std::log(urr.xs_values_(i_energy, i_low).elastic) +
-                 f * std::log(urr.xs_values_(i_energy + 1, i_up).elastic));
+        coremath::exp((1. - f) * coremath::log(urr.xs_values_(i_energy, i_low).elastic) +
+                 f * coremath::log(urr.xs_values_(i_energy + 1, i_up).elastic));
     } else {
       elastic = 0.;
     }
@@ -933,8 +934,8 @@ void Nuclide::calculate_urr_xs(int i_temp, Particle& p) const
     if ((urr.xs_values_(i_energy, i_low).fission > 0.) &&
         (urr.xs_values_(i_energy + 1, i_up).fission > 0.)) {
       fission =
-        std::exp((1. - f) * std::log(urr.xs_values_(i_energy, i_low).fission) +
-                 f * std::log(urr.xs_values_(i_energy + 1, i_up).fission));
+        coremath::exp((1. - f) * coremath::log(urr.xs_values_(i_energy, i_low).fission) +
+                 f * coremath::log(urr.xs_values_(i_energy + 1, i_up).fission));
     } else {
       fission = 0.;
     }
@@ -943,8 +944,8 @@ void Nuclide::calculate_urr_xs(int i_temp, Particle& p) const
     if ((urr.xs_values_(i_energy, i_low).n_gamma > 0.) &&
         (urr.xs_values_(i_energy + 1, i_up).n_gamma > 0.)) {
       capture =
-        std::exp((1. - f) * std::log(urr.xs_values_(i_energy, i_low).n_gamma) +
-                 f * std::log(urr.xs_values_(i_energy + 1, i_up).n_gamma));
+        coremath::exp((1. - f) * coremath::log(urr.xs_values_(i_energy, i_low).n_gamma) +
+                 f * coremath::log(urr.xs_values_(i_energy + 1, i_up).n_gamma));
     } else {
       capture = 0.;
     }

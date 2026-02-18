@@ -455,6 +455,29 @@ list(APPEND libopenmc_SOURCES
   src/external/quartic_solver.cpp
   src/external/Faddeeva.cc)
 
+# Add correctly-rounded math functions (CORE-MATH project, MIT license)
+set(COREMATH_SOURCES
+  src/math/cr_exp.c
+  src/math/cr_expm1.c
+  src/math/cr_log.c
+  src/math/cr_log1p.c
+  src/math/pow/cr_pow.c
+  src/math/cr_sin.c
+  src/math/cr_cos.c
+  src/math/cr_asin.c
+  src/math/cr_acos.c
+  src/math/cr_atan.c
+  src/math/cr_atan2.c
+  src/math/cr_sinh.c
+  src/math/cr_erf.c
+  src/math/cr_erfc.c
+  src/math/cr_lgamma.c
+  src/math/cr_tgamma.c)
+set_source_files_properties(${COREMATH_SOURCES} PROPERTIES
+  INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/src/math;${CMAKE_CURRENT_SOURCE_DIR}/src/math/pow"
+  LANGUAGE C)
+list(APPEND libopenmc_SOURCES ${COREMATH_SOURCES})
+
 # For Visual Studio compilers
 if(MSVC)
   # Use static library (otherwise explicit symbol portings are needed)

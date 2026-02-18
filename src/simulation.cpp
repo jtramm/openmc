@@ -26,6 +26,7 @@
 #include "openmc/timer.h"
 #include "openmc/track_output.h"
 #include "openmc/weight_windows.h"
+#include "openmc/coremath.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -701,9 +702,9 @@ void initialize_data()
         int photon = ParticleType::photon().transport_index();
         int n = elem->energy_.size();
         data::energy_min[photon] =
-          std::max(data::energy_min[photon], std::exp(elem->energy_(1)));
+          std::max(data::energy_min[photon], coremath::exp(elem->energy_(1)));
         data::energy_max[photon] =
-          std::min(data::energy_max[photon], std::exp(elem->energy_(n - 1)));
+          std::min(data::energy_max[photon], coremath::exp(elem->energy_(n - 1)));
       }
     }
 
@@ -718,8 +719,8 @@ void initialize_data()
 
         const std::vector<int> charged = {electron, positron};
         for (auto t : charged) {
-          data::energy_min[t] = std::exp(data::ttb_e_grid(1));
-          data::energy_max[t] = std::exp(data::ttb_e_grid(n_e - 1));
+          data::energy_min[t] = coremath::exp(data::ttb_e_grid(1));
+          data::energy_max[t] = coremath::exp(data::ttb_e_grid(n_e - 1));
         }
 
         data::energy_min[photon] =
@@ -756,7 +757,7 @@ void initialize_data()
   }
   int neutron = ParticleType::neutron().transport_index();
   simulation::log_spacing =
-    std::log(data::energy_max[neutron] / data::energy_min[neutron]) /
+    coremath::log(data::energy_max[neutron] / data::energy_min[neutron]) /
     settings::n_log_bins;
 }
 

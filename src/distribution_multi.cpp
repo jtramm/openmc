@@ -9,6 +9,7 @@
 #include "openmc/random_dist.h"
 #include "openmc/random_lcg.h"
 #include "openmc/xml_interface.h"
+#include "openmc/coremath.h"
 
 namespace openmc {
 
@@ -112,7 +113,7 @@ std::pair<Direction, double> PolarAzimuthal::sample_impl(
     return {-u_ref_, weight};
 
   double f = std::sqrt(1 - mu * mu);
-  return {mu * u_ref_ + f * std::cos(phi) * v_ref_ + f * std::sin(phi) * w_ref_,
+  return {mu * u_ref_ + f * coremath::cos(phi) * v_ref_ + f * coremath::sin(phi) * w_ref_,
     weight};
 }
 
@@ -143,8 +144,8 @@ Direction isotropic_direction(uint64_t* seed)
 {
   double phi = uniform_distribution(0., 2.0 * PI, seed);
   double mu = uniform_distribution(-1., 1., seed);
-  return {mu, std::sqrt(1.0 - mu * mu) * std::cos(phi),
-    std::sqrt(1.0 - mu * mu) * std::sin(phi)};
+  return {mu, std::sqrt(1.0 - mu * mu) * coremath::cos(phi),
+    std::sqrt(1.0 - mu * mu) * coremath::sin(phi)};
 }
 
 std::pair<Direction, double> Isotropic::sample(uint64_t* seed) const

@@ -34,6 +34,7 @@
 #include "openmc/settings.h"
 #include "openmc/simulation.h"
 #include "openmc/string_utils.h"
+#include "openmc/coremath.h"
 
 namespace openmc {
 
@@ -1342,7 +1343,7 @@ ImageData WireframeRayTracePlot::create_image() const
             Position seg_color_vec(
               seg_color.red, seg_color.green, seg_color.blue);
             double mixing =
-              std::exp(-xs_[colormap_idx] *
+              coremath::exp(-xs_[colormap_idx] *
                        (segments[i + 1].length - segments[i].length));
             current_color =
               current_color * mixing + (1.0 - mixing) * seg_color_vec;

@@ -48,6 +48,7 @@
 #include "openmc/timer.h"
 #include "openmc/volume_calc.h"
 #include "openmc/xml_interface.h"
+#include "openmc/coremath.h"
 
 #ifdef OPENMC_LIBMESH_ENABLED
 #include "libmesh/mesh_modification.h"
@@ -106,7 +107,7 @@ inline bool check_intersection_point(double x1, double x0, double y1, double y0,
   double z1, double z0, Position& r, double& min_distance)
 {
   double dist =
-    std::pow(x1 - x0, 2) + std::pow(y1 - y0, 2) + std::pow(z1 - z0, 2);
+    coremath::pow(x1 - x0, 2) + coremath::pow(y1 - y0, 2) + coremath::pow(z1 - z0, 2);
   if (dist < min_distance) {
     r.x = x1;
     r.y = y1;
@@ -1832,7 +1833,7 @@ StructuredMesh::MeshIndex CylindricalMesh::get_indices(
   if (mapped_r[0] < FP_PRECISION) {
     mapped_r[1] = 0.0;
   } else {
-    mapped_r[1] = std::atan2(r.y, r.x);
+    mapped_r[1] = coremath::atan2(r.y, r.x);
     if (mapped_r[1] < 0)
       mapped_r[1] += 2 * M_PI;
   }
@@ -1862,8 +1863,8 @@ Position CylindricalMesh::sample_element(
   double phi = uniform_distribution(phi_min, phi_max, seed);
   double z = uniform_distribution(z_min, z_max, seed);
 
-  double x = r * std::cos(phi);
-  double y = r * std::sin(phi);
+  double x = r * coremath::cos(phi);
+  double y = r * coremath::sin(phi);
 
   return origin_ + Position(x, y, z);
 }
@@ -1930,8 +1931,8 @@ double CylindricalMesh::find_phi_crossing(
   // => (y + s * v) * cos(p0) = (x + s * u) * sin(p0)
   // = s * (v * cos(p0) - u * sin(p0)) = - (y * cos(p0) - x * sin(p0))
 
-  const double c0 = std::cos(p0);
-  const double s0 = std::sin(p0);
+  const double c0 = coremath::cos(p0);
+  const double s0 = coremath::sin(p0);
 
   const double denominator = (u.x * s0 - u.y * c0);
 
@@ -2125,8 +2126,8 @@ StructuredMesh::MeshIndex SphericalMesh::get_indices(
     mapped_r[1] = 0.0;
     mapped_r[2] = 0.0;
   } else {
-    mapped_r[1] = std::acos(r.z / mapped_r.x);
-    mapped_r[2] = std::atan2(r.y, r.x);
+    mapped_r[1] = coremath::acos(r.z / mapped_r.x);
+    mapped_r[2] = coremath::atan2(r.y, r.x);
     if (mapped_r[2] < 0)
       mapped_r[2] += 2 * M_PI;
   }
@@ -2152,16 +2153,16 @@ Position SphericalMesh::sample_element(
   double phi_max = this->phi(ijk[2]);
 
   double cos_theta =
-    uniform_distribution(std::cos(theta_min), std::cos(theta_max), seed);
-  double sin_theta = std::sin(std::acos(cos_theta));
+    uniform_distribution(coremath::cos(theta_min), coremath::cos(theta_max), seed);
+  double sin_theta = coremath::sin(coremath::acos(cos_theta));
   double phi = uniform_distribution(phi_min, phi_max, seed);
-  double r_min_cub = std::pow(r_min, 3);
-  double r_max_cub = std::pow(r_max, 3);
+  double r_min_cub = coremath::pow(r_min, 3);
+  double r_max_cub = coremath::pow(r_max, 3);
   // might be faster to do rejection here?
   double r = std::cbrt(uniform_distribution(r_min_cub, r_max_cub, seed));
 
-  double x = r * std::cos(phi) * sin_theta;
-  double y = r * std::sin(phi) * sin_theta;
+  double x = r * coremath::cos(phi) * sin_theta;
+  double y = r * coremath::sin(phi) * sin_theta;
   double z = r * cos_theta;
 
   return origin_ + Position(x, y, z);
@@ -2214,7 +2215,7 @@ double SphericalMesh::find_theta_crossing(
   // b = r*u * cos(theta)^2 - u.z * r.z
   // c = r*r * cos(theta)^2 - r.z^2
 
-  const double cos_t = std::cos(grid_[1][shell]);
+  const double cos_t = coremath::cos(grid_[1][shell]);
   const bool sgn = std::signbit(cos_t);
   const double cos_t_2 = cos_t * cos_t;
 
@@ -2278,8 +2279,8 @@ double SphericalMesh::find_phi_crossing(
   // => (y + s * v) * cos(p0) = (x + s * u) * sin(p0)
   // = s * (v * cos(p0) - u * sin(p0)) = - (y * cos(p0) - x * sin(p0))
 
-  const double c0 = std::cos(p0);
-  const double s0 = std::sin(p0);
+  const double c0 = coremath::cos(p0);
+  const double s0 = coremath::sin(p0);
 
   const double denominator = (u.x * s0 - u.y * c0);
 
@@ -2400,7 +2401,7 @@ double SphericalMesh::volume(const MeshIndex& ijk) const
   double phi_o = grid_[2][ijk[2]];
 
   return (1.0 / 3.0) * (r_o * r_o * r_o - r_i * r_i * r_i) *
-         (std::cos(theta_i) - std::cos(theta_o)) * (phi_o - phi_i);
+         (coremath::cos(theta_i) - coremath::cos(theta_o)) * (phi_o - phi_i);
 }
 
 //==============================================================================

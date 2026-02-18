@@ -6,6 +6,7 @@
 #include "openmc/error.h"
 #include "openmc/search.h"
 #include "openmc/xml_interface.h"
+#include "openmc/coremath.h"
 
 namespace openmc {
 
@@ -54,7 +55,7 @@ void PolarFilter::get_all_bins(
 {
   double z =
     (estimator == TallyEstimator::TRACKLENGTH) ? p.u().z : p.u_last().z;
-  double theta = std::acos(z);
+  double theta = coremath::acos(z);
 
   if (theta >= bins_.front() && theta <= bins_.back()) {
     auto bin = lower_bound_index(bins_.begin(), bins_.end(), theta);

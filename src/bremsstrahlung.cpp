@@ -5,6 +5,7 @@
 #include "openmc/random_lcg.h"
 #include "openmc/search.h"
 #include "openmc/settings.h"
+#include "openmc/coremath.h"
 
 #include "xtensor/xmath.hpp"
 
@@ -43,7 +44,7 @@ void thick_target_bremsstrahlung(Particle& p, double* E_lost)
     mat = &model::materials[p.material()]->ttb_->electron;
   }
 
-  double e = std::log(p.E());
+  double e = coremath::log(p.E());
   auto n_e = data::ttb_e_grid.size();
 
   // Find the lower bounding index of the incident electron energy
@@ -65,7 +66,7 @@ void thick_target_bremsstrahlung(Particle& p, double* E_lost)
 
   // Get the photon number yield for the given energy using linear
   // interpolation on a log-log scale
-  double y = std::exp(y_l + (y_r - y_l) * f);
+  double y = coremath::exp(y_l + (y_r - y_l) * f);
 
   // Sample number of secondary bremsstrahlung photons
   int n = y + prn(p.current_seed());
@@ -85,8 +86,8 @@ void thick_target_bremsstrahlung(Particle& p, double* E_lost)
     double p_l = mat->pdf(i_e, i_e - 1);
     double p_r = mat->pdf(i_e, i_e);
     double c_l = mat->cdf(i_e, i_e - 1);
-    double a = std::log(p_r / p_l) / (e_r - e_l) + 1.0;
-    c_max = c_l + std::exp(e_l) * p_l / a * (std::exp(a * (e - e_l)) - 1.0);
+    double a = coremath::log(p_r / p_l) / (e_r - e_l) + 1.0;
+    c_max = c_l + coremath::exp(e_l) * p_l / a * (coremath::exp(a * (e - e_l)) - 1.0);
   } else {
     i_e = j;
 
@@ -107,9 +108,9 @@ void thick_target_bremsstrahlung(Particle& p, double* E_lost)
     double p_l = mat->pdf(i_e, i_w);
     double p_r = mat->pdf(i_e, i_w + 1);
     double c_l = mat->cdf(i_e, i_w);
-    double a = std::log(p_r / p_l) / (w_r - w_l) + 1.0;
-    double w = std::exp(w_l) *
-               std::pow(a * (c - c_l) / (std::exp(w_l) * p_l) + 1.0, 1.0 / a);
+    double a = coremath::log(p_r / p_l) / (w_r - w_l) + 1.0;
+    double w = coremath::exp(w_l) *
+               coremath::pow(a * (c - c_l) / (coremath::exp(w_l) * p_l) + 1.0, 1.0 / a);
 
     if (w > settings::energy_cutoff[photon]) {
       // If the energy of the secondary photon is larger than the remaining

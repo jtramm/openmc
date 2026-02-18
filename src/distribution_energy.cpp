@@ -12,6 +12,7 @@
 #include "openmc/random_dist.h"
 #include "openmc/random_lcg.h"
 #include "openmc/search.h"
+#include "openmc/coremath.h"
 
 namespace openmc {
 
@@ -312,13 +313,13 @@ double Evaporation::sample(double E, uint64_t* seed) const
   double theta = theta_(E);
 
   double y = (E - u_) / theta;
-  double v = 1.0 - std::exp(-y);
+  double v = 1.0 - coremath::exp(-y);
 
   // Sample outgoing energy based on evaporation spectrum probability
   // density function
   double x;
   while (true) {
-    x = -std::log((1.0 - v * prn(seed)) * (1.0 - v * prn(seed)));
+    x = -coremath::log((1.0 - v * prn(seed)) * (1.0 - v * prn(seed)));
     if (x <= y)
       break;
   }
