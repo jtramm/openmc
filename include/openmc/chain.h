@@ -14,7 +14,7 @@
 #include "openmc/distribution.h" // for UPtrDist
 #include "openmc/memory.h"       // for unique_ptr
 #include "openmc/vector.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -36,7 +36,7 @@ public:
 
   //! Compute the decay constant for the nuclide
   //! \return Decay constant in [1/s]
-  double decay_constant() const { return coremath::log(2.0) / half_life_; }
+  double decay_constant() const { return openmc::log(2.0) / half_life_; }
 
   const Distribution* photon_energy() const { return photon_energy_.get(); }
   const std::unordered_map<int, vector<Product>>& reaction_products() const

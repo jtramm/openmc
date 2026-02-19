@@ -1,67 +1,9 @@
-/* Correctly rounded logarithm of binary64 values.
+// Fast-path logarithm function for binary64 values.
+// Derived from the CORE-MATH project (MIT License).
+// Original authors: Paul Zimmermann and Tom Hubrecht.
+// https://core-math.gitlabpages.inria.fr/
 
-Copyright (c) 2022 INRIA and CERN.
-Authors: Paul Zimmermann and Tom Hubrecht.
-
-This file is part of the CORE-MATH project
-(https://core-math.gitlabpages.inria.fr/).
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
-#include <stdint.h>
-#include <errno.h>
-#include "dint.h"
-
-// Warning: clang also defines __GNUC__
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic ignored "-Wunknown-pragmas"
-#endif
-
-#pragma STDC FENV_ACCESS ON
-
-typedef union { double f; uint64_t u; } d64u64;
-
-/* Add a + b, such that *hi + *lo approximates a + b.
-   Assumes |a| >= |b|.  */
-static void
-fast_two_sum (double *hi, double *lo, double a, double b)
-{
-  double e;
-
-  *hi = a + b;
-  e = *hi - a; /* exact */
-  *lo = b - e; /* exact */
-  /* Now hi + lo = a + b exactly for rounding to nearest.
-     For directed rounding modes, this is not always true.
-     Take for example a = 1, b = 2^-200, and rounding up,
-     then hi = 1 + 2^-52, e = 2^-52 (it can be proven that
-     e is always exact), and lo = -2^52 + 2^-105, thus
-     hi + lo = 1 + 2^-105 <> a + b = 1 + 2^-200.
-     A bound on the error is given
-     in "Note on FastTwoSum with Directed Roundings"
-     by Paul Zimmermann, https://hal.inria.fr/hal-03798376, 2022.
-     Theorem 1 says that
-     the difference between a+b and hi+lo is bounded by 2u^2|a+b|
-     and also by 2u^2|hi|. Here u=2^-53, thus we get:
-     |(a+b)-(hi+lo)| <= 2^-105 min(|a+b|,|hi|) */
-}
+#include "coremath_utils.h"
 
 /* For 362 <= i <= 724, r[i] = _INVERSE[i-362] is a 10-bit approximation of
    1/x[i], where i*2^-9 <= x[i] < (i+1)*2^-9.
@@ -506,11 +448,21 @@ static const double P[6] = {0x1p0,                 /* degree 1 */
                             -0x1.55362255e0f63p-3, /* degree 6 */
 };
 
-/* Given 1 <= x < 2, where x = v.f, put in h+l a double-double approximation
-   of log(2^e*x), with absolute error bounded by 2^-68.22 (details below).
-*/
+/* Add a + b, such that *hi + *lo approximates a + b.
+   Assumes |a| >= |b|. */
 static void
-cr_log_fast (double *h, double *l, int e, d64u64 v)
+fast_two_sum(double *hi, double *lo, double a, double b)
+{
+  double e;
+  *hi = a + b;
+  e = *hi - a; /* exact */
+  *lo = b - e; /* exact */
+}
+
+/* Given 1 <= x < 2, where x = v.f, put in h+l a double-double approximation
+   of log(2^e*x), with absolute error bounded by 2^-68.22. */
+static void
+cr_log_fast(double *h, double *l, int e, b64u64_u v)
 {
   uint64_t m = 0x10000000000000 + (v.u & 0xfffffffffffff);
   /* x = m/2^52 */
@@ -526,149 +478,55 @@ cr_log_fast (double *h, double *l, int e, d64u64 v)
   double r = _INVERSE[i-OFFSET];
   double l1 = _LOG_INV[i-OFFSET][0];
   double l2 = _LOG_INV[i-OFFSET][1];
-  double z = __builtin_fma (r, y, -1.0); /* exact */
+  double z = std::fma(r, y, -1.0); /* exact */
   /* evaluate P(z), for |z| < 0.00212097167968735 */
   double ph; /* will hold the value of P(z)-z */
-  double z2 = z * z; /* |z2| < 4.5e-6 thus the rounding error on z2 is
-                        bounded by ulp(4.5e-6) = 2^-70. */
-  double p45 = __builtin_fma (P[5], z, P[4]);
-  /* |P[5]| < 0.167, |z| < 0.0022, |P[4]| < 0.21 thus |p45| < 0.22:
-     the rounding (and total) error on p45 is bounded by ulp(0.22) = 2^-55 */
-  double p23 = __builtin_fma (P[3], z, P[2]);
-  /* |P[3]| < 0.26, |z| < 0.0022, |P[2]| < 0.34 thus |p23| < 0.35:
-     the rounding (and total) error on p23 is bounded by ulp(0.35) = 2^-54 */
-  ph = __builtin_fma (p45, z2, p23);
-  /* |p45| < 0.22, |z2| < 4.5e-6, |p23| < 0.35 thus |ph| < 0.36:
-     the rounding error on ph is bounded by ulp(0.36) = 2^-54.
-     Adding the error on p45 multiplied by z2, that on z2 multiplied by p45,
-     and that on p23 (ignoring low order errors), we get for the total error
-     on ph the following bound:
-     2^-54 + err(p45)*4.5e-6 + 0.22*err(z2) + err(p23) <
-     2^-54 + 2^-55*4.5e-6 + 0.22*2^-70 + 2^-54 < 2^-52.99 */
-  ph = __builtin_fma (ph, z, P[1]);
-  /* let ph0 be the value at input, and ph1 the value at output:
-     |ph0| < 0.36, |z| < 0.0022, |P[1]| < 0.5 thus |ph1| < 0.501:
-     the rounding error on ph1 is bounded by ulp(0.501) = 2^-53.
-     Adding the error on ph0 multiplied by z, we get for the total error
-     on ph1 the following bound:
-     2^-53 + err(ph0)*0.0022 < 2^-53 + 2^-52.99*0.0022 < 2^-52.99 */
+  double z2 = z * z;
+  double p45 = std::fma(P[5], z, P[4]);
+  double p23 = std::fma(P[3], z, P[2]);
+  ph = std::fma(p45, z2, p23);
+  ph = std::fma(ph, z, P[1]);
   ph *= z2;
-  /* let ph2 be the value at output of the above instruction:
-     |ph2| < |z2| * |ph1| < 4.5e-6 * 0.501 < 2.26e-6 thus the
-     rounding error on ph2 is bounded by ulp(2.26e-6) = 2^-71.
-     Adding the error on ph1 multiplied by z2, and the error on z2
-     multiplied by ph1, we get for the total error on ph2 the following bound:
-     2^-71 + err(ph1)*z2 + ph1*err(z2) <
-     2^-71 + 2^-52.99*4.5e-6 + 0.501*2^-70 < 2^-69.32. */
 
-  /* Add e*log(2) to (h,l), where -1074 <= e <= 1023, thus e has at most
-     11 bits. log2_h is an integer multiple of 2^-42, so that e*log2_h
-     is exact. */
   static const double log2_h = 0x1.62e42fefa38p-1,
     log2_l = 0x1.ef35793c7673p-45;
-  /* |log(2) - (h+l)| < 2^-102.01 */
-  /* let hh = e * log2_h: hh is an integer multiple of 2^-42,
-     with |hh| <= 1074*log2_h
-     = 3274082061039582*2^-42. l1 is also an integer multiple of 2^-42,
-     with |l1| <= 1524716581803*2^-42. Thus hh+l1 is an integer multiple of
-     2^-42, with 2^42*|hh+l1| <= 3275606777621385 < 2^52, thus hh+l1 is exactly
-     representable. */
 
   double ee = e;
-  fast_two_sum (h, l, __builtin_fma (ee, log2_h, l1), z);
-  /* here |hh+l1|+|z| <= 3275606777621385*2^-42 + 0.0022 < 745
-     thus |h| < 745, and the additional error from the fast_two_sum() call is
-     bounded by 2^-105*745 < 2^-95.4. */
+  fast_two_sum(h, l, std::fma(ee, log2_h, l1), z);
   /* add ph + l2 to l */
   *l = ph + (*l + l2);
-  /* here |ph| < 2.26e-6, |l| < ulp(h) = 2^-43, and |l2| < 2^-43,
-     thus |*l + l2| < 2^-42, and the rounding error on *l + l2 is bounded
-     by ulp(2^-43) = 2^-95 (*l + l2 cannot be >= 2^-42).
-     Now |ph + (*l + l2)| < 2.26e-6 + 2^-42 < 2^-18.7, thus the rounding
-     error on ph + ... is bounded by ulp(2^-18.7) = 2^-71, which yields a
-     cumulated error bound of 2^-71 + 2^-95 < 2^-70.99. */
 
-  *l = __builtin_fma (ee, log2_l, *l);
-  /* let l_in be the input value of *l, and l_out the output value.
-     We have |l_in| < 2^-18.7 (from above)
-     and |e*log2_l| <= 1074*0x1.ef35793c7673p-45
-     thus |l_out| < 2^-18.69 and err(l_out) <= ulp(2^-18.69) = 2^-71 */
-
-  /* The absolute error on h + l is bounded by:
-     2^-70.278 from the error in the Sollya polynomial
-     2^-91.94 for the maximal difference |e*(log(2)-(log2_h + log2_l))|
-              (|e| <= 1074 and |log(2)-(log2_h + log2_l)| < 2^-102.01)
-     2^-97 for the maximal difference |l1 + l2 - (-log(r))|
-     2^-69.32 from the rounding errors in the polynomial evaluation
-     2^-95.4 from the fast_two_sum call
-     2^-70.99 from the *l = ph + (*l + l2) instruction
-     2^-71 from the last __builtin_fma call.
-     This gives an absolute error bounded by < 2^-68.22.
-  */
-
-  /* Absolute error bounded by 2^-68.22 < 0x1.b8p-69.
-     Using the Gappa tool (https://gappa.gitlabpages.inria.fr/) we can
-     improve the bound to 2.89253666698316e-21 < 0x1.b6p-69
-     (see file gappa.sage).
-
-     What we proved with gappa (see file log1_template.g):
-     for each interval i, 362 <= i <= 724:
-     if y is a binary64 number in the range i*2^-9 <= y < (i+1)*2^-9,
-     if -1074 <= e <= 1024, assuming the absolute error from the Sollya
-     polynomial is bounded by 2^-70.278, the difference between log(2)
-     and log2_h + log2_l is bounded by 1.95853e-31, and the maximal
-     difference between -log(r) and l1+l2 is bounded by 2^-96, then
-     (a) z is exact
-     (b) we have the following bounds:
-     -2.4696201316824195e-21 <= h + l - log(2^e*y) <= 2.89253666698316e-21
-     with the largest bounds obtained for i=369, RNDD (left bound) and
-     RNDZ (right bound). */
+  *l = std::fma(ee, log2_l, *l);
 }
 
-static inline void dint_fromd (dint64_t *a, double b);
-static void log_2 (dint64_t *r, dint64_t *x);
-static inline double dint_tod (dint64_t *a);
-
-/* accurate path, using Tom Hubrecht's code below */
-static double
-cr_log_accurate (double x)
-{
-  dint64_t X, Y;
-
-  if (x == 1.0)
-    return 0.0;
-
-  dint_fromd (&X, x);
-  /* x = (-1)^sgn*2^ex*(hi/2^63+lo/2^127) */
-  log_2 (&Y, &X);
-  return dint_tod (&Y);
-}
+double cr_log1p(double);
 
 double
-cr_log (double x)
+cr_log(double x)
 {
-  d64u64 v = {.f = x};
+  /* For x near 1, delegate to log1p to avoid catastrophic cancellation.
+     The table-based fast path has ~2^-68 absolute error, which becomes
+     thousands of ULPs when log(x) is tiny. log1p handles this with 1 ULP.
+     For x in [0.5, 2], x - 1.0 is exact (Sterbenz's lemma). */
+  if (x > 0.9375 && x < 1.0625)
+    return cr_log1p(x - 1.0);
+
+  b64u64_u v;
+  v.f = x;
   int e = (v.u >> 52) - 0x3ff;
   if (e >= 0x400 || e == -0x3ff) /* x <= 0 or NaN/Inf or subnormal */
   {
-    static const d64u64 minf = {.u = 0xfffull << 52};
+    b64u64_u minf;
+    minf.u = 0xfffull << 52;
     if (e == 0x400 || (e == 0xc00 && x != minf.f)) /* +Inf or NaN */
       return x + x;
     if (x <= 0.0)
     {
-      /* f(x<0) is NaN, f(+/-0) is -Inf and raises DivByZero */
-      if (x < 0) {
-#ifdef CORE_MATH_SUPPORT_ERRNO
-        errno = EDOM;
-#endif
+      /* f(x<0) is NaN, f(+/-0) is -Inf */
+      if (x < 0)
         return 0.0 / 0.0;
-      }
-      else {
-#ifdef CORE_MATH_SUPPORT_ERRNO
-        errno = ERANGE; // pole error
-#endif
+      else
         return 1.0 / -0.0;
-      }
     }
     if (e == -0x3ff) /* subnormal */
     {
@@ -680,151 +538,13 @@ cr_log (double x)
   /* normalize v in [1,2) */
   v.u = (0x3ffull << 52) | (v.u & 0xfffffffffffff);
   /* now x = m*2^e with 1 <= m < 2 (m = v.f) and -1074 <= e <= 1023 */
-  if (__builtin_expect (v.u == 0x3ff0000000000000ull && e == 0, 0))
+  if (v.u == 0x3ff0000000000000ull && e == 0)
     return 0;
   double h, l;
-  cr_log_fast (&h, &l, e, v);
+  cr_log_fast(&h, &l, e, v);
 
-  static const double err = 0x1.b6p-69; /* maximal absolute error from
-                                           cr_log_fast */
-
-  /* Note: the error analysis is quite tight since if we replace the 0x1.b6p-69
-     bound by 0x1.3fp-69, it fails for x=0x1.71f7c59ede8ep+125 (rndz) */
-
-  double left = h + (l - err), right = h + (l + err);
-  if (left == right)
-    return left;
-  /* the probability of failure of the fast path is about 2^-11.5 */
-  return cr_log_accurate (x);
-}
-
-/* the following code was copied from Tom Hubrecht's implementation of
-   correctly rounded pow for CORE-MATH */
-
-// Approximation for the second iteration
-static inline void p_2(dint64_t *r, dint64_t *z) {
-  cp_dint(r, &P_2[0]);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[1], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[2], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[3], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[4], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[5], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[6], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[7], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[8], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[9], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[10], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[11], r);
-
-  mul_dint(r, z, r);
-  add_dint(r, &P_2[12], r);
-
-  mul_dint(r, z, r);
-}
-
-static void log_2(dint64_t *r, dint64_t *x) {
-  int64_t E = x->ex;
-
-  // Find the lookup index
-  uint16_t i = x->hi >> 55;
-
-  if (x->hi > 0xb504f333f9de6484) {
-    E++;
-    i = i >> 1;
-  }
-
-  x->ex = x->ex - E;
-
-  dint64_t z;
-  mul_dint(&z, x, &_INVERSE_2[i - 128]);
-
-  add_dint(&z, &M_ONE, &z);
-
-  // E·log(2)
-  mul_dint_2(r, E, &LOG2);
-
-  dint64_t p;
-
-  p_2(&p, &z);
-
-  add_dint(&p, &_LOG_INV_2[i - 128], &p);
-
-  add_dint(r, &p, r);
-}
-
-typedef union {
-  double f;
-  uint64_t u;
-} f64_u;
-
-// Extract both the significand and exponent of a double
-static inline void fast_extract(int64_t *e, uint64_t *m, double x) {
-  f64_u _x = {.f = x};
-
-  *e = (_x.u >> 52) & 0x7ff;
-  *m = (_x.u & (~0ull >> 12)) + (*e ? (1ull << 52) : 0);
-  *e = *e - 0x3ff;
-}
-
-// Convert a double to the corresponding dint64_t value
-static inline void dint_fromd(dint64_t *a, double b) {
-  fast_extract(&a->ex, &a->hi, b);
-
-  uint32_t t = __builtin_clzll(a->hi);
-
-  a->sgn = b < 0.0;
-  a->hi = a->hi << t;
-  a->ex = a->ex - (t > 11 ? t - 12 : 0);
-  a->lo = 0;
-}
-
-// Convert a dint64_t value to a double
-// assuming the input is not in the subnormal range
-static inline double dint_tod(dint64_t *a) {
-
-  f64_u r = {.u = (a->hi >> 11) | (0x3ffll << 52)};
-  /* r contains the upper 53 bits of a->hi, 1 <= r < 2 */
-
-  double rd = 0.0;
-  /* if round bit is 1, add 2^-53 */
-  if ((a->hi >> 10) & 0x1)
-    rd += 0x1p-53;
-
-  /* if trailing bits after the rounding bit are non zero, add 2^-54 */
-  if (a->hi & 0x3ff || a->lo)
-    rd += 0x1p-54;
-
-  r.u = r.u | a->sgn << 63;
-  r.f += (a->sgn == 0) ? rd : -rd;
-
-  f64_u e;
-
-  /* For log, the result is always in the normal range,
-     thus a->ex > -1023. Similarly, we cannot have a->ex > 1023. */
-
-  e.u = ((a->ex + 1023) & 0x7ff) << 52;
-
-  return r.f * e.f;
+  /* Fast path only: return the rounded result directly. */
+  static const double err = 0x1.b6p-69;
+  double left = h + (l - err);
+  return left;
 }

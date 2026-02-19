@@ -21,7 +21,7 @@
 #include "openmc/simulation.h"
 #include "openmc/tallies/tally.h"
 #include "openmc/timer.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #include <algorithm> // for min
 #include <cmath>     // for sqrt, abs, pow
@@ -395,7 +395,7 @@ void calculate_average_keff()
   } else {
     // Sample mean of keff
     simulation::k_sum[0] += simulation::k_generation[i];
-    simulation::k_sum[1] += coremath::pow(simulation::k_generation[i], 2);
+    simulation::k_sum[1] += openmc::pow(simulation::k_generation[i], 2);
 
     // Determine mean
     simulation::keff = simulation::k_sum[0] / n;
@@ -414,7 +414,7 @@ void calculate_average_keff()
       simulation::keff_std =
         t_value *
         std::sqrt(
-          (simulation::k_sum[1] / n - coremath::pow(simulation::keff, 2)) / (n - 1));
+          (simulation::k_sum[1] / n - openmc::pow(simulation::keff, 2)) / (n - 1));
 
       // In some cases (such as an infinite medium problem), random ray
       // may estimate k exactly and in an unvarying manner between iterations.

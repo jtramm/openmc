@@ -1,129 +1,55 @@
-/* Correctly-rounded power function for two binary64 values.
+// Fast-path power function (x^y) for two binary64 values.
+// Derived from the CORE-MATH project (MIT License).
+// Original authors: Tom Hubrecht and Paul Zimmermann.
+// https://core-math.gitlabpages.inria.fr/
+//
+// This file contains ONLY the first Ziv iteration (fast path) using
+// double-double arithmetic. The accurate 128-bit and 256-bit iterations
+// have been removed. When the fast path cannot resolve rounding, the
+// best available approximation is returned directly.
 
-Copyright (c) 2022-2025 CERN and Inria
-Authors: Tom Hubrecht and Paul Zimmermann
+#include "coremath_utils.h"
 
-This file is part of the CORE-MATH project
-(https://core-math.gitlabpages.inria.fr/).
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
-#ifndef CR_POW_H
-#define CR_POW_H
-
-#include <stdint.h>
-
-#include <math.h>
-#include <errno.h>
-
-/*
-  Type definition
-*/
+// =====================================================================
+// Type aliases and helper union
+// =====================================================================
 
 typedef union {
   double f;
   uint64_t u;
 } f64_u;
 
-// Extract both the mantissa and exponent of a double
-static inline void fast_extract (int64_t *e, uint64_t *m, double x) {
-  f64_u _x = {.f = x};
+// =====================================================================
+// Utility functions (from pow.h, adapted to C++)
+// =====================================================================
 
+// Extract both the mantissa and exponent of a double
+static inline void fast_extract(int64_t *e, uint64_t *m, double x) {
+  b64u64_u _x;
+  _x.f = x;
   *e = (_x.u >> 52) & 0x7ff;
-  *m = (_x.u & (~0ull >> 12)) + (*e ? (1ull << 52) : 0);
+  *m = (_x.u & (~(uint64_t)0 >> 12)) + (*e ? (1ull << 52) : 0);
   *e = *e - 0x3ff;
 }
 
-#define CORE_MATH_POW
-#include "dint.h"
-#include "qint.h"
-
-double cr_pow(double x, double y);
-
-/* __builtin_roundeven was introduced in gcc 10:
-   https://gcc.gnu.org/gcc-10/changes.html,
-   and in clang 17 */
-#if ((defined(__GNUC__) && __GNUC__ >= 10) || (defined(__clang__) && __clang_major__ >= 17)) && !defined(_MSC_VER) && (defined(__aarch64__) || defined(__x86_64__) || defined(__i386__))
-# define roundeven_finite(x) __builtin_roundeven (x)
-#else
-/* round x to nearest integer, breaking ties to even */
-static double
-roundeven_finite (double x)
-{
-  double ix;
-# if (defined(__GNUC__) || defined(__clang__)) && (defined(__AVX__) || defined(__SSE4_1__) || (__ARM_ARCH >= 8))
-#  if defined __AVX__
-   __asm__("vroundsd $0x8,%1,%1,%0":"=x"(ix):"x"(x));
-#  elif __ARM_ARCH >= 8
-   __asm__ ("frintn %d0, %d1":"=w"(ix):"w"(x));
-#  else /* __SSE4_1__ */
-   __asm__("roundsd $0x8,%1,%0":"=x"(ix):"x"(x));
-#  endif
-# else
-  ix = __builtin_round (x); /* nearest, away from 0 */
-  if (__builtin_fabs (ix - x) == 0.5)
-  {
-    /* if ix is odd, we should return ix-1 if x>0, and ix+1 if x<0 */
-    union { double f; uint64_t n; } u, v;
-    u.f = ix;
-    v.f = ix - __builtin_copysign (1.0, x);
-    if (__builtin_ctz (v.n) > __builtin_ctz (u.n))
-      ix = v.f;
-  }
-# endif
-  return ix;
-}
-#endif
-
-/*
-  Utility functions
-*/
-
 // When x is a NaN, returns 1 if x is an sNaN and 0 if it is a qNaN
 static inline int is_signaling(double x) {
-  f64_u _x = {.f = x};
-
+  b64u64_u _x;
+  _x.f = x;
   return !(_x.u & (1ull << 51));
 }
 
-/* Add a + b, such that *hi + *lo approximates a + b.
-   Assumes |a| >= |b|.
-   For rounding to nearest we have hi + lo = a + b exactly.
-   For directed rounding, we have
-   (a) hi + lo = a + b exactly when the exponent difference between a and b
-       is at most 53 (the binary64 precision)
-   (b) otherwise |(a+b)-(hi+lo)| <= 2^-105 min(|a+b|,|hi|)
-       (see https://hal.inria.fr/hal-03798376)
-   We also have |lo| < ulp(hi). */
+// Add a + b, such that *hi + *lo approximates a + b.
+// Assumes |a| >= |b|.
 static inline void fast_two_sum(double *hi, double *lo, double a, double b) {
   double e;
-
-  // assert (a == 0 || __builtin_fabs (a) >= __builtin_fabs (b));
   *hi = a + b;
-  e = *hi - a; /* exact */
-  *lo = b - e; /* exact */
+  e = *hi - a;
+  *lo = b - e;
 }
 
-/* Algorithm 2 from https://hal.science/hal-01351529 */
-static inline void two_sum (double *s, double *t, double a, double b)
-{
+// Algorithm 2 from https://hal.science/hal-01351529
+static inline void two_sum(double *s, double *t, double a, double b) {
   *s = a + b;
   double a_prime = *s - b;
   double b_prime = *s - a_prime;
@@ -136,67 +62,46 @@ static inline void two_sum (double *s, double *t, double a, double b)
 static inline void fast_sum(double *hi, double *lo, double a, double bh,
                             double bl) {
   fast_two_sum(hi, lo, a, bh);
-  /* |(a+bh)-(hi+lo)| <= 2^-105 |hi| and |lo| < ulp(hi) */
   *lo += bl;
-  /* |(a+bh+bl)-(hi+lo)| <= 2^-105 |hi| + ulp(lo),
-     where |lo| <= ulp(hi) + |bl|. */
 }
 
 // Multiply exactly a and b, such that *hi + *lo = a * b.
-static inline void a_mul(double *hi, double *lo, double a, double b) {
+static inline void pow_a_mul(double *hi, double *lo, double a, double b) {
   *hi = a * b;
-  *lo = __builtin_fma (a, b, -*hi);
+  *lo = std::fma(a, b, -*hi);
 }
 
 // Multiply a double with a double double : a * (bh + bl)
-static inline void s_mul (double *hi, double *lo, double a, double bh,
-                          double bl) {
+static inline void pow_s_mul(double *hi, double *lo, double a, double bh,
+                             double bl) {
   double s;
-
-  a_mul (hi, &s, a, bh); /* exact */
-  *lo = __builtin_fma (a, bl, s);
-  /* the error is bounded by ulp(lo), where |lo| < |a*bl| + ulp(hi) */
+  pow_a_mul(hi, &s, a, bh);
+  *lo = std::fma(a, bl, s);
 }
 
 // Returns (ah + al) * (bh + bl) - (al * bl)
-// We can ignore al * bl when assuming al <= ulp(ah) and bl <= ulp(bh)
 static inline void d_mul(double *hi, double *lo, double ah, double al,
                          double bh, double bl) {
   double s, t;
-
-  a_mul(hi, &s, ah, bh);
-  t = __builtin_fma(al, bh, s);
-  *lo = __builtin_fma(ah, bl, t);
-}
-
-static inline void d_square(double *hi, double *lo, double ah, double al) {
-  double s, b = al + al;
-
-  a_mul(hi, &s, ah, ah);
-  *lo = __builtin_fma(ah, b, s);
+  pow_a_mul(hi, &s, ah, bh);
+  t = std::fma(al, bh, s);
+  *lo = std::fma(ah, bl, t);
 }
 
 static inline long dtoi(double x) { return (long)x; }
 
 // Returns 1 if x is an integer
-static inline int is_int(double x) { return x == roundeven_finite (x); }
+static inline int is_int(double x) { return x == coremath_roundeven(x); }
 
-// Returns (e, m) such that m is odd and x = 2^E \times m
+// Returns (e, m) such that m is odd and x = 2^E * m
 static inline void extract(int64_t *e, uint64_t *m, double x) {
-  f64_u _x = {.f = x};
-
+  b64u64_u _x;
+  _x.f = x;
   *e = (_x.u >> 52) & 0x7ff;
-  *m = (_x.u & (~0ull >> 12)) + (*e ? (1ull << 52) : 0);
+  *m = (_x.u & (~(uint64_t)0 >> 12)) + (*e ? (1ull << 52) : 0);
   int32_t t = __builtin_ctzll(*m);
   *m = *m >> t;
   *e = *e + t - (0x433 - !*e);
-}
-
-// Rounds a dint64_t value to 54 bits, a shortcut is taken as in `exact_pow`, we
-// only consider numbers that end with only ones or only zeroes
-static inline void round_54(int64_t *G, int64_t *k, const dint64_t *x) {
-  *G = x->ex - 53;
-  *k = (x->hi >> 10) + ((x->hi >> 9) & 0x1);
 }
 
 // Multiply x by 2^e
@@ -204,294 +109,18 @@ static inline void pow2(double *x, int64_t e) {
   if (e & 0x1)
     *x *= 0x1p+1;
 
-  f64_u e2 = {.u = ((uint64_t)((e >> 1) + 0x3ff) & 0x7ff) << 52};
+  b64u64_u e2;
+  e2.u = ((uint64_t)((e >> 1) + 0x3ff) & 0x7ff) << 52;
   *x = (*x * e2.f) * e2.f;
 }
 
-// Convert a dint64_t value to an integer, rounding towards zero
-static inline int64_t dint_toi(const dint64_t *a) {
-  if (a->ex < 0)
-    return 0ll;
+// =====================================================================
+// Lookup tables (from pow.h)
+// =====================================================================
 
-  int64_t r = a->hi >> (63 - a->ex);
-
-  return a->sgn ? -r : r;
-}
-
-// round a, assuming a is in the subnormal range
-// exact is non-zero iff x^y is exact
-static inline double dint_tod_subnormal(dint64_t *a, int exact) {
-  int underflow = 1;
-  double ret = 0;
-
-  uint64_t ex = -(1011 + a->ex); // ex >= 12
-  // we have to shift right hi,lo by ex bits so that the least significant
-  // bit of hi corresponds to 2^-1074 (the number of extra bits is
-  // -1022 - a->ex, and we add 11 = 64 - 53 since hi has 64 bits)
-
-  uint64_t rb, sb;
-
-  if (ex >= 64) { // all bits disappear: |a| < 2^-1074
-    switch (fegetround()) {
-    case FE_TONEAREST:
-      rb = (a->hi >> 63);        // only used when e=64
-      sb = (a->hi << 1) | a->lo; // idem
-      ret = (ex > 64 || rb == 0 || sb == 0) ? +0.0 : 0x1p-1074;
-      ret = (a->sgn) ? -ret : ret;
-      break;
-    case FE_DOWNWARD:
-      ret = (a->sgn) ? -0x1p-1074 : +0.0;
-      break;
-    case FE_UPWARD:
-      ret = (!a->sgn) ? 0x1p-1074 : -0.0;
-      break;
-    case FE_TOWARDZERO:
-      ret = (a->sgn) ? -0.0 : +0.0;
-    }
-    goto end;
-  }
-
-  // now ex < 64
-  uint64_t hi;
-  hi = a->hi >> ex;
-  rb = (a->hi >> (ex - 1)) & 0x1; // round bit
-  sb = (a->hi << (65 - ex)) || a->lo; // sticky bit
-
-  switch (fegetround()) {
-  case FE_TONEAREST:
-    // if ex=12 there is no underflow when hi rounds to 2^52 and rb=1
-    // and the next bit is 1 too
-    hi += sb ? rb : hi & rb;
-    if (ex == 12 && (hi >> 52) && rb)
-    {
-      uint64_t rbb = (a->hi >> (ex - 2)) & 0x1; // next bit after the round bit
-      if (rbb)
-        underflow = 0;
-    }
-    break;
-  case FE_DOWNWARD:
-    hi += a->sgn & (sb | rb);
-    break;
-  case FE_UPWARD:
-    // if ex=12 there is no underflow when hi rounds to 2^52 and rb=1
-    hi += (!a->sgn) & (sb | rb);
-    if (ex == 12 && (hi >> 52) && rb)
-      underflow = 0;
-    break;
-  // for rounding towards zero, don't do anything
-  }
-
-  // now hi <= 2^52 stores the low bits of the result (up to sign)
-  // (if hi has overflowed in 2^52 this is exactly what we want)
-
-  f64_u v = {.u = hi};
-  v.u |= a->sgn << 63;
-  ret = v.f;
-
- end:
-  if (underflow && !exact) {
-    feraiseexcept (FE_UNDERFLOW); // raise underflow
-#ifdef CORE_MATH_SUPPORT_ERRNO
-    errno = ERANGE; // underflow
-#endif
-  }
-
-  return ret;
-}
-
-// Convert a dint64_t value to a double
-// exact is non-zero iff x^y is exact
-static inline double dint_tod(dint64_t *a, int exact) {
-  if (__builtin_expect (a->ex < -1022, 0))
-    return dint_tod_subnormal (a, exact);
-
-  // r is the significant in [1,2)
-  f64_u r = {.u = (a->hi >> 11) | (0x3ffll << 52)};
-
-  // round r
-  double rd = 0.0;
-  if ((a->hi >> 10) & 0x1)
-    rd += 0x1p-53;
-
-  if (a->hi & 0x3ff || a->lo)
-    rd += 0x1p-54;
-
-  if (a->sgn)
-    rd = -rd;
-
-  r.u = r.u | a->sgn << 63;
-  r.f += rd;
-
-  f64_u e;
-
-  if (a->ex > -1023) { // The result is a normal double
-    if (a->ex > 1023) {
-      if (a->ex == 1024) { // 2^1024 <= |a| < 2^1025
-        r.f = r.f * 0x1p+1;
-        e.f = 0x1p+1023;
-      } else { // |a| >= 2^1025
-        r.f = 0x1.fffffffffffffp+1023;
-        e.f = 0x1.fffffffffffffp+1023;
-      }
-#ifdef CORE_MATH_SUPPORT_ERRNO
-      errno = ERANGE;
-#endif
-    }
-    else
-      e.u = ((a->ex + 1023) & 0x7ff) << 52;
-  } else { // subnormal case
-    if (!exact) {
-      feraiseexcept (FE_UNDERFLOW); // raise underflow
-#ifdef CORE_MATH_SUPPORT_ERRNO
-      errno = ERANGE; // underflow
-#endif
-    }
-    if (a->ex < -1074) {
-      if (a->ex == -1075) {
-        r.f = r.f * 0x1p-1;
-        e.f = 0x1p-1074;
-      } else {
-        r.f = 0x0.0000000000001p-1022;
-        e.f = 0x0.0000000000001p-1022;
-      }
-    } else {
-      e.u = 1ll << (a->ex + 1074);
-    }
-  }
-
-#ifdef CORE_MATH_SUPPORT_ERRNO
-  if (r.f == 0x1p+1 && e.f == 0x1p+1023)
-    errno = ERANGE; // overflow
-#endif
-
-  return r.f * e.f;
-}
-
-// Convert a double to the corresponding qint64_t value
-static inline void qint_fromd (qint64_t *a, double b) {
-  fast_extract (&a->ex, &a->hh, b);
-
-  /* |b| = 2^(ex-52)*hi */
-
-  uint32_t t = __builtin_clzll (a->hh);
-
-  a->sgn = b < 0.0;
-  a->ex = a->ex - (t > 11 ? t - 12 : 0);
-  a->hh = a->hh << t;
-  a->lh = 0;
-  a->hl = 0;
-  a->ll = 0;
-  /* b = 2^ex*hh/2^64 where 1 <= hh/2^63 < 2 */
-}
-
-// Convert a qint64_t value to an integer
-static inline int64_t qint_toi(const qint64_t *a) {
-  if (a->ex < 0)
-    return 0ll;
-
-  int64_t r = a->hh >> (63 - a->ex);
-
-  return a->sgn ? -r : r;
-}
-
-static inline void subnormalize_qint(qint64_t *a) {
-  if (a->ex > -1023)
-    return;
-
-  uint64_t ex = -(1011 + a->ex);
-
-  uint64_t hi = a->hh >> ex;
-  uint64_t md = (a->hh >> (ex - 1)) & 0x1;
-  uint64_t lo = (a->hh & (~0ull >> ex)) || a->hl || a->lh || a->ll;
-
-  switch (fegetround()) {
-  case FE_TONEAREST:
-    hi += lo ? md : hi & md;
-    break;
-  case FE_DOWNWARD:
-    hi += a->sgn & (md | lo);
-    break;
-  case FE_UPWARD:
-    hi += (!a->sgn) & (md | lo);
-    break;
-  }
-
-  a->hh = hi << ex;
-  a->hl = 0;
-  a->lh = 0;
-  a->ll = 0;
-
-  if (!a->hh) {
-    a->ex++;
-    a->hh = (1ull << 63);
-  }
-}
-
-// Convert a dint64_t value to a double
-static inline double qint_tod(qint64_t *a) {
-  subnormalize_qint(a);
-
-  f64_u r = {.u = (a->hh >> 11) | (0x3ffll << 52)};
-
-  double rd = 0.0;
-  if (a->hh & 0x400)
-    rd += 0x1p-53;
-
-  if (a->hh & 0x3ff || a->hl || a->lh || a->ll)
-    rd += 0x1p-54;
-
-  if (a->sgn)
-    rd = -rd;
-
-  r.u = r.u | a->sgn << 63;
-  r.f += rd;
-
-  f64_u e;
-
-  if (a->ex > -1023) { // The result is a normal double
-    if (a->ex > 1023)
-      if (a->ex == 1024) {
-        r.f = r.f * 0x1p+1;
-        e.f = 0x1p+1023;
-      } else {
-        r.f = 0x1.fffffffffffffp+1023;
-        e.f = 0x1.fffffffffffffp+1023;
-      }
-    else
-      e.u = ((a->ex + 1023) & 0x7ff) << 52;
-  } else { // subnormal case
-    feraiseexcept (FE_UNDERFLOW); // raise underflow
-#ifdef CORE_MATH_SUPPORT_ERRNO
-    errno = ERANGE; // underflow
-#endif
-    if (a->ex < -1074) {
-      if (a->ex == -1075) {
-        r.f = r.f * 0x1p-1;
-        e.f = 0x1p-1074;
-      } else {
-        r.f = 0x0.0000000000001p-1022;
-        e.f = 0x0.0000000000001p-1022;
-      }
-    } else {
-      e.u = 1ll << (a->ex + 1074);
-    }
-  }
-
-  return r.f * e.f;
-}
-
-/*
-  Approximation tables
-*/
-
-/* for 181 <= i <= 362, r[i] = _INVERSE[i-181] is a 9-bit approximation of
-   1/x[i], where i*2^-8 <= x[i] < (i+1)*2^-8.
-   More precisely r[i] is a 9-bit value such that r[i]*y-1 is representable
-   exactly on 53 bits for for any y, i*2^-8 <= y < (i+1)*2^-8.
-   Moreover |r[i]*y-1| < 0.0040283203125.
-   Table generated with the accompanying pow.sage file,
-   with l=inverse_centered(k=8,prec=9,maxbits=53,verbose=false) */
-static const double _INVERSE[182]= {
+// For 181 <= i <= 362, r[i] = _INVERSE[i-181] is a 9-bit approximation of
+// 1/x[i], where i*2^-8 <= x[i] < (i+1)*2^-8.
+static const double _INVERSE[182] = {
     0x1.69p+0, 0x1.67p+0, 0x1.65p+0, 0x1.63p+0, 0x1.61p+0, 0x1.5fp+0, 0x1.5ep+0,
     0x1.5cp+0, 0x1.5ap+0, 0x1.58p+0, 0x1.56p+0, 0x1.54p+0, 0x1.53p+0, 0x1.51p+0,
     0x1.4fp+0, 0x1.4ep+0, 0x1.4cp+0, 0x1.4ap+0, 0x1.48p+0, 0x1.47p+0, 0x1.45p+0,
@@ -520,10 +149,8 @@ static const double _INVERSE[182]= {
     0x1.7p-1, 0x1.6fp-1, 0x1.6ep-1, 0x1.6dp-1, 0x1.6cp-1, 0x1.6bp-1, 0x1.6ap-1,
 };
 
-/* For 181 <= i <= 362, (h,l) = _LOG_INV[i-181] is a double-double nearest
-   approximation of -log(r) for r=_INVERSE[i-181], h being an integer
-   multiple of 2^-42.
-   Since |l| < 2^-43, the maximal error is 1/2 ulp(l) <= 2^-97. */
+// For 181 <= i <= 362, (h,l) = _LOG_INV[i-181] is a double-double nearest
+// approximation of -log(r) for r=_INVERSE[i-181].
 static const double _LOG_INV[182][2] = {
     {-0x1.5ff3070a79p-2, -0x1.e9e439f105039p-45},
     {-0x1.5a42ab0f4dp-2, 0x1.e63af2df7ba69p-50},
@@ -709,9 +336,7 @@ static const double _LOG_INV[182][2] = {
     {0x1.630030b3abp-2, -0x1.db623e731aep-45},
 };
 
-/* For 0 <= i < 64, T1[i] = (h,l) such that h+l is the best double-double
-   approximation of 2^(i/64). The approximation error is bounded as follows:
-   |h + l - 2^(i/64)| < 2^-107. */
+// For 0 <= i < 64, T1[i] = (h,l) such that h+l approximates 2^(i/64).
 static const double T1[][2] = {
     {              0x1p+0,                 0x0p+0},
     {0x1.02c9a3e778061p+0, -0x1.19083535b085dp-56},
@@ -779,9 +404,7 @@ static const double T1[][2] = {
     {0x1.fa7c1819e90d8p+0,  0x1.74853f3a5931ep-55},
 };
 
-/* For 0 <= i < 64, T2[i] = (h,l) such that h+l is the best double-double
-   approximation of 2^(i/2^12). The approximation error is bounded as follows:
-   |h + l - 2^(i/2^12)| < 2^-107. */
+// For 0 <= i < 64, T2[i] = (h,l) such that h+l approximates 2^(i/2^12).
 static const double T2[][2] = {
     {              0x1p+0,                 0x0p+0},
     {0x1.000b175effdc7p+0,  0x1.ae8e38c59c72ap-54},
@@ -849,27 +472,449 @@ static const double T2[][2] = {
     {0x1.02be6e199c811p+0,  0x1.e47120223467fp-54},
 };
 
-/* The following is a degree-8 polynomial generated by Sollya for
-   log(1+x)-x+x^2/2 over [-0.0040283203125,0.0040283203125]
-   with absolute error < 2^-81.63
-   and relative error < 2^-72.423 (see sollya/P_1.sollya).
-   The relative error is for x - x^2/2 + P(x) with respect to log(1+x). */
-static const double P_1[] = {0x1.5555555555558p-2,  /* degree 3 */
-                             -0x1.0000000000003p-2, /* degree 4 */
-                             0x1.999999981f535p-3,  /* degree 5 */
-                             -0x1.55555553d1eb4p-3, /* degree 6 */
-                             0x1.2494526fd4a06p-3,  /* degree 7 */
-                             -0x1.0001f0c80e8cep-3, /* degree 8 */
+// Polynomial for log(1+x) - x + x^2/2 (degree-8)
+static const double P_1[] = {
+    0x1.5555555555558p-2,   // degree 3
+    -0x1.0000000000003p-2,  // degree 4
+    0x1.999999981f535p-3,   // degree 5
+    -0x1.55555553d1eb4p-3,  // degree 6
+    0x1.2494526fd4a06p-3,   // degree 7
+    -0x1.0001f0c80e8cep-3,  // degree 8
 };
 
-/* The following is a degree-4 polynomial generated by Sollya for exp(x)
-   over [-2^-12.905,2^-12.905]
-   with absolute error < 2^-74.34 (see sollya/Q_1.sollya). */
-static const double Q_1[] = {0x1p0,                 /* degree 0 */
-                             0x1p0,                 /* degree 1 */
-                             0x1p-1,                /* degree 2 */
-                             0x1.5555555997996p-3,  /* degree 3 */
-                             0x1.5555555849d8dp-5   /* degree 4 */
+// Polynomial for exp(x) (degree-4)
+static const double Q_1[] = {
+    0x1p0,                  // degree 0
+    0x1p0,                  // degree 1
+    0x1p-1,                 // degree 2
+    0x1.5555555997996p-3,   // degree 3
+    0x1.5555555849d8dp-5    // degree 4
 };
 
-#endif
+// =====================================================================
+// Polynomial approximation of exp(z) for |z| < 2^-12.905
+// =====================================================================
+
+static inline void q_1(double *qh, double *ql, double z) {
+  double q, h0, h1, l1;
+
+  q = std::fma(Q_1[4], z, Q_1[3]);
+  q = std::fma(q, z, Q_1[2]);
+  h0 = std::fma(q, z, Q_1[1]);
+  pow_a_mul(&h1, &l1, z, h0);
+  fast_sum(qh, ql, Q_1[0], h1, l1);
+}
+
+// =====================================================================
+// Polynomial approximation of log(1+z) - z
+// =====================================================================
+
+static inline void p_1(double *ph, double *pl, double z) {
+  double wh, wl;
+  pow_a_mul(&wh, &wl, z, z);
+  double t = std::fma(P_1[5], z, P_1[4]);
+  double u = std::fma(P_1[3], z, P_1[2]);
+  double v = std::fma(P_1[1], z, P_1[0]);
+  u = std::fma(t, wh, u);
+  v = std::fma(u, wh, v);
+  u = v * wh;
+  *ph = -0.5 * wh;
+  *pl = std::fma(u, z, -0.5 * wl);
+}
+
+// =====================================================================
+// Fast-path log(x) approximation
+// =====================================================================
+
+static inline int log_1(double *h, double *l, double x) {
+  b64u64_u _x;
+  _x.f = x;
+  uint64_t _m = _x.u & (~(uint64_t)0 >> 12);
+  int64_t _e = (_x.u >> 52) & 0x7ff;
+
+  b64u64_u _t;
+
+  if (_e) {
+    _t.u = _m | (0x3ffll << 52);
+    _m += 1ull << 52;
+    _e -= 0x3ff;
+  } else { // x is a subnormal double
+    uint32_t k = __builtin_clzll(_m) - 11;
+    _e = -0x3fell - k;
+    _m <<= k;
+    _t.u = _m | (0x3ffll << 52);
+  }
+
+  double t = _t.f;
+
+  // Find the lookup index
+  uint64_t i;
+
+  // If m > sqrt(2) we divide it by 2
+  uint64_t c = _m >= 0x16a09e667f3bcd;
+  static const double cy[] = {1.0, 0.5};
+  static const uint64_t cm[] = {44, 45};
+
+  _e += c;
+  double E = (double)_e;
+  i = _m >> cm[c];
+  t *= cy[c];
+
+  double r = _INVERSE[i - 181];
+  double l1 = _LOG_INV[i - 181][0];
+  double l2 = _LOG_INV[i - 181][1];
+
+  double z = std::fma(r, t, -1.0);
+
+  const double LOG2_H = 0x1.62e42fefa38p-1;
+  const double LOG2_L = 0x1.ef35793c7673p-45;
+
+  double th, tl;
+  th = std::fma(E, LOG2_H, l1);
+  tl = std::fma(E, LOG2_L, l2);
+
+  fast_sum(h, l, th, z, tl);
+  double ph, pl;
+  p_1(&ph, &pl, z);
+  fast_sum(h, l, *h, ph, *l + pl);
+
+  if (_e == 0 && std::fabs(*l) > std::fabs(*h) * 0x1p-24) {
+    fast_two_sum(h, l, *h, *l);
+    return 1;
+  }
+
+  return 0;
+}
+
+// =====================================================================
+// Fast-path exp(rh+rl) approximation
+// The result is multiplied by s (+1 or -1).
+// =====================================================================
+
+static inline void
+exp_1(double *eh, double *el, double rh, double rl, double s) {
+  const double RHO0 = -0x1.74910ee4e8a27p+9;
+  const double RHO1 = -0x1.483b8cca421afp+9;
+  const double RHO2 = 0x1.62e42e709a95bp+9;
+  const double RHO3 = 0x1.62e4316ea5df9p+9;
+
+  if (rh != rh || rh > RHO2) {
+    if (rh == rh && rh > RHO3) {
+      *eh = 0x1.fffffffffffffp+1023 * s;
+      *el = 0x1.fffffffffffffp+1023 * s;
+    } else {
+      *eh = *el = NAN;
+    }
+    return;
+  }
+
+  if (rh < RHO1) {
+    if (rh < RHO0) {
+      *eh = +0.0 * s;
+      *el = 0x1p-1074 * (0.5 * s);
+    } else {
+      *eh = *el = NAN;
+    }
+    return;
+  }
+
+  const double INVLOG2 = 0x1.71547652b82fep+12;
+  double k = coremath_roundeven(rh * INVLOG2);
+
+  const double LOG2H = 0x1.62e42fefa39efp-13;
+  const double LOG2L = 0x1.abc9e3b39803fp-68;
+
+  double zh, zl;
+  zh = std::fma(LOG2H, -k, rh);
+  zl = std::fma(LOG2L, -k, rl);
+
+  int64_t K = (int64_t)k;
+  int64_t M = (K >> 12) + 0x3ff;
+  int64_t i2 = (K >> 6) & 0x3f;
+  int64_t i1 = K & 0x3f;
+
+  double t1h = T1[i2][0], t1l = T1[i2][1], t2h = T2[i1][0], t2l = T2[i1][1];
+  d_mul(eh, el, t2h, t2l, t1h, t1l);
+
+  double qh, ql;
+  q_1(&qh, &ql, zh + zl);
+
+  d_mul(eh, el, *eh, *el, qh, ql);
+
+  b64u64_u _d;
+  _d.u = (uint64_t)M << 52;
+  _d.f *= s;
+  *eh *= _d.f;
+  *el *= _d.f;
+}
+
+// =====================================================================
+// is_exact: returns non-zero if x^y is exact (exactly representable)
+// =====================================================================
+
+static int is_exact(double x, double y) {
+  b64u64_u v, w;
+  v.f = x;
+  w.f = y;
+
+  if ((v.u << 1) != 0x7fe0000000000000ull && (w.u << 22) != 0)
+    return 0;
+
+  if ((v.u << 1) == 0x7fe0000000000000ull) // |x| = 1
+    return 1;
+
+  // xmax[y] for 1<=y<=33 is the largest odd m such that m^y fits in 53 bits
+  static const uint64_t xmax[] = {
+      0, 0xffffffffffffffff, 94906265, 208063, 9741, 1551, 455, 189, 97, 59,
+      39, 27, 21, 15, 13, 11, 9, 7, 7, 5, 5, 5, 5, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3};
+
+  if (y >= 0 && is_int(y)) {
+    uint64_t m = v.u & 0xfffffffffffffull;
+    int64_t e = ((v.u << 1) >> 53) - 0x433;
+    if (e >= -1074)
+      m |= 0x10000000000000ull;
+    else
+      e++;
+    int t = __builtin_ctzll(m);
+    m = m >> t;
+    e += t;
+    if (y == 0 || y == 1)
+      return 1;
+    if (m == 1)
+      return -1074 <= y * e && y * e < 1024;
+    if (y < 0 || 33 < y)
+      return 0;
+    int y_int = (int)y;
+    if (m > xmax[y_int])
+      return 0;
+    uint64_t my = m * m;
+    for (int i = 2; i < y_int; i++)
+      my = my * m;
+    t = 64 - __builtin_clzll(m);
+    int64_t ez = e * y_int + t;
+    if (ez <= -1074 || 1024 < ez)
+      return 0;
+    return e * y_int >= -1074;
+  }
+
+  uint64_t n = w.u & 0xfffffffffffffull;
+  int64_t f = ((w.u << 1) >> 53) - 0x433;
+  if (f >= -1074)
+    n |= 0x10000000000000ull;
+  else
+    f++;
+  int t = __builtin_ctzll(n);
+  n = n >> t;
+  f += t;
+
+  uint64_t m = v.u & 0xfffffffffffffull;
+  int64_t e = ((v.u << 1) >> 53) - 0x433;
+  if (e >= -1074)
+    m |= 0x10000000000000ull;
+  else
+    e++;
+  t = __builtin_ctzll(m);
+  m = m >> t;
+  e += t;
+
+  if (y < 0) {
+    if (m != 1)
+      return 0;
+    int64_t ez;
+    if (f >= 0)
+      ez = (f < 12) ? (int64_t)((-((int64_t)n) * e) << f) : 1024;
+    else {
+      t = __builtin_ctzll(e);
+      if (-f > t)
+        return 0;
+      ez = (-e >> (-f)) * (int64_t)n;
+    }
+    return -1074 <= ez && ez < 1024;
+  }
+
+  while (f++) {
+    if (e & 1)
+      return 0;
+    e = e / 2;
+    double dm = (double)m;
+    double sq = std::round(std::sqrt(dm));
+    if (sq * sq != dm)
+      return 0;
+    m = (uint64_t)sq;
+  }
+
+  if (m > 1) {
+    if (33 < n)
+      return 0;
+    if (m > xmax[n])
+      return 0;
+  }
+  uint64_t my = m, n0 = n;
+  while (n0-- > 1)
+    my = my * m;
+  t = 64 - __builtin_clzll(my);
+  return -1074 <= e * (int)n && e * (int)n + t <= 1024;
+}
+
+// =====================================================================
+// Main power function: cr_pow(x, y)
+// =====================================================================
+
+double cr_pow(double x, double y) {
+  double s = 1.0; // sign of the result
+  double x0 = x;  // original value of x (unused in fast-path only)
+  (void)x0;
+
+  b64u64_u _x, _y;
+  _x.f = x;
+  _y.f = y;
+
+  // Handle NaN, Inf
+  if (_x.u >= 0x7ff0000000000000ull || _y.u >= 0x7ff0000000000000ull) {
+
+    if (std::isnan(x)) {
+      if (y == 0.0 && !is_signaling(x))
+        return 1.0;
+      return x + x;
+    }
+
+    if (std::isnan(y)) {
+      if (x == 1.0 && !is_signaling(y))
+        return 1.0;
+      return y + y;
+    }
+
+    switch (_x.u) {
+    case 0x7ff0000000000000ull: // x = +inf
+      if (y == 0.0)
+        return 1.0;
+      if (y < 0.0)
+        return 0.0;
+      if (y > 0.0)
+        return INFINITY;
+      break;
+
+    case 0xfff0000000000000ull: // x = -inf
+      if (is_int(y) && !is_int(y * 0.5)) {
+        if (y < 0.0)
+          return -0.0;
+        else
+          return -INFINITY;
+      }
+      if (y < 0.0)
+        return 0.0;
+      if (y > 0.0)
+        return INFINITY;
+      break;
+    }
+
+    switch (_y.u) {
+    case 0x7ff0000000000000ull: // y = +inf
+      if (x == 0.0)
+        return 0.0;
+      if (x == -1.0 || x == 1.0)
+        return 1.0;
+      if (-1.0 < x && x < 1.0)
+        return 0.0;
+      if (x < -1.0 || 1.0 < x)
+        return INFINITY;
+      break;
+
+    case 0xfff0000000000000ull: // y = -inf
+      if (x == 0.0)
+        return INFINITY;
+      if (x == -1.0 || x == 1.0)
+        return 1.0;
+      if (-1.0 < x && x < 1.0)
+        return INFINITY;
+      if (x < -1.0 || 1.0 < x)
+        return 0.0;
+      break;
+    }
+  } // From now on, x and y are finite values
+
+  // Handle x <= 0
+  if (x <= 0.0) {
+    if (y == 0.0)
+      return 1.0;
+
+    switch (_x.u) {
+    case 0x0ull: // x = +0.0
+      if (is_int(y) && !is_int(y * 0.5)) {
+        if (y < 0.0)
+          return INFINITY;
+        return 0.0;
+      }
+      if (y > 0.0)
+        return 0.0;
+      return INFINITY;
+
+    case 0x8000000000000000ull: // x = -0.0
+      if (is_int(y) && !is_int(y * 0.5)) {
+        if (y < 0.0)
+          return -INFINITY;
+        return -0.0;
+      }
+      if (y > 0.0)
+        return 0.0;
+      return INFINITY;
+    }
+
+    if (!is_int(y))
+      return NAN;
+
+    double cs[] = {1.0, -1.0};
+    int y_parity = std::fabs(y) >= 0x1p53 ? 0 : ((int64_t)y & 0x1);
+    s = cs[y_parity];
+
+    x = -x;
+  } // end of case x <= 0
+
+  // Fast path (Ziv iteration 1)
+  double res_h, res_l;
+  double lh, ll;
+
+  // approximate log(x)
+  int cancel = log_1(&lh, &ll, x);
+
+  // Avoid spurious underflow/overflow in y*log(x)
+  int ey = (_y.u >> 52) & 0x7ff;
+  if (ey < 0x36 || ey >= 0x7f5)
+    lh = ll = NAN;
+
+  // approximate y * log(x)
+  double rh, rl;
+  pow_s_mul(&rh, &rl, y, lh, ll);
+
+  exp_1(&res_h, &res_l, rh, rl, s);
+
+  static const double err[] = {
+      0x1.27p-64, // 2^-63.797
+      0x1.57p-58, // 2^-57.579
+  };
+  double res_min, res_max;
+  res_min = res_h + std::fma(err[cancel], -res_h, res_l);
+  res_max = res_h + std::fma(err[cancel], res_h, res_l);
+
+  if (res_min == res_max)
+    return res_max;
+
+  // Easy cases that bypass the rounding test
+  if (y == 1.0)
+    return s * x;
+
+  if (y == 2.0) {
+    double z = x * x;
+    return z;
+  }
+
+  if (y == 0.5)
+    return std::sqrt(x);
+
+  if (y == 0.0)
+    return 1.0;
+
+  // When the fast path cannot resolve rounding, return best approximation.
+  // (Accurate iterations 2 and 3 have been removed.)
+  return res_max;
+}

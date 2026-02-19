@@ -14,7 +14,7 @@
 #include "openmc/random_lcg.h"
 #include "openmc/search.h"
 #include "openmc/vector.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -221,11 +221,11 @@ void KalbachMann::sample(
 
   // Sampled correlated angle from Kalbach-Mann parameters
   if (prn(seed) > km_r) {
-    double T = uniform_distribution(-1., 1., seed) * coremath::sinh(km_a);
-    mu = coremath::log(T + std::sqrt(T * T + 1.0)) / km_a;
+    double T = uniform_distribution(-1., 1., seed) * openmc::sinh(km_a);
+    mu = openmc::log(T + std::sqrt(T * T + 1.0)) / km_a;
   } else {
     double r1 = prn(seed);
-    mu = coremath::log(r1 * coremath::exp(km_a) + (1.0 - r1) * coremath::exp(-km_a)) / km_a;
+    mu = openmc::log(r1 * openmc::exp(km_a) + (1.0 - r1) * openmc::exp(-km_a)) / km_a;
   }
 }
 

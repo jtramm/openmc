@@ -32,7 +32,7 @@
 #include "openmc/tallies/tally_scoring.h"
 #include "openmc/track_output.h"
 #include "openmc/weight_windows.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #ifdef OPENMC_DAGMC_ENABLED
 #include "DagMC.hpp"
@@ -247,7 +247,7 @@ void Particle::event_advance()
   } else if (macro_xs().total == 0.0) {
     collision_distance() = INFINITY;
   } else {
-    collision_distance() = -coremath::log(prn(current_seed())) / macro_xs().total;
+    collision_distance() = -openmc::log(prn(current_seed())) / macro_xs().total;
   }
 
   double speed = this->speed();

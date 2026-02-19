@@ -11,7 +11,7 @@
 #include "openmc/error.h"
 #include "openmc/math_functions.h"
 #include "openmc/xml_interface.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -34,7 +34,7 @@ void ZernikeFilter::get_all_bins(
   double x = p.r().x - x_;
   double y = p.r().y - y_;
   double r = std::sqrt(x * x + y * y) / r_;
-  double theta = coremath::atan2(y, x);
+  double theta = openmc::atan2(y, x);
 
   if (r <= 1.0) {
     // Compute and return the Zernike weights.

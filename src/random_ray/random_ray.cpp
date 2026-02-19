@@ -13,7 +13,7 @@
 #include "openmc/distribution_spatial.h"
 #include "openmc/random_dist.h"
 #include "openmc/source.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -867,8 +867,8 @@ SourceSite RandomRay::sample_halton()
   // Convert to Cartesian coordinates
   double c = std::sqrt(1.0 - mu * mu);
   site.u.x = mu;
-  site.u.y = coremath::cos(azi) * c;
-  site.u.z = coremath::sin(azi) * c;
+  site.u.y = openmc::cos(azi) * c;
+  site.u.z = openmc::sin(azi) * c;
 
   return site;
 }

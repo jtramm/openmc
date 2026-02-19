@@ -20,7 +20,7 @@
 #include "openmc/simulation.h"
 #include "openmc/tallies/tally.h"
 #include "openmc/weight_windows.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -149,8 +149,8 @@ void create_fission_sites(Particle& p)
     // Sample the azimuthal angle uniformly in [0, 2.pi)
     double phi = 2. * PI * prn(p.current_seed());
     site.u.x = mu;
-    site.u.y = std::sqrt(1. - mu * mu) * coremath::cos(phi);
-    site.u.z = std::sqrt(1. - mu * mu) * coremath::sin(phi);
+    site.u.y = std::sqrt(1. - mu * mu) * openmc::cos(phi);
+    site.u.z = std::sqrt(1. - mu * mu) * openmc::sin(phi);
 
     // Sample secondary energy distribution for the fission reaction
     int dg;
@@ -170,7 +170,7 @@ void create_fission_sites(Particle& p)
       auto& macro_xs = data::mg.macro_xs_[p.material()];
       double decay_rate =
         macro_xs.get_xs(MgxsType::DECAY_RATE, 0, nullptr, nullptr, &dg, 0, 0);
-      site.time -= coremath::log(prn(p.current_seed())) / decay_rate;
+      site.time -= openmc::log(prn(p.current_seed())) / decay_rate;
 
       // Reject site if it exceeds time cutoff
       double t_cutoff = settings::time_cutoff[site.particle.transport_index()];

@@ -4,7 +4,7 @@
 #include "openmc/math_functions.h"
 #include "openmc/random_lcg.h"
 #include "openmc/search.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #include "xtensor/xview.hpp"
 
@@ -57,7 +57,7 @@ void IncoherentElasticAE::sample(
 {
   // Sample angle by inverting the distribution in ENDF-102, Eq. 7.4
   double c = 2 * E_in * debye_waller_;
-  mu = coremath::log(1.0 + prn(seed) * (coremath::exp(2.0 * c) - 1)) / c - 1.0;
+  mu = openmc::log(1.0 + prn(seed) * (openmc::exp(2.0 * c) - 1)) / c - 1.0;
 
   // Energy doesn't change in elastic scattering (ENDF-102, Eq. 7.4)
   E_out = E_in;

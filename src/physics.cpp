@@ -27,7 +27,7 @@
 #include "openmc/tallies/tally.h"
 #include "openmc/thermal.h"
 #include "openmc/weight_windows.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #include <fmt/core.h>
 
@@ -387,7 +387,7 @@ void sample_photon_reaction(Particle& p)
         continue;
 
       //  Evaluation subshell photoionization cross section
-      prob += coremath::exp(
+      prob += openmc::exp(
         xs_lower(i_shell) + f * (xs_upper(i_shell) - xs_lower(i_shell)));
 
       if (prob > cutoff) {
@@ -419,8 +419,8 @@ void sample_photon_reaction(Particle& p)
         double phi = uniform_distribution(0., 2.0 * PI, p.current_seed());
         Direction u;
         u.x = mu;
-        u.y = std::sqrt(1.0 - mu * mu) * coremath::cos(phi);
-        u.z = std::sqrt(1.0 - mu * mu) * coremath::sin(phi);
+        u.y = std::sqrt(1.0 - mu * mu) * openmc::cos(phi);
+        u.z = std::sqrt(1.0 - mu * mu) * openmc::sin(phi);
 
         // Create secondary electron
         p.create_secondary(p.wgt(), u, E_electron, ParticleType::electron());
@@ -875,7 +875,7 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
   case ResScatMethod::dbrc:
   case ResScatMethod::rvs: {
     double E_red = std::sqrt(nuc.awr_ * E / kT);
-    double E_low = coremath::pow(std::max(0.0, E_red - 4.0), 2) * kT / nuc.awr_;
+    double E_low = openmc::pow(std::max(0.0, E_red - 4.0), 2) * kT / nuc.awr_;
     double E_up = (E_red + 4.0) * (E_red + 4.0) * kT / nuc.awr_;
 
     // find lower and upper energy bound indices
@@ -960,7 +960,7 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
 
       while (true) {
         // directly sample Maxwellian
-        double E_t = -kT * coremath::log(prn(seed));
+        double E_t = -kT * openmc::log(prn(seed));
 
         // sample a relative energy using the xs cdf
         double cdf_rel = cdf_low + prn(seed) * (cdf_up - cdf_low);
@@ -1009,15 +1009,15 @@ Direction sample_cxs_target_velocity(
       // y*e^(-y). This can be done with sampling scheme C45 from the Monte
       // Carlo sampler
 
-      beta_vt_sq = -coremath::log(r1 * r2);
+      beta_vt_sq = -openmc::log(r1 * r2);
 
     } else {
       // With probability 1-alpha, we sample the distribution p(y) = y^2 *
       // e^(-y^2). This can be done with sampling scheme C61 from the Monte
       // Carlo sampler
 
-      double c = coremath::cos(PI / 2.0 * prn(seed));
-      beta_vt_sq = -coremath::log(r1) - coremath::log(r2) * c * c;
+      double c = openmc::cos(PI / 2.0 * prn(seed));
+      beta_vt_sq = -openmc::log(r1) - openmc::log(r2) * c * c;
     }
 
     // Determine beta * vt
@@ -1085,7 +1085,7 @@ void sample_fission_neutron(
 
     // Sample time of emission based on decay constant of precursor
     double decay_rate = rx.products_[site->delayed_group].decay_rate_;
-    site->time -= coremath::log(prn(p.current_seed())) / decay_rate;
+    site->time -= openmc::log(prn(p.current_seed())) / decay_rate;
 
   } else {
     // ====================================================================

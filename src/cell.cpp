@@ -23,7 +23,7 @@
 #include "openmc/nuclide.h"
 #include "openmc/settings.h"
 #include "openmc/xml_interface.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -65,19 +65,19 @@ void Cell::set_rotation(const vector<double>& rot)
     double phi = -rot[0] * PI / 180.0;
     double theta = -rot[1] * PI / 180.0;
     double psi = -rot[2] * PI / 180.0;
-    rotation_.push_back(coremath::cos(theta) * coremath::cos(psi));
-    rotation_.push_back(-coremath::cos(phi) * coremath::sin(psi) +
-                        coremath::sin(phi) * coremath::sin(theta) * coremath::cos(psi));
-    rotation_.push_back(coremath::sin(phi) * coremath::sin(psi) +
-                        coremath::cos(phi) * coremath::sin(theta) * coremath::cos(psi));
-    rotation_.push_back(coremath::cos(theta) * coremath::sin(psi));
-    rotation_.push_back(coremath::cos(phi) * coremath::cos(psi) +
-                        coremath::sin(phi) * coremath::sin(theta) * coremath::sin(psi));
-    rotation_.push_back(-coremath::sin(phi) * coremath::cos(psi) +
-                        coremath::cos(phi) * coremath::sin(theta) * coremath::sin(psi));
-    rotation_.push_back(-coremath::sin(theta));
-    rotation_.push_back(coremath::sin(phi) * coremath::cos(theta));
-    rotation_.push_back(coremath::cos(phi) * coremath::cos(theta));
+    rotation_.push_back(openmc::cos(theta) * openmc::cos(psi));
+    rotation_.push_back(-openmc::cos(phi) * openmc::sin(psi) +
+                        openmc::sin(phi) * openmc::sin(theta) * openmc::cos(psi));
+    rotation_.push_back(openmc::sin(phi) * openmc::sin(psi) +
+                        openmc::cos(phi) * openmc::sin(theta) * openmc::cos(psi));
+    rotation_.push_back(openmc::cos(theta) * openmc::sin(psi));
+    rotation_.push_back(openmc::cos(phi) * openmc::cos(psi) +
+                        openmc::sin(phi) * openmc::sin(theta) * openmc::sin(psi));
+    rotation_.push_back(-openmc::sin(phi) * openmc::cos(psi) +
+                        openmc::cos(phi) * openmc::sin(theta) * openmc::sin(psi));
+    rotation_.push_back(-openmc::sin(theta));
+    rotation_.push_back(openmc::sin(phi) * openmc::cos(theta));
+    rotation_.push_back(openmc::cos(phi) * openmc::cos(theta));
 
     // When user specifies angles, write them at end of vector
     rotation_.push_back(rot[0]);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
-project(openmc C CXX)
+project(openmc CXX)
 
 # Set module path
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
@@ -457,25 +457,24 @@ list(APPEND libopenmc_SOURCES
 
 # Add correctly-rounded math functions (CORE-MATH project, MIT license)
 set(COREMATH_SOURCES
-  src/math/cr_exp.c
-  src/math/cr_expm1.c
-  src/math/cr_log.c
-  src/math/cr_log1p.c
-  src/math/pow/cr_pow.c
-  src/math/cr_sin.c
-  src/math/cr_cos.c
-  src/math/cr_asin.c
-  src/math/cr_acos.c
-  src/math/cr_atan.c
-  src/math/cr_atan2.c
-  src/math/cr_sinh.c
-  src/math/cr_erf.c
-  src/math/cr_erfc.c
-  src/math/cr_lgamma.c
-  src/math/cr_tgamma.c)
+  src/math/cr_exp.cpp
+  src/math/cr_expm1.cpp
+  src/math/cr_log.cpp
+  src/math/cr_log1p.cpp
+  src/math/cr_pow.cpp
+  src/math/cr_sin.cpp
+  src/math/cr_cos.cpp
+  src/math/cr_asin.cpp
+  src/math/cr_acos.cpp
+  src/math/cr_atan.cpp
+  src/math/cr_atan2.cpp
+  src/math/cr_sinh.cpp
+  src/math/cr_erf.cpp
+  src/math/cr_erfc.cpp
+  src/math/cr_lgamma.cpp
+  src/math/cr_tgamma.cpp)
 set_source_files_properties(${COREMATH_SOURCES} PROPERTIES
-  INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/src/math;${CMAKE_CURRENT_SOURCE_DIR}/src/math/pow"
-  LANGUAGE C)
+  INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/src/math")
 list(APPEND libopenmc_SOURCES ${COREMATH_SOURCES})
 
 # For Visual Studio compilers

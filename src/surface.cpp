@@ -19,7 +19,7 @@
 #include "openmc/settings.h"
 #include "openmc/string_utils.h"
 #include "openmc/xml_interface.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -1032,7 +1032,7 @@ double SurfaceXTorus::evaluate(Position r) const
   double y = r.y - y0_;
   double z = r.z - z0_;
   return (x * x) / (B_ * B_) +
-         coremath::pow(std::sqrt(y * y + z * z) - A_, 2) / (C_ * C_) - 1.;
+         openmc::pow(std::sqrt(y * y + z * z) - A_, 2) / (C_ * C_) - 1.;
 }
 
 double SurfaceXTorus::distance(Position r, Direction u, bool coincident) const
@@ -1085,7 +1085,7 @@ double SurfaceYTorus::evaluate(Position r) const
   double y = r.y - y0_;
   double z = r.z - z0_;
   return (y * y) / (B_ * B_) +
-         coremath::pow(std::sqrt(x * x + z * z) - A_, 2) / (C_ * C_) - 1.;
+         openmc::pow(std::sqrt(x * x + z * z) - A_, 2) / (C_ * C_) - 1.;
 }
 
 double SurfaceYTorus::distance(Position r, Direction u, bool coincident) const
@@ -1138,7 +1138,7 @@ double SurfaceZTorus::evaluate(Position r) const
   double y = r.y - y0_;
   double z = r.z - z0_;
   return (z * z) / (B_ * B_) +
-         coremath::pow(std::sqrt(x * x + y * y) - A_, 2) / (C_ * C_) - 1.;
+         openmc::pow(std::sqrt(x * x + y * y) - A_, 2) / (C_ * C_) - 1.;
 }
 
 double SurfaceZTorus::distance(Position r, Direction u, bool coincident) const

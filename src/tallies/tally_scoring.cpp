@@ -19,7 +19,7 @@
 #include "openmc/tallies/filter_cell.h"
 #include "openmc/tallies/filter_delayedgroup.h"
 #include "openmc/tallies/filter_energy.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #include <string>
 
@@ -2439,7 +2439,7 @@ void score_tracklength_tally_general(
               // Determine log union grid index
               if (i_log_union == C_NONE) {
                 int neutron = ParticleType::neutron().transport_index();
-                i_log_union = coremath::log(p.E() / data::energy_min[neutron]) /
+                i_log_union = openmc::log(p.E() / data::energy_min[neutron]) /
                               simulation::log_spacing;
               }
 
@@ -2570,7 +2570,7 @@ void score_collision_tally(Particle& p)
             // Determine log union grid index
             if (i_log_union == C_NONE) {
               int neutron = ParticleType::neutron().transport_index();
-              i_log_union = coremath::log(p.E() / data::energy_min[neutron]) /
+              i_log_union = openmc::log(p.E() / data::energy_min[neutron]) /
                             simulation::log_spacing;
             }
 

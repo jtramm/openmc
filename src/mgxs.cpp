@@ -18,7 +18,7 @@
 #include "openmc/random_lcg.h"
 #include "openmc/settings.h"
 #include "openmc/string_utils.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -670,8 +670,8 @@ int Mgxs::get_angle_index(const Direction& u) const
     return 0;
   } else {
     // convert direction to polar and azimuthal angles
-    double my_pol = coremath::acos(u.z);
-    double my_azi = coremath::atan2(u.y, u.x);
+    double my_pol = openmc::acos(u.z);
+    double my_azi = openmc::atan2(u.y, u.x);
 
     // Find the location, assuming equal-bin angles
     double delta_angle = PI / n_pol;

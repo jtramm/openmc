@@ -29,7 +29,7 @@
 #include "openmc/string_utils.h"
 #include "openmc/thermal.h"
 #include "openmc/xml_interface.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -553,7 +553,7 @@ void Material::collision_stopping_power(double* s_col, bool positron)
 
     electron_density += atom_density * elm.Z_;
     mass_density += atom_density * awr * MASS_NEUTRON;
-    log_I += atom_density * elm.Z_ * coremath::log(elm.I_);
+    log_I += atom_density * elm.Z_ * openmc::log(elm.I_);
 
     for (int j = 0; j < elm.n_electrons_.size(); ++j) {
       if (elm.n_electrons_[j] < 0) {
@@ -609,17 +609,17 @@ void Material::collision_stopping_power(double* s_col, bool positron)
     double F;
     if (positron) {
       double t = tau + 2.0;
-      F = coremath::log(4.0) - (beta_sq / 12.0) * (23.0 + 14.0 / t + 10.0 / (t * t) +
+      F = openmc::log(4.0) - (beta_sq / 12.0) * (23.0 + 14.0 / t + 10.0 / (t * t) +
                                                4.0 / (t * t * t));
     } else {
       F = (1.0 - beta_sq) *
-          (1.0 + tau * tau / 8.0 - (2.0 * tau + 1.0) * coremath::log(2.0));
+          (1.0 + tau * tau / 8.0 - (2.0 * tau + 1.0) * openmc::log(2.0));
     }
 
     // Calculate the collision stopping power for this energy
     s_col[i] =
       c / beta_sq *
-      (2.0 * (coremath::log(E) - log_I) + coremath::log(1.0 + tau / 2.0) + F - delta);
+      (2.0 * (openmc::log(E) - log_I) + openmc::log(1.0 + tau / 2.0) + F - delta);
   }
 }
 
@@ -690,14 +690,14 @@ void Material::init_bremsstrahlung()
     // Issy-les-Moulineaux, France (2011).
     if (positron) {
       for (int i = 0; i < n_e; ++i) {
-        double t = coremath::log(
+        double t = openmc::log(
           1.0 + 1.0e6 * data::ttb_e_grid(i) / (Z_eq_sq * MASS_ELECTRON_EV));
         double r =
           1.0 -
-          coremath::exp(-1.2359e-1 * t + 6.1274e-2 * coremath::pow(t, 2) -
-                   3.1516e-2 * coremath::pow(t, 3) + 7.7446e-3 * coremath::pow(t, 4) -
-                   1.0595e-3 * coremath::pow(t, 5) + 7.0568e-5 * coremath::pow(t, 6) -
-                   1.808e-6 * coremath::pow(t, 7));
+          openmc::exp(-1.2359e-1 * t + 6.1274e-2 * openmc::pow(t, 2) -
+                   3.1516e-2 * openmc::pow(t, 3) + 7.7446e-3 * openmc::pow(t, 4) -
+                   1.0595e-3 * openmc::pow(t, 5) + 7.0568e-5 * openmc::pow(t, 6) -
+                   1.808e-6 * openmc::pow(t, 7));
         stopping_power_radiative(i) *= r;
         auto dcs_i = xt::view(dcs, i, xt::all());
         dcs_i *= r;
@@ -762,13 +762,13 @@ void Material::init_bremsstrahlung()
 
         // Integrate the last two points using trapezoidal rule in log-log space
       } else {
-        double e_l = coremath::log(data::ttb_e_grid(i));
-        double e_r = coremath::log(data::ttb_e_grid(i + 1));
-        double x_l = coremath::log(f(i));
-        double x_r = coremath::log(f(i + 1));
+        double e_l = openmc::log(data::ttb_e_grid(i));
+        double e_r = openmc::log(data::ttb_e_grid(i + 1));
+        double x_l = openmc::log(f(i));
+        double x_r = openmc::log(f(i + 1));
 
         ttb->pdf(i + 1, i) =
-          0.5 * (e_r - e_l) * (coremath::exp(e_l + x_l) + coremath::exp(e_r + x_r));
+          0.5 * (e_r - e_l) * (openmc::exp(e_l + x_l) + openmc::exp(e_r + x_r));
       }
     }
 
@@ -776,20 +776,20 @@ void Material::init_bremsstrahlung()
     for (int j = 1; j < n_e; ++j) {
       // Set last element of PDF to small non-zero value to enable log-log
       // interpolation
-      ttb->pdf(j, j) = coremath::exp(-500.0);
+      ttb->pdf(j, j) = openmc::exp(-500.0);
 
       // Loop over photon energies
       double c = 0.0;
       for (int i = 0; i < j; ++i) {
         // Integrate the CDF from the PDF using the fact that the PDF is linear
         // in log-log space
-        double w_l = coremath::log(data::ttb_e_grid(i));
-        double w_r = coremath::log(data::ttb_e_grid(i + 1));
-        double x_l = coremath::log(ttb->pdf(j, i));
-        double x_r = coremath::log(ttb->pdf(j, i + 1));
+        double w_l = openmc::log(data::ttb_e_grid(i));
+        double w_r = openmc::log(data::ttb_e_grid(i + 1));
+        double x_l = openmc::log(ttb->pdf(j, i));
+        double x_r = openmc::log(ttb->pdf(j, i + 1));
         double beta = (x_r - x_l) / (w_r - w_l);
         double a = beta + 1.0;
-        c += coremath::exp(w_l + x_l) / a * coremath::expm1(a * (w_r - w_l));
+        c += openmc::exp(w_l + x_l) / a * openmc::expm1(a * (w_r - w_l));
         ttb->cdf(j, i + 1) = c;
       }
 
@@ -832,7 +832,7 @@ void Material::calculate_neutron_xs(Particle& p) const
   // Find energy index on energy grid
   int neutron = ParticleType::neutron().transport_index();
   int i_grid =
-    coremath::log(p.E() / data::energy_min[neutron]) / simulation::log_spacing;
+    openmc::log(p.E() / data::energy_min[neutron]) / simulation::log_spacing;
 
   // Determine if this material has S(a,b) tables
   bool check_sab = (thermal_tables_.size() > 0);
@@ -1216,12 +1216,12 @@ double sternheimer_adjustment(const vector<double>& f,
     for (int i = 0; i < n; ++i) {
       // Square of resonance energy of a bound-shell oscillator
       double e_r_sq = e_b_sq[i] * rho * rho + 2.0 / 3.0 * f[i] * e_p_sq;
-      g += f[i] * coremath::log(e_r_sq);
+      g += f[i] * openmc::log(e_r_sq);
       gp += e_b_sq[i] * f[i] * rho / e_r_sq;
     }
     // Include conduction electrons
     if (n_conduction > 0.0) {
-      g += n_conduction * coremath::log(n_conduction * e_p_sq);
+      g += n_conduction * openmc::log(n_conduction * e_p_sq);
     }
 
     // Set the next guess: rho_n+1 = rho_n - g(rho_n)/g'(rho_n)
@@ -1309,11 +1309,11 @@ double density_effect(const vector<double>& f, const vector<double>& e_b_sq,
   // Solve for the density effect correction
   for (int i = 0; i < n; ++i) {
     double l_sq = e_b_sq[i] * rho * rho / e_p_sq + 2.0 / 3.0 * f[i];
-    delta += f[i] * coremath::log((l_sq + w_sq) / l_sq);
+    delta += f[i] * openmc::log((l_sq + w_sq) / l_sq);
   }
   // Include conduction electrons
   if (n_conduction > 0.0) {
-    delta += n_conduction * coremath::log((n_conduction + w_sq) / n_conduction);
+    delta += n_conduction * openmc::log((n_conduction + w_sq) / n_conduction);
   }
 
   return delta - w_sq * (1.0 - beta_sq);

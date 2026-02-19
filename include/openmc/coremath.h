@@ -11,10 +11,6 @@
 //! Source: https://core-math.gitlabpages.inria.fr/
 //! License: MIT
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 double cr_exp(double);
 double cr_expm1(double);
 double cr_log(double);
@@ -31,9 +27,6 @@ double cr_erf(double);
 double cr_erfc(double);
 double cr_lgamma(double);
 double cr_tgamma(double);
-
-#ifdef __cplusplus
-} // extern "C"
 
 namespace coremath {
   inline double exp(double x) { return cr_exp(x); }
@@ -53,6 +46,5 @@ namespace coremath {
   inline double lgamma(double x) { return cr_lgamma(x); }
   inline double tgamma(double x) { return cr_tgamma(x); }
 } // namespace coremath
-#endif
 
 #endif // OPENMC_COREMATH_H

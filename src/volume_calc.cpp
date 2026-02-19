@@ -16,7 +16,7 @@
 #include "openmc/settings.h"
 #include "openmc/timer.h"
 #include "openmc/xml_interface.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 #include "xtensor/xadapt.hpp"
 #include "xtensor/xview.hpp"
@@ -301,7 +301,7 @@ vector<VolumeCalculation::Result> VolumeCalculation::execute() const
             // Accumulate nuclide density
             int i_nuclide = mat->nuclide_[k];
             atoms(i_nuclide, 0) += mat->atom_density_[k] * f;
-            atoms(i_nuclide, 1) += coremath::pow(mat->atom_density_[k], 2) * var_f;
+            atoms(i_nuclide, 1) += openmc::pow(mat->atom_density_[k], 2) * var_f;
           }
         }
 

@@ -7,7 +7,7 @@
 #include "openmc/error.h"
 #include "openmc/search.h"
 #include "openmc/span.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -20,20 +20,20 @@ inline double interpolate_lin_lin(
 inline double interpolate_lin_log(
   double x0, double x1, double y0, double y1, double x)
 {
-  return y0 + coremath::log(x / x0) / coremath::log(x1 / x0) * (y1 - y0);
+  return y0 + openmc::log(x / x0) / openmc::log(x1 / x0) * (y1 - y0);
 }
 
 inline double interpolate_log_lin(
   double x0, double x1, double y0, double y1, double x)
 {
-  return y0 * coremath::exp((x - x0) / (x1 - x0) * coremath::log(y1 / y0));
+  return y0 * openmc::exp((x - x0) / (x1 - x0) * openmc::log(y1 / y0));
 }
 
 inline double interpolate_log_log(
   double x0, double x1, double y0, double y1, double x)
 {
-  double f = coremath::log(x / x0) / coremath::log(x1 / x0);
-  return y0 * coremath::exp(f * coremath::log(y1 / y0));
+  double f = openmc::log(x / x0) / openmc::log(x1 / x0);
+  return y0 * openmc::exp(f * openmc::log(y1 / y0));
 }
 
 inline double interpolate_lagrangian(

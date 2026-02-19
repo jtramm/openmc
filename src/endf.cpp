@@ -12,7 +12,7 @@
 #include "openmc/constants.h"
 #include "openmc/hdf5_interface.h"
 #include "openmc/search.h"
-#include "openmc/coremath.h"
+#include "openmc/math.h"
 
 namespace openmc {
 
@@ -271,7 +271,7 @@ double IncoherentElasticXS::operator()(double E) const
 {
   // Determine cross section using ENDF-102, Eq. (7.5)
   double W = debye_waller_;
-  return bound_xs_ / 2.0 * ((1 - coremath::exp(-4.0 * E * W)) / (2.0 * E * W));
+  return bound_xs_ / 2.0 * ((1 - openmc::exp(-4.0 * E * W)) / (2.0 * E * W));
 }
 
 //==============================================================================
