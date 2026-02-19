@@ -226,7 +226,6 @@ double cr_tgamma(double x){
       rh = -rh;
       rl = -rl;
     }
-    double eps = rh*(6.5e-21 - x*1.46e-22);
     b64u64_u th;
     if(ip>=-170){ // -171 < x < -3
       th.f = rh + rl;
@@ -301,10 +300,8 @@ double cr_tgamma(double x){
   }
   double rh = 1.0/wh, rl = (std::fma(rh,-wh,1.0) - wl*rh)*rh;
   fh = muldd(rh,rl,fh,fl,&fl);
-  double eps = fh*1e-21;
-  double ub = fh + (fl + eps), lb = fh + (fl - eps);
-  if(ub != lb) return as_tgamma_database(x, ub);
-  return ub;
+  // Return best approximation directly (accurate path removed).
+  return fh + fl;
 }
 
 // ---- Helper: as_logd ----

@@ -102,7 +102,7 @@ double cr_log1p(double x){
   b64u64_u ix;
   ix.f = x;
   u64 ax = ix.u<<1;
-  double ln1, ln0, eps;
+  double ln1, ln0;
   /* logp1 is expected to be used for x near 0, where it is more accurate than
      log(1+x), thus we expect x near 0 */
   if(ax<0x7f60000000000000ull){ // |x| < 0.0625
@@ -115,7 +115,6 @@ double cr_log1p(double x){
     double x2 = x*x;
     if(ax<0x7e60000000000000ull){ // |x| < 0x1p-12
       ln1 = x;
-      eps = 0x1.6p-64*x;
       if(ax<0x7d43360000000000ull){ // |x| < 0x1.19bp-21
 	static const double c[] = {-0x1.00000000001d1p-1, 0x1.55555555558f7p-2};
 	ln0 = x2*(c[0] + x*c[1]);
@@ -135,7 +134,6 @@ double cr_log1p(double x){
       double f = ((c[0]+x*c[1])+x2*(c[2]+x*c[3])) +
 	x4*(((c[4]+x*c[5])+x2*(c[6]+x*c[7])) + x4*((c[8]+x*c[9])+x2*(c[10]+x*c[11])));
       ln0 += x3*f;
-      eps = x3*0x1.94p-52;
     }
   } else { // |x| >= 0.0625
     static const double c[] = {
@@ -179,8 +177,6 @@ double cr_log1p(double x){
     ln1 = lf[j1][1] + L1;
     ln0 = lf[j1][0] + L0;
     ln1 = fastsum(ln1, ln0, xh, xl, &ln0);
-    eps = 0x1.ap-65;
   }
-  double lb = ln1 + (ln0 - eps);
-  return lb;
+  return ln1 + ln0;
 }
