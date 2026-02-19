@@ -16,6 +16,7 @@
 #ifndef OPENMC_TENSOR_H
 #define OPENMC_TENSOR_H
 
+#include "openmc/math.h"
 #include "openmc/vector.h"
 
 #include <algorithm>
@@ -1118,7 +1119,7 @@ Tensor<T> log(const Tensor<T>& a)
 {
   Tensor<T> r(a.shape());
   for (size_t i = 0; i < a.size(); ++i)
-    r.data()[i] = std::log(a.data()[i]);
+    r.data()[i] = openmc::log(a.data()[i]);
   return r;
 }
 
