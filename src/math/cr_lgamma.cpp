@@ -687,7 +687,7 @@ static double as_lgamma_accurate(double x){
   }
 
   b64u64_u tl; tl.f = fl;
-  unsigned ft = (tl.u+2)&(~0ul>>12);
+  uint32_t ft = (tl.u+2)&(~(uint64_t)0>>12);
   if(ft <= 2u) return as_lgamma_database(sx, fh + fl);
   return fh + fl;
 }
@@ -695,7 +695,7 @@ static double as_lgamma_accurate(double x){
 double cr_lgamma(double x){
   // piece-wise polynomial approximation in [0.5, 8.29541] range
   // range borders
-  static const unsigned ubrd[20] = {
+  static const uint32_t ubrd[20] = {
     0x1ff0000, 0x1ff146c, 0x1ff2b7b, 0x1ff4532, 0x1ff614c, 0x1ff8310, 0x1ff93f7, 0x1ffa880, 0x1ffc05e,
     0x1ffdb73, 0x1fff8a5, 0x2001147, 0x2002703, 0x20041ac, 0x200622a, 0x20084d9, 0x2009ce7, 0x200ba2c,
     0x200ddd7, 0x20104ba};
@@ -819,14 +819,14 @@ double cr_lgamma(double x){
       return x + x; /* x=NaN, where x+x ensures the "Invalid operation"
 		       exception is set if x is sNaN, and it yields a qNaN */
     }
-    /* The C standard says that if the function overflows,
+    // Return infinity for overflow cases
     if(t.u>>63)
       return 1.0/0.0; // huge negative integer
     else
       return 0x1.fp1023 * 0x1.fp1023; // huge positive integer
   }
   double fx = std::floor(x);
-  if(fx==x){ /* x is integer */
+  if(fx==x){ // x is integer
     if(x <= 0.0) {
       
       return 1.0/0.0;
@@ -836,7 +836,7 @@ double cr_lgamma(double x){
       return 0.0;
     }
   }
-  unsigned au = nx>>38;
+  uint32_t au = nx>>38;
   double fh, fl, eps;
   if(au < ubrd[0]){ // |x|<0.5
 
@@ -866,7 +866,7 @@ double cr_lgamma(double x){
       double xl;
       t.f = fasttwosum(1,t.f, &xl);
       au = t.u>>37;
-      unsigned ou = au - ubrd[0];
+      uint32_t ou = au - ubrd[0];
       int j = ((0x157ced865ul - ou*0x150d)*ou + 0x128000000000)>>45;
       j -= au < ubrd[j];
       double z = (t.f - offs[j]) + xl, z2 = z*z, z4 = z2*z2;
@@ -918,7 +918,7 @@ double cr_lgamma(double x){
       fh = fastsum(lh,ll, fh,fl, &fl);
       eps = std::fabs(fh)*4.5e-20;
     } else {// x in [0.5, 8.29541] range
-      unsigned ou = au - ubrd[0];
+      uint32_t ou = au - ubrd[0];
       int j = ((0x157ced865ul - ou*0x150d)*ou + 0x128000000000)>>45;
       j -= au < ubrd[j];
       double z = ax - offs[j], z2 = z*z, z4 = z2*z2;
@@ -956,7 +956,7 @@ double cr_lgamma(double x){
 }
 
 double as_logd(double x, double *l){
-  static const struct {ushort c0; short c1;} B[] = {
+  static const struct {uint16_t c0; int16_t c1;} B[] = {
     {301, 27565}, {7189, 24786}, {13383, 22167}, {18923, 19696}, {23845, 17361}, {28184, 15150},
     {31969, 13054}, {35231, 11064}, {37996, 9173}, {40288, 7372}, {42129, 5657}, {43542, 4020}, {44546,
     2457}, {45160, 962}, {45399, -468}, {45281, -1838}, {44821, -3151}, {44032, -4412}, {42929, -5622},
@@ -1040,7 +1040,7 @@ double as_logd(double x, double *l){
 }
 
 double as_logd_accurate(double x, double *l, double *l_){
-  static const struct {ushort c0; short c1;} B[] = {
+  static const struct {uint16_t c0; int16_t c1;} B[] = {
     {301, 27565}, {7189, 24786}, {13383, 22167}, {18923, 19696}, {23845, 17361}, {28184, 15150},
       {31969, 13054}, {35231, 11064}, {37996, 9173}, {40288, 7372}, {42129, 5657}, {43542, 4020},
       {44546, 2457}, {45160, 962}, {45399, -468}, {45281, -1838}, {44821, -3151}, {44032, -4412},

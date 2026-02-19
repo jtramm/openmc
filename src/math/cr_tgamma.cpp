@@ -5,7 +5,7 @@
 
 #include "coremath_utils.h"
 
-typedef unsigned short ushort;
+
 
 static inline double sumdd(double xh, double xl, double yh, double yl, double *e){
   double sl, sh;
@@ -307,7 +307,7 @@ double cr_tgamma(double x){
 // ---- Helper: as_logd ----
 
 static double as_logd(double x, double *l){
-  static const struct { ushort c0; short c1; } B[] = {
+  static const struct { uint16_t c0; int16_t c1; } B[] = {
     {301, 27565}, {7189, 24786}, {13383, 22167}, {18923, 19696}, {23845, 17361}, {28184, 15150},
     {31969, 13054}, {35231, 11064}, {37996, 9173}, {40288, 7372}, {42129, 5657}, {43542, 4020}, {44546,
     2457}, {45160, 962}, {45399, -468}, {45281, -1838}, {44821, -3151}, {44032, -4412}, {42929, -5622},

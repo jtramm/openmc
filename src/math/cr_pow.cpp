@@ -88,8 +88,6 @@ static inline void d_mul(double *hi, double *lo, double ah, double al,
   *lo = std::fma(ah, bl, t);
 }
 
-static inline long dtoi(double x) { return (long)x; }
-
 // Returns 1 if x is an integer
 static inline int is_int(double x) { return x == coremath_roundeven(x); }
 
