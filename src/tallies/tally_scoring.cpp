@@ -21,6 +21,7 @@
 #include "openmc/tallies/filter_energy.h"
 #include "openmc/math.h"
 
+#include <numeric>
 #include <string>
 
 namespace openmc {
