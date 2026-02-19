@@ -59,8 +59,11 @@ class SourceTestHarness(PyAPITestHarness):
         # manually take powers because of last-digit differences that may cause
         # test failures with different versions of numpy
         E = np.array([10**x for x in np.linspace(0, 7)])
+        # Hardening the p array
         p = np.sin(np.linspace(0., pi))
-        p /= sum(np.diff(E)*p[:-1])
+        normalization = sum(np.diff(E) * p[:-1])
+        # Round to 12 decimal places to truncate platform-specific noise
+        p = np.round(p / normalization, 12)
         energy1 = openmc.stats.Maxwell(1.2895e6)
         energy2 = openmc.stats.Watt(0.988e6, 2.249e-6)
         energy3 = openmc.stats.Tabular(E, p, interpolation='histogram')
