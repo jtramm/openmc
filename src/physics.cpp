@@ -332,10 +332,18 @@ void sample_photon_reaction(Particle& p)
       alpha, true, &alpha_out, &p.mu(), &i_shell, p.current_seed());
 
     // Determine binding energy of shell. The binding energy is 0.0 if
-    // doppler broadening is not used.
+    // doppler broadening is not used. When atomic relaxation data is
+    // present, use the relaxation binding energy so that the electron
+    // energy and the relaxation cascade are self-consistent (same
+    // approach as the photoelectric effect). Using the Compton profile
+    // binding energy here while the cascade uses relaxation binding
+    // energies can produce negative heating scores.
     double e_b;
     if (i_shell == -1) {
       e_b = 0.0;
+    } else if (settings::atomic_relaxation &&
+               element.subshell_map_[i_shell] >= 0) {
+      e_b = element.shells_[element.subshell_map_[i_shell]].binding_energy;
     } else {
       e_b = element.binding_energy_[i_shell];
     }
@@ -353,9 +361,13 @@ void sample_photon_reaction(Particle& p)
     }
 
     // Allow electrons to fill orbital and produce Auger electrons and
-    // fluorescent photons. Since Compton subshell data does not match atomic
-    // relaxation data, use the mapping between the data to find the subshell
-    if (settings::atomic_relaxation && i_shell >= 0 &&
+    // fluorescent photons. Only perform relaxation if the electron was
+    // actually ejected (E_electron >= 0); when E_electron < 0 the photon
+    // did not transfer enough energy to ionize the shell, so no vacancy
+    // was created and the transferred energy is deposited locally.
+    // Since Compton subshell data does not match atomic relaxation data,
+    // use the mapping between the data to find the subshell.
+    if (E_electron >= 0.0 && settings::atomic_relaxation && i_shell >= 0 &&
         element.subshell_map_[i_shell] >= 0) {
       element.atomic_relaxation(element.subshell_map_[i_shell], p);
     }
