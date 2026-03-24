@@ -257,28 +257,31 @@ std::pair<double, array<int, 3>> RectLattice::distance(
   double y = r.y;
   double z = r.z;
 
-  // Determine the oncoming edge.
+  // Determine the oncoming edge and per-axis distance.
   double x0 {copysign(0.5 * pitch_[0], u.x)};
   double y0 {copysign(0.5 * pitch_[1], u.y)};
-  double z0;
+  double d_x = u.x != 0.0 ? (x0 - x) / u.x : INFTY;
+  double d_y = u.y != 0.0 ? (y0 - y) / u.y : INFTY;
+  double d_z = INFTY;
 
-  double d = std::min(
-    u.x != 0.0 ? (x0 - x) / u.x : INFTY, u.y != 0.0 ? (y0 - y) / u.y : INFTY);
+  double d = std::min(d_x, d_y);
   if (is_3d_) {
-    z0 = copysign(0.5 * pitch_[2], u.z);
-    d = std::min(d, u.z != 0.0 ? (z0 - z) / u.z : INFTY);
+    double z0 = copysign(0.5 * pitch_[2], u.z);
+    d_z = u.z != 0.0 ? (z0 - z) / u.z : INFTY;
+    d = std::min(d, d_z);
   }
 
-  // Determine which lattice boundaries are being crossed
+  // Determine which lattice boundaries are being crossed.  A boundary is
+  // crossed if its per-axis distance is within FP_COINCIDENT of the minimum.
+  // Using a relative/coincidence check instead of the absolute FP_PRECISION
+  // avoids failures when coordinates and pitch are large.
   array<int, 3> lattice_trans = {0, 0, 0};
-  if (u.x != 0.0 && std::abs(x + u.x * d - x0) < FP_PRECISION)
+  if (d_x - d < FP_COINCIDENT)
     lattice_trans[0] = copysign(1, u.x);
-  if (u.y != 0.0 && std::abs(y + u.y * d - y0) < FP_PRECISION)
+  if (d_y - d < FP_COINCIDENT)
     lattice_trans[1] = copysign(1, u.y);
-  if (is_3d_) {
-    if (u.z != 0.0 && std::abs(z + u.z * d - z0) < FP_PRECISION)
-      lattice_trans[2] = copysign(1, u.z);
-  }
+  if (is_3d_ && d_z - d < FP_COINCIDENT)
+    lattice_trans[2] = copysign(1, u.z);
 
   return {d, lattice_trans};
 }

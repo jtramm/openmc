@@ -449,6 +449,7 @@ BoundaryInfo distance_to_boundary(GeometryState& p)
       }
     }
   }
+
   return info;
 }
 
