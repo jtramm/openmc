@@ -365,8 +365,9 @@ Direction RectLattice::get_normal(
 
 int32_t& RectLattice::offset(int map, const array<int, 3>& i_xyz)
 {
-  return offsets_[n_cells_[0] * n_cells_[1] * n_cells_[2] * map +
-                  n_cells_[0] * n_cells_[1] * i_xyz[2] +
+  return offsets_[static_cast<int64_t>(n_cells_[0]) * n_cells_[1] *
+                    n_cells_[2] * map +
+                  static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * i_xyz[2] +
                   n_cells_[0] * i_xyz[1] + i_xyz[0]];
 }
 
@@ -374,7 +375,9 @@ int32_t& RectLattice::offset(int map, const array<int, 3>& i_xyz)
 
 int32_t RectLattice::offset(int map, int indx) const
 {
-  return offsets_[n_cells_[0] * n_cells_[1] * n_cells_[2] * map + indx];
+  return offsets_[static_cast<int64_t>(n_cells_[0]) * n_cells_[1] *
+                    n_cells_[2] * map +
+                  indx];
 }
 
 //==============================================================================
@@ -1109,18 +1112,18 @@ bool HexLattice::is_valid_index(int indx) const
 
 int32_t& HexLattice::offset(int map, const array<int, 3>& i_xyz)
 {
-  int nx {2 * n_rings_ - 1};
-  int ny {2 * n_rings_ - 1};
-  int nz {n_axial_};
+  int64_t nx {2 * n_rings_ - 1};
+  int64_t ny {2 * n_rings_ - 1};
+  int64_t nz {n_axial_};
   return offsets_[nx * ny * nz * map + nx * ny * i_xyz[2] + nx * i_xyz[1] +
                   i_xyz[0]];
 }
 
 int32_t HexLattice::offset(int map, int indx) const
 {
-  int nx {2 * n_rings_ - 1};
-  int ny {2 * n_rings_ - 1};
-  int nz {n_axial_};
+  int64_t nx {2 * n_rings_ - 1};
+  int64_t ny {2 * n_rings_ - 1};
+  int64_t nz {n_axial_};
   return offsets_[nx * ny * nz * map + indx];
 }
 
