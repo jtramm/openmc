@@ -488,11 +488,19 @@ int count_universe_instances(int32_t search_univ, int32_t target_univ_id,
         count_universe_instances(next_univ, target_univ_id, univ_count_memo);
 
     } else if (c.type_ == Fill::LATTICE) {
+      // For large lattices, iterating every element is extremely expensive.
+      // Instead, count unique universes and their multiplicities, then
+      // compute the total from those. The multiplicity map is cached on
+      // the lattice to avoid recomputing it for each target universe.
       Lattice& lat = *model::lattices[c.fill_];
-      for (auto it = lat.begin(); it != lat.end(); ++it) {
-        int32_t next_univ = *it;
-        count +=
-          count_universe_instances(next_univ, target_univ_id, univ_count_memo);
+      if (lat.universe_multiplicity_.empty()) {
+        for (auto it = lat.begin(); it != lat.end(); ++it) {
+          lat.universe_multiplicity_[*it]++;
+        }
+      }
+      for (const auto& [univ_idx, mult] : lat.universe_multiplicity_) {
+        count += mult * count_universe_instances(
+                          univ_idx, target_univ_id, univ_count_memo);
       }
     }
   }

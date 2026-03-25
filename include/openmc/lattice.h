@@ -51,6 +51,8 @@ public:
   vector<int32_t> universes_;         //!< Universes filling each lattice tile
   int32_t outer_ {NO_OUTER_UNIVERSE}; //!< Universe tiled outside the lattice
   vector<int32_t> offsets_;           //!< Distribcell offset table
+  std::unordered_map<int32_t, int64_t>
+    universe_multiplicity_; //!< Cached count of each unique universe
 
   explicit Lattice(pugi::xml_node lat_node);
 

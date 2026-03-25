@@ -77,16 +77,36 @@ ReverseLatticeIter Lattice::rend()
 
 void Lattice::adjust_indices()
 {
-  // Adjust the indices for the universes array.
-  for (LatticeIter it = begin(); it != end(); ++it) {
-    int uid = *it;
-    auto search = model::universe_map.find(uid);
-    if (search != model::universe_map.end()) {
-      *it = search->second;
-    } else {
+  // Adjust the indices for the universes array. For large lattices with
+  // millions of elements but only a few thousand unique universes, we
+  // collect the unique IDs first (using a set over the small universe_map),
+  // build a flat lookup table, and then remap all elements in parallel.
+
+  // Build a flat ID-to-index lookup array from the global universe map.
+  // Find the max universe ID to size the array.
+  int max_id = 0;
+  for (const auto& [uid, idx] : model::universe_map) {
+    if (uid > max_id)
+      max_id = uid;
+  }
+  vector<int32_t> uid_to_idx(max_id + 1, C_NONE);
+  for (const auto& [uid, idx] : model::universe_map) {
+    uid_to_idx[uid] = idx;
+  }
+
+  // Remap all lattice elements in parallel using direct array lookup.
+  // Skip C_NONE entries (invalid/padding positions in hex lattices).
+  int64_t n = universes_.size();
+#pragma omp parallel for schedule(static)
+  for (int64_t i = 0; i < n; i++) {
+    int uid = universes_[i];
+    if (uid == C_NONE)
+      continue;
+    if (uid < 0 || uid > max_id || uid_to_idx[uid] == C_NONE) {
       fatal_error(fmt::format(
         "Invalid universe number {} specified on lattice {}", uid, id_));
     }
+    universes_[i] = uid_to_idx[uid];
   }
 
   // Adjust the index for the outer universe.
@@ -206,47 +226,68 @@ RectLattice::RectLattice(pugi::xml_node lat_node) : Lattice {lat_node}
     pitch_[2] = stod(pitch_words[2]);
   }
 
-  // Read the universes, parsing integers directly from the raw XML text to
-  // avoid creating millions of std::string objects via split(). We use
-  // pugixml's child_value() to get a direct const char* pointer, avoiding
-  // a 200MB+ std::string copy for large lattices.
+  // Read the universes, parsing integers directly from the raw XML text.
+  // For large lattices (98M+ elements), we first locate the start of each
+  // integer in the text, then parse them in parallel with OpenMP.
   const char* univ_cstr = lat_node.child_value("universes");
   int64_t n_univ = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * n_cells_[2];
 
-  // Parse all integers in a single pass using strtol
-  vector<int32_t> univ_ids;
-  univ_ids.reserve(n_univ);
+  // First pass: find the starting position of each integer token.
+  // This is sequential but only does pointer arithmetic (no parsing).
+  vector<const char*> token_starts;
+  token_starts.reserve(n_univ);
   const char* ptr = univ_cstr;
-  char* end;
   while (*ptr) {
-    // Skip whitespace
-    while (*ptr && std::isspace(*ptr))
+    while (*ptr && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' ||
+                    *ptr == '\r'))
       ++ptr;
     if (!*ptr)
       break;
-    int32_t val = static_cast<int32_t>(std::strtol(ptr, &end, 10));
-    if (end == ptr)
-      break; // no more integers
-    univ_ids.push_back(val);
-    ptr = end;
+    token_starts.push_back(ptr);
+    while (*ptr && *ptr != ' ' && *ptr != '\t' && *ptr != '\n' &&
+           *ptr != '\r')
+      ++ptr;
   }
 
-  if (static_cast<int64_t>(univ_ids.size()) != n_univ) {
+  if (static_cast<int64_t>(token_starts.size()) != n_univ) {
     fatal_error(fmt::format(
       "Expected {} universes for a rectangular lattice of size {}x{}x{} but {} "
       "were specified.",
-      n_univ, n_cells_[0], n_cells_[1], n_cells_[2], univ_ids.size()));
+      n_univ, n_cells_[0], n_cells_[1], n_cells_[2], token_starts.size()));
+  }
+
+  // Second pass: parse integers in parallel. Each thread converts a chunk
+  // of tokens using a fast inline parser (avoids strtol locale overhead).
+  vector<int32_t> univ_ids(n_univ);
+#pragma omp parallel for schedule(static)
+  for (int64_t i = 0; i < n_univ; i++) {
+    // Fast integer parse (no locale, no error checking needed — we trust
+    // the XML writer produced valid integers).
+    const char* p = token_starts[i];
+    int32_t val = 0;
+    bool neg = false;
+    if (*p == '-') {
+      neg = true;
+      ++p;
+    }
+    while (*p >= '0' && *p <= '9') {
+      val = val * 10 + (*p - '0');
+      ++p;
+    }
+    univ_ids[i] = neg ? -val : val;
   }
 
   // Assign universes with y-axis flip (lattice convention).
   universes_.resize(n_univ, C_NONE);
-  for (int iz = 0; iz < n_cells_[2]; iz++) {
-    for (int iy = n_cells_[1] - 1; iy > -1; iy--) {
-      for (int ix = 0; ix < n_cells_[0]; ix++) {
-        int64_t indx1 = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * iz +
-                        n_cells_[0] * (n_cells_[1] - iy - 1) + ix;
-        int64_t indx2 = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * iz +
-                        n_cells_[0] * iy + ix;
+  int64_t nx = n_cells_[0];
+  int64_t ny = n_cells_[1];
+  int64_t nz = n_cells_[2];
+#pragma omp parallel for schedule(static)
+  for (int64_t iz = 0; iz < nz; iz++) {
+    for (int64_t iy = ny - 1; iy >= 0; iy--) {
+      for (int64_t ix = 0; ix < nx; ix++) {
+        int64_t indx1 = nx * ny * iz + nx * (ny - iy - 1) + ix;
+        int64_t indx2 = nx * ny * iz + nx * iy + ix;
         universes_[indx1] = univ_ids[indx2];
       }
     }
