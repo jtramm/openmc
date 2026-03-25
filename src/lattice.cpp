@@ -206,26 +206,48 @@ RectLattice::RectLattice(pugi::xml_node lat_node) : Lattice {lat_node}
     pitch_[2] = stod(pitch_words[2]);
   }
 
-  // Read the universes and make sure the correct number was specified.
-  std::string univ_str {get_node_value(lat_node, "universes")};
-  vector<std::string> univ_words {split(univ_str)};
-  if (univ_words.size() != n_cells_[0] * n_cells_[1] * n_cells_[2]) {
+  // Read the universes, parsing integers directly from the raw XML text to
+  // avoid creating millions of std::string objects via split(). We use
+  // pugixml's child_value() to get a direct const char* pointer, avoiding
+  // a 200MB+ std::string copy for large lattices.
+  const char* univ_cstr = lat_node.child_value("universes");
+  int64_t n_univ = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * n_cells_[2];
+
+  // Parse all integers in a single pass using strtol
+  vector<int32_t> univ_ids;
+  univ_ids.reserve(n_univ);
+  const char* ptr = univ_cstr;
+  char* end;
+  while (*ptr) {
+    // Skip whitespace
+    while (*ptr && std::isspace(*ptr))
+      ++ptr;
+    if (!*ptr)
+      break;
+    int32_t val = static_cast<int32_t>(std::strtol(ptr, &end, 10));
+    if (end == ptr)
+      break; // no more integers
+    univ_ids.push_back(val);
+    ptr = end;
+  }
+
+  if (static_cast<int64_t>(univ_ids.size()) != n_univ) {
     fatal_error(fmt::format(
       "Expected {} universes for a rectangular lattice of size {}x{}x{} but {} "
       "were specified.",
-      n_cells_[0] * n_cells_[1] * n_cells_[2], n_cells_[0], n_cells_[1],
-      n_cells_[2], univ_words.size()));
+      n_univ, n_cells_[0], n_cells_[1], n_cells_[2], univ_ids.size()));
   }
 
-  // Parse the universes.
-  universes_.resize(n_cells_[0] * n_cells_[1] * n_cells_[2], C_NONE);
+  // Assign universes with y-axis flip (lattice convention).
+  universes_.resize(n_univ, C_NONE);
   for (int iz = 0; iz < n_cells_[2]; iz++) {
     for (int iy = n_cells_[1] - 1; iy > -1; iy--) {
       for (int ix = 0; ix < n_cells_[0]; ix++) {
-        int indx1 = n_cells_[0] * n_cells_[1] * iz +
-                    n_cells_[0] * (n_cells_[1] - iy - 1) + ix;
-        int indx2 = n_cells_[0] * n_cells_[1] * iz + n_cells_[0] * iy + ix;
-        universes_[indx1] = std::stoi(univ_words[indx2]);
+        int64_t indx1 = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * iz +
+                        n_cells_[0] * (n_cells_[1] - iy - 1) + ix;
+        int64_t indx2 = static_cast<int64_t>(n_cells_[0]) * n_cells_[1] * iz +
+                        n_cells_[0] * iy + ix;
+        universes_[indx1] = univ_ids[indx2];
       }
     }
   }
