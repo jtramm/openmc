@@ -65,11 +65,6 @@ constexpr int MAX_SAMPLE {100000};
 // source region in the random ray solver
 constexpr double MIN_HITS_PER_BATCH {1.5};
 
-// The minimum flux value to be considered non-zero when computing adjoint
-// sources. Positive values below this cutoff will be treated as zero, so as to
-// prevent extremely large adjoint source terms from being generated.
-constexpr double ZERO_FLUX_CUTOFF {1e-22};
-
 // The minimum macroscopic cross section value considered non-void for the
 // random ray solver. Materials with any group with a cross section below this
 // value will be converted to pure void.

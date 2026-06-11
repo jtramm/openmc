@@ -1233,30 +1233,21 @@ void FlatSourceDomain::flatten_xs()
 
 void FlatSourceDomain::set_fw_adjoint_sources()
 {
-  // Set the adjoint external source to 1/forward_flux. If the forward flux is
-  // negative, zero, or extremely close to zero, set the adjoint source to zero,
-  // as this is likely a very small source region that we don't need to bother
-  // trying to vector particles towards. In the case of flux "being extremely
-  // close to zero", we define this as being a fixed fraction of the maximum
-  // forward flux, below which we assume the flux would be physically
-  // undetectable.
+  // Set the adjoint external source to 1/forward_flux. Regions with a
+  // negative or zero forward flux estimate are given no adjoint source. Such
+  // estimates are not related to the flux being physically low, but rather
+  // result from source regions that are too small in volume to be sampled
+  // reliably -- as are the "small" source regions filtered below. Legitimately
+  // low flux estimates are left alone, no matter how small: their large
+  // adjoint sources are exactly what directs particles toward deeply shielded
+  // regions.
 
-  // First, find the maximum forward flux value
-  double max_flux = 0.0;
-#pragma omp parallel for reduction(max : max_flux)
-  for (int64_t se = 0; se < n_source_elements(); se++) {
-    double flux = source_regions_.scalar_flux_final(se);
-    if (flux > max_flux) {
-      max_flux = flux;
-    }
-  }
-
-  // Then, compute the adjoint source for each source region
+  // Compute the adjoint source for each source region
 #pragma omp parallel for
   for (int64_t sr = 0; sr < n_source_regions(); sr++) {
     for (int g = 0; g < negroups_; g++) {
       double flux = source_regions_.scalar_flux_final(sr, g);
-      if (flux <= ZERO_FLUX_CUTOFF * max_flux) {
+      if (flux <= 0.0) {
         source_regions_.external_source(sr, g) = 0.0;
       } else {
         source_regions_.external_source(sr, g) = 1.0 / flux;
