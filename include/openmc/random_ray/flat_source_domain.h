@@ -92,6 +92,11 @@ public:
   // Static data members
   static RandomRayVolumeEstimator volume_estimator_;
 
+  // Ratio of reduced source to previous scalar flux above which a source
+  // region is treated as having a strong inhomogeneous source by the
+  // adaptive volume estimator
+  static double volume_kappa_;
+
   //----------------------------------------------------------------------------
   // Public Data members
   double k_eff_ {1.0};              // Eigenvalue
@@ -99,6 +104,13 @@ public:
 
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms
+
+  // Counters tracking how often source regions receive special volume
+  // treatment, accumulated over all (source region, iteration) pairs for
+  // end-of-simulation reporting
+  int64_t n_small_region_iterations_ {0};
+  int64_t n_strong_source_region_iterations_ {0};
+  int64_t n_region_iterations_ {0};
 
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells

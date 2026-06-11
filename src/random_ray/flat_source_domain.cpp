@@ -29,6 +29,7 @@ namespace openmc {
 // Static Variable Declarations
 RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
   RandomRayVolumeEstimator::HYBRID};
+double FlatSourceDomain::volume_kappa_ {4.0};
 bool FlatSourceDomain::volume_normalized_flux_tallies_ {false};
 bool FlatSourceDomain::adjoint_ {false};
 bool FlatSourceDomain::fw_cadis_local_ {false};
@@ -231,8 +232,10 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 {
   int64_t n_hits = 0;
   double inverse_batch = 1.0 / simulation::current_batch;
+  int64_t n_small = 0;
+  int64_t n_strong_source = 0;
 
-#pragma omp parallel for reduction(+ : n_hits)
+#pragma omp parallel for reduction(+ : n_hits, n_small, n_strong_source)
   for (int64_t sr = 0; sr < n_source_regions(); sr++) {
 
     double volume_simulation_avg = source_regions_.volume(sr);
@@ -251,6 +254,32 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       source_regions_.is_small(sr) = 0;
     }
 
+    // Determine if the source region has a "strong" inhomogeneous source,
+    // defined as any group whose reduced source greatly exceeds the previous
+    // iteration's scalar flux. In that condition the cell sits far below its
+    // own infinite-medium flux (q/Sigma_t), which only occurs when an
+    // optically thin cell holds a source that does not derive from its own
+    // local flux (an external source, or in-scatter from other groups). The
+    // flux update in such cells is a near-cancellation of the transport term
+    // against q/Sigma_t, which is only exact when the volumes used by the two
+    // terms are consistent -- so these cells require the naive (iteration)
+    // volume estimator and the previous-flux miss treatment to avoid error
+    // terms proportional to (q/Sigma_t) * (1 - V_iteration/V_average) that
+    // can greatly exceed the physical flux. A negative reduced source (from a
+    // garbage flux elsewhere) is also treated as strong so that consistent
+    // normalization can restore a physical value.
+    bool strong_source = false;
+    for (int g = 0; g < negroups_; g++) {
+      float src = source_regions_.source(sr, g);
+      float flux_old = source_regions_.scalar_flux_old(sr, g);
+      if (src < 0.0f || src > volume_kappa_ * std::max(flux_old, 0.0f)) {
+        strong_source = true;
+        break;
+      }
+    }
+    n_small += source_regions_.is_small(sr);
+    n_strong_source += strong_source;
+
     // The volume treatment depends on the volume estimator type
     // and whether or not an external source is present in the cell.
     double volume;
@@ -264,6 +293,14 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     case RandomRayVolumeEstimator::HYBRID:
       if (source_regions_.external_source_present(sr) ||
           source_regions_.is_small(sr)) {
+        volume = volume_iteration;
+      } else {
+        volume = volume_simulation_avg;
+      }
+      break;
+    case RandomRayVolumeEstimator::ADAPTIVE:
+      if (source_regions_.external_source_present(sr) ||
+          source_regions_.is_small(sr) || strong_source) {
         volume = volume_iteration;
       } else {
         volume = volume_simulation_avg;
@@ -294,7 +331,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // in the cell we will use the previous iteration's flux estimate. This
         // injects a small degree of correlation into the simulation, but this
         // is going to be trivial when the miss rate is a few percent or less.
-        if (source_regions_.external_source_present(sr)) {
+        if (source_regions_.external_source_present(sr) ||
+            (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+              (strong_source || source_regions_.is_small(sr)))) {
           set_flux_to_old_flux(sr, g);
         } else {
           set_flux_to_source(sr, g);
@@ -309,6 +348,11 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       }
     }
   }
+
+  // Accumulate special-treatment statistics for end-of-simulation reporting
+  n_small_region_iterations_ += n_small;
+  n_strong_source_region_iterations_ += n_strong_source;
+  n_region_iterations_ += n_source_regions();
 
   // Return the number of source regions that were hit this iteration
   return n_hits;
@@ -1383,7 +1427,7 @@ void FlatSourceDomain::set_fw_adjoint_sources()
         source_regions_.external_source_present(sr) = 0;
       }
     } // End loop over source regions
-  } // End local FW-CADIS logic
+  }   // End local FW-CADIS logic
 }
 
 void FlatSourceDomain::set_local_adjoint_sources()

@@ -202,8 +202,13 @@ class Settings:
             specified by a :class:`openmc.SourceBase` object.
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
-            'naive', 'simulation_averaged', or 'hybrid'.
+            'naive', 'simulation_averaged', 'hybrid', or 'adaptive'.
             The default is 'hybrid'.
+        :volume_estimator_kappa:
+            Threshold ratio of a source region's reduced source to its
+            previous-iteration scalar flux above which the 'adaptive' volume
+            estimator treats the region as having a strong inhomogeneous
+            source. The default is 4.0.
         :source_shape:
             Assumed shape of the source distribution within each source region.
             Options are 'flat' (default), 'linear', or 'linear_xy'.
@@ -1416,7 +1421,10 @@ class Settings:
             elif key == 'volume_estimator':
                 cv.check_value('volume estimator', value,
                                ('naive', 'simulation_averaged',
-                                'hybrid'))
+                                'hybrid', 'adaptive'))
+            elif key == 'volume_estimator_kappa':
+                cv.check_type('volume estimator kappa', value, Real)
+                cv.check_greater_than('volume estimator kappa', value, 0.0)
             elif key == 'source_shape':
                 cv.check_value('source shape', value,
                                ('flat', 'linear', 'linear_xy'))
@@ -2494,7 +2502,7 @@ class Settings:
         if elem is not None:
             self.random_ray = {}
             for child in elem:
-                if child.tag in ('distance_inactive', 'distance_active', 'diagonal_stabilization_rho'):
+                if child.tag in ('distance_inactive', 'distance_active', 'diagonal_stabilization_rho', 'volume_estimator_kappa'):
                     self.random_ray[child.tag] = float(child.text)
                 elif child.tag == 'ray_source':
                     source_element = child.find('source')

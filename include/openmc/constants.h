@@ -365,7 +365,12 @@ enum class RunMode {
 
 enum class SolverType { MONTE_CARLO, RANDOM_RAY };
 
-enum class RandomRayVolumeEstimator { NAIVE, SIMULATION_AVERAGED, HYBRID };
+enum class RandomRayVolumeEstimator {
+  NAIVE,
+  SIMULATION_AVERAGED,
+  HYBRID,
+  ADAPTIVE
+};
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };
 

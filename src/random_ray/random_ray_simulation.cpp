@@ -288,6 +288,7 @@ void validate_random_ray_inputs()
 void openmc_finalize_random_ray()
 {
   FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::HYBRID;
+  FlatSourceDomain::volume_kappa_ = 4.0;
   FlatSourceDomain::volume_normalized_flux_tallies_ = false;
   FlatSourceDomain::adjoint_ = false;
   FlatSourceDomain::fw_cadis_local_ = false;
@@ -598,10 +599,22 @@ void RandomRaySimulation::print_results_random_ray(
     case RandomRayVolumeEstimator::HYBRID:
       estimator = "Hybrid";
       break;
+    case RandomRayVolumeEstimator::ADAPTIVE:
+      estimator = fmt::format(
+        "Adaptive (kappa = {:.4g})", FlatSourceDomain::volume_kappa_);
+      break;
     default:
       fatal_error("Invalid volume estimator type");
     }
     fmt::print(" Volume Estimator Type             = {}\n", estimator);
+    if (domain_->n_region_iterations_ > 0) {
+      fmt::print(" Avg Small SR Fraction             = {:.4f}%\n",
+        100.0 * domain_->n_small_region_iterations_ /
+          static_cast<double>(domain_->n_region_iterations_));
+      fmt::print(" Avg Strong Source SR Fraction     = {:.4f}%\n",
+        100.0 * domain_->n_strong_source_region_iterations_ /
+          static_cast<double>(domain_->n_region_iterations_));
+    }
 
     std::string adjoint_true = (FlatSourceDomain::adjoint_) ? "ON" : "OFF";
     fmt::print(" Adjoint Flux Mode                 = {}\n", adjoint_true);
