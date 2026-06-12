@@ -1421,7 +1421,7 @@ class Settings:
             elif key == 'volume_estimator':
                 cv.check_value('volume estimator', value,
                                ('naive', 'simulation_averaged',
-                                'hybrid', 'adaptive'))
+                                'hybrid', 'adaptive', 'adaptive_rwindow'))
             elif key == 'volume_estimator_kappa':
                 cv.check_type('volume estimator kappa', value, Real)
                 cv.check_greater_than('volume estimator kappa', value, 0.0)

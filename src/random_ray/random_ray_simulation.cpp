@@ -603,6 +603,11 @@ void RandomRaySimulation::print_results_random_ray(
       estimator = fmt::format(
         "Adaptive (kappa = {:.4g})", FlatSourceDomain::volume_kappa_);
       break;
+    case RandomRayVolumeEstimator::ADAPTIVE_RWINDOW:
+      estimator = fmt::format("Adaptive R-Window (kappa = {:.4g}, "
+                              "window = {:.2g})",
+        FlatSourceDomain::volume_kappa_, VOLUME_RATIO_WINDOW);
+      break;
     default:
       fatal_error("Invalid volume estimator type");
     }

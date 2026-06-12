@@ -77,6 +77,14 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 constexpr double NEGATIVE_FLUX_DEMOTION_MIN_COUNT {3.0};
 constexpr double NEGATIVE_FLUX_DEMOTION_RATE {0.005};
 
+// Half-width of the volume-ratio acceptance window for the experimental
+// adaptive_rwindow policy: when this iteration's volume ratio
+// V_iteration/V_average differs from unity by more than this value, the
+// naive volume is used for the iteration (the simulation-averaged update is
+// a linear extrapolation in the ratio, so far-from-unity ratios extrapolate
+// far beyond the sampled data).
+constexpr double VOLUME_RATIO_WINDOW {0.5};
+
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
 // prevent extremely large adjoint source terms from being generated.
@@ -381,7 +389,8 @@ enum class RandomRayVolumeEstimator {
   NAIVE,
   SIMULATION_AVERAGED,
   HYBRID,
-  ADAPTIVE
+  ADAPTIVE,
+  ADAPTIVE_RWINDOW
 };
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };

@@ -303,6 +303,9 @@ void get_run_parameters(pugi::xml_node node_base)
       } else if (temp_str == "adaptive") {
         FlatSourceDomain::volume_estimator_ =
           RandomRayVolumeEstimator::ADAPTIVE;
+      } else if (temp_str == "adaptive_rwindow") {
+        FlatSourceDomain::volume_estimator_ =
+          RandomRayVolumeEstimator::ADAPTIVE_RWINDOW;
       } else {
         fatal_error("Unrecognized volume estimator: " + temp_str);
       }

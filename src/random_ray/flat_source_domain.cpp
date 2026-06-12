@@ -312,6 +312,18 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         volume = volume_simulation_avg;
       }
       break;
+    case RandomRayVolumeEstimator::ADAPTIVE_RWINDOW: {
+      double r = (volume_simulation_avg > 0.0)
+                   ? volume_iteration / volume_simulation_avg
+                   : 1.0;
+      if (source_regions_.external_source_present(sr) ||
+          source_regions_.is_small(sr) || strong_source ||
+          std::abs(r - 1.0) > VOLUME_RATIO_WINDOW) {
+        volume = volume_iteration;
+      } else {
+        volume = volume_simulation_avg;
+      }
+    } break;
     default:
       fatal_error("Invalid volume estimator type");
     }
@@ -367,7 +379,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // injects a small degree of correlation into the simulation, but this
         // is going to be trivial when the miss rate is a few percent or less.
         if (source_regions_.external_source_present(sr) ||
-            (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+            ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
+               volume_estimator_ ==
+                 RandomRayVolumeEstimator::ADAPTIVE_RWINDOW) &&
               (strong_source || source_regions_.is_small(sr) ||
                 source_regions_.n_negative_fluxes(sr) >=
                   demotion_count_threshold))) {
