@@ -1,5 +1,8 @@
 #include "openmc/random_ray/linear_source_domain.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "openmc/cell.h"
 #include "openmc/geometry.h"
 #include "openmc/material.h"
@@ -109,6 +112,92 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     for (int g = 0; g < negroups_; g++) {
       srh.source(g) += srh.external_source(g);
+    }
+  }
+
+  // Under the adaptive volume estimators, regions receiving the protected
+  // (naive volume) treatment for a strong inhomogeneous source or chronic
+  // negativity also fall back to a flat source representation. In such
+  // regions the reduced source greatly exceeds the scalar flux, so the
+  // flat-source cancellation must be exact; the gradient terms attenuate
+  // segments against the local rather than the flat source, introducing
+  // per-iteration noise at the gradient scale that the volume choice cannot
+  // cancel. Zeroing the gradients there extends the existing flat-source
+  // fallback already applied to hit-starved (small) regions.
+  if ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
+        volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE_RWINDOW) &&
+      material != MATERIAL_VOID) {
+    bool strong_source = false;
+    for (int g = 0; g < negroups_; g++) {
+      double src = srh.source(g);
+      if (src < 0.0 ||
+          src > volume_kappa_ * std::max(srh.scalar_flux_old(g), 0.0)) {
+        strong_source = true;
+        break;
+      }
+    }
+    // Gradients are latched flat by the same chronic-negativity criterion
+    // used for volume demotion: a region whose negativity is persistent has
+    // untrustworthy tilts. Isolated events are instead handled by the
+    // positivity floor at flux-update time, which keeps them out of the
+    // accumulated tallies without permanently disabling the linear source
+    // in regions whose moments are otherwise sound.
+    double demotion_count_threshold = std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
+      NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
+    if (strong_source || srh.n_tilt_events() >= demotion_count_threshold) {
+      for (int g = 0; g < negroups_; g++) {
+        srh.source_gradients(g) = {0.0, 0.0, 0.0};
+      }
+    }
+  }
+
+  // Limit the source gradients such that the local source
+  // q(r) = q_flat + (r - centroid) . q_gradient
+  // remains non-negative over the full spatial extent of the source region.
+  // A region whose mean source is positive but whose gradient is steep emits
+  // a negative source over part of its extent, which drives angular fluxes
+  // negative along ray segments; rays then export the contamination to
+  // downstream regions, producing negative scalar fluxes far from the
+  // offending region. Steep spurious gradients are common in poorly sampled
+  // regions, where the inverted spatial moments matrix is ill-conditioned.
+  // The limiter rescales the gradient vector (which preserves the region's
+  // mean emission exactly, so the flat component of the source is unbiased)
+  // by bounding the worst-case gradient overshoot over the region's spatial
+  // extent: the maximum of (r - centroid) . q_gradient over the support
+  // ellipsoid implied by the spatial moments matrix M is
+  // sqrt(3 q_gradient^T M q_gradient), the multidimensional generalization
+  // of the slab-exact half-extent h = sqrt(3 <dx^2>). Optically thick
+  // regions are exempt: their negative local emission self-attenuates
+  // rather than propagating, and their steep tilts are genuine physics
+  // whose clipping would degrade the linear source's accuracy advantage
+  // where it matters most. Regions with trustworthy moments and gentle
+  // gradients are unaffected.
+  if (material != MATERIAL_VOID) {
+    const MomentMatrix& m = srh.mom_matrix();
+    double hx = std::sqrt(3.0 * std::max(m.a, 0.0));
+    double hy = std::sqrt(3.0 * std::max(m.d, 0.0));
+    double hz = std::sqrt(3.0 * std::max(m.f, 0.0));
+    double chord = 2.0 * std::max({hx, hy, hz});
+    for (int g = 0; g < negroups_; g++) {
+      double sigma_t =
+        sigma_t_[(material * ntemperature_ + temp) * negroups_ + g] *
+        density_mult;
+      if (sigma_t * chord >= SOURCE_GRADIENT_LIMITER_MAX_TAU) {
+        continue;
+      }
+      MomentArray& gradient = srh.source_gradients(g);
+      double quad =
+        m.a * gradient.x * gradient.x + m.d * gradient.y * gradient.y +
+        m.f * gradient.z * gradient.z +
+        2.0 * (m.b * gradient.x * gradient.y + m.c * gradient.x * gradient.z +
+                m.e * gradient.y * gradient.z);
+      double overshoot = std::sqrt(3.0 * std::max(quad, 0.0));
+      double flat = srh.source(g);
+      if (overshoot > flat) {
+        double scale =
+          (overshoot > 0.0) ? std::max(flat, 0.0) / overshoot : 0.0;
+        gradient *= scale;
+      }
     }
   }
 }

@@ -305,6 +305,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       }
     }
     bool negative_this_iteration = false;
+    bool tilt_event_this_iteration = false;
 
     // The volume treatment depends on the volume estimator type
     // and whether or not an external source is present in the cell.
@@ -383,9 +384,36 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
             !used_naive_volume &&
             source_regions_.scalar_flux_new(sr, g) < 0.0f) {
           rescale_flux_volume(sr, g, volume / volume_iteration);
-          if (!negative_this_iteration) {
-            source_regions_.n_negative_fluxes(sr)++;
-            negative_this_iteration = true;
+          // The rescue's outcome attributes the negativity to its cause: a
+          // flux the consistent naive volume turns non-negative was a
+          // volume-extrapolation artifact and counts toward volume
+          // demotion, while one that remains negative was produced by the
+          // linear source tilt and counts toward the gradient latch
+          // instead. Keeping the two counters separate prevents tilt noise
+          // from demoting a sound volume estimator and volume noise from
+          // flattening sound gradients.
+          if (source_regions_.scalar_flux_new(sr, g) >= 0.0f) {
+            if (!negative_this_iteration) {
+              source_regions_.n_negative_fluxes(sr)++;
+              negative_this_iteration = true;
+            }
+          }
+        }
+
+        // Positivity floor: a negative flux that survives the rescue (one
+        // produced by linear source tilts rather than the volume estimator,
+        // for which no consistent recomputation exists) is replaced by the
+        // previous iteration's estimate. The event feeds the counter that
+        // latches gradients flat, so the cause is removed and the
+        // substitution occurs at most a few times per region over a run --
+        // a vanishing fraction of the iterations entering the accumulated
+        // tallies.
+        if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+            source_regions_.scalar_flux_new(sr, g) < 0.0f) {
+          set_flux_to_old_flux(sr, g);
+          if (!tilt_event_this_iteration) {
+            source_regions_.n_tilt_events(sr)++;
+            tilt_event_this_iteration = true;
           }
         }
       } else if (volume_simulation_avg > 0.0) {

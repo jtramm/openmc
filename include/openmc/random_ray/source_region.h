@@ -150,6 +150,7 @@ public:
   double* density_mult_;
   int* is_small_;
   int* n_negative_fluxes_;
+  int* n_tilt_events_;
   int* n_hits_;
   int* birthday_;
   OpenMPMutex* lock_;
@@ -208,6 +209,8 @@ public:
   const int is_small() const { return *is_small_; }
   int& n_negative_fluxes() { return *n_negative_fluxes_; }
   const int n_negative_fluxes() const { return *n_negative_fluxes_; }
+  int& n_tilt_events() { return *n_tilt_events_; }
+  const int n_tilt_events() const { return *n_tilt_events_; }
 
   int& n_hits() { return *n_hits_; }
   const int n_hits() const { return *n_hits_; }
@@ -347,6 +350,11 @@ public:
         //!< produced a negative flux in this region (adaptive estimator
         //!< only). Regions where this becomes chronic are demoted to the
         //!< naive volume estimator.
+  int n_tilt_events_ {
+    0}; //!< Number of iterations in which a negative flux survived the
+        //!< naive-volume rescue, implicating the linear source tilt rather
+        //!< than the volume estimator (adaptive estimator only). Regions
+        //!< where this becomes chronic have their source gradients zeroed.
   int n_hits_ {0};    //!< Number of total hits (ray crossings)
                       // Mesh that subdivides this source region
   int mesh_ {C_NONE}; //!< Index in openmc::model::meshes array that subdivides
@@ -426,6 +434,8 @@ public:
   {
     return n_negative_fluxes_[sr];
   }
+  int& n_tilt_events(int64_t sr) { return n_tilt_events_[sr]; }
+  const int n_tilt_events(int64_t sr) const { return n_tilt_events_[sr]; }
 
   int& n_hits(int64_t sr) { return n_hits_[sr]; }
   const int n_hits(int64_t sr) const { return n_hits_[sr]; }
@@ -659,6 +669,7 @@ private:
   vector<double> density_mult_;
   vector<int> is_small_;
   vector<int> n_negative_fluxes_;
+  vector<int> n_tilt_events_;
   vector<int> n_hits_;
   vector<int> mesh_;
   vector<int64_t> parent_sr_;

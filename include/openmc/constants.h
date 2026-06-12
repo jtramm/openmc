@@ -77,6 +77,14 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 constexpr double NEGATIVE_FLUX_DEMOTION_MIN_COUNT {3.0};
 constexpr double NEGATIVE_FLUX_DEMOTION_RATE {0.005};
 
+// The linear source gradient limiter is applied only to source regions that
+// are optically thin (cell optical thickness below this value) in the group
+// being limited. A negative local source in an optically thick region is
+// attenuated within the region and cannot propagate, and the steep source
+// tilts of optically thick regions are genuine physics that the limiter
+// would otherwise clip, degrading the linear source's accuracy advantage.
+constexpr double SOURCE_GRADIENT_LIMITER_MAX_TAU {1.0};
+
 // Half-width of the volume-ratio acceptance window for the experimental
 // adaptive_rwindow policy: when this iteration's volume ratio
 // V_iteration/V_average differs from unity by more than this value, the
