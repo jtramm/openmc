@@ -171,6 +171,14 @@ void LinearSourceDomain::set_flux_to_flux_plus_source(
   }
 }
 
+void LinearSourceDomain::rescale_flux_volume(int64_t sr, int g, double ratio)
+{
+  FlatSourceDomain::rescale_flux_volume(sr, g, ratio);
+  // Moments are normalized by the same volume as the scalar flux (zeroed
+  // moments of small regions stay zero under scaling)
+  source_regions_.flux_moments_new(sr, g) *= ratio;
+}
+
 void LinearSourceDomain::set_flux_to_old_flux(int64_t sr, int g)
 {
   source_regions_.scalar_flux_new(sr, g) =

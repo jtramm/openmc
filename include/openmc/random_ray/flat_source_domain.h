@@ -179,6 +179,12 @@ protected:
   void apply_external_source_to_cell_and_children(
     int32_t i_cell, int src_idx, int32_t target_material_id);
   virtual void set_flux_to_flux_plus_source(int64_t sr, double volume, int g);
+
+  //! Rescale an element's freshly computed flux as if the transport term had
+  //! been normalized by a volume smaller by the given ratio (used when the
+  //! negative-flux rescue recomputes an element with the naive volume).
+  //! \param[in] ratio Ratio of the originally used volume to the new volume
+  virtual void rescale_flux_volume(int64_t sr, int g, double ratio);
   void set_flux_to_source(int64_t sr, int g);
   virtual void set_flux_to_old_flux(int64_t sr, int g);
 

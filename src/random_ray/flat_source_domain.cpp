@@ -215,6 +215,27 @@ void FlatSourceDomain::set_flux_to_flux_plus_source(
   }
 }
 
+void FlatSourceDomain::rescale_flux_volume(int64_t sr, int g, double ratio)
+{
+  int material = source_regions_.material(sr);
+  if (material == MATERIAL_VOID) {
+    if (settings::run_mode == RunMode::FIXED_SOURCE) {
+      double source_part = 0.5f * source_regions_.external_source(sr, g) *
+                           source_regions_.volume_sq(sr);
+      source_regions_.scalar_flux_new(sr, g) =
+        (source_regions_.scalar_flux_new(sr, g) - source_part) * ratio +
+        source_part;
+    } else {
+      source_regions_.scalar_flux_new(sr, g) *= ratio;
+    }
+  } else {
+    source_regions_.scalar_flux_new(sr, g) =
+      (source_regions_.scalar_flux_new(sr, g) - source_regions_.source(sr, g)) *
+        ratio +
+      source_regions_.source(sr, g);
+  }
+}
+
 void FlatSourceDomain::set_flux_to_old_flux(int64_t sr, int g)
 {
   source_regions_.scalar_flux_new(sr, g) =
@@ -340,7 +361,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // the flat source from the previous iteration plus the contributions
         // from rays passing through the source region (computed during the
         // transport sweep)
-        float raw_flux = source_regions_.scalar_flux_new(sr, g);
         set_flux_to_flux_plus_source(sr, volume, g);
 
         // Streaming-dominated cells near strong localized sources can have
@@ -360,10 +380,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // is simply a naive-estimator region from that point on, which is
         // unbiased.
         if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
-            volume != volume_iteration &&
+            !used_naive_volume &&
             source_regions_.scalar_flux_new(sr, g) < 0.0f) {
-          source_regions_.scalar_flux_new(sr, g) = raw_flux;
-          set_flux_to_flux_plus_source(sr, volume_iteration, g);
+          rescale_flux_volume(sr, g, volume / volume_iteration);
           if (!negative_this_iteration) {
             source_regions_.n_negative_fluxes(sr)++;
             negative_this_iteration = true;
