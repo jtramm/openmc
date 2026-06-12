@@ -232,14 +232,16 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
 {
   int64_t n_hits = 0;
   double inverse_batch = 1.0 / simulation::current_batch;
+  int64_t n_naive = 0;
+  int64_t n_strong = 0;
+  int64_t n_demoted = 0;
   int64_t n_small = 0;
-  int64_t n_strong_source = 0;
-  int64_t n_negative_rescues = 0;
+  bool final_iteration = (simulation::current_batch == settings::n_batches);
   double demotion_count_threshold = std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
     NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
 
 #pragma omp parallel for reduction(                                           \
-  + : n_hits, n_small, n_strong_source, n_negative_rescues)
+  + : n_hits, n_naive, n_strong, n_demoted, n_small)
   for (int64_t sr = 0; sr < n_source_regions(); sr++) {
 
     double volume_simulation_avg = source_regions_.volume(sr);
@@ -281,51 +283,54 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         break;
       }
     }
-    n_small += source_regions_.is_small(sr);
-    n_strong_source += strong_source;
     bool negative_this_iteration = false;
 
     // The volume treatment depends on the volume estimator type
     // and whether or not an external source is present in the cell.
     double volume;
+    bool used_naive_volume = false;
     switch (volume_estimator_) {
     case RandomRayVolumeEstimator::NAIVE:
-      volume = volume_iteration;
+      used_naive_volume = true;
       break;
     case RandomRayVolumeEstimator::SIMULATION_AVERAGED:
-      volume = volume_simulation_avg;
       break;
     case RandomRayVolumeEstimator::HYBRID:
-      if (source_regions_.external_source_present(sr) ||
-          source_regions_.is_small(sr)) {
-        volume = volume_iteration;
-      } else {
-        volume = volume_simulation_avg;
-      }
+      used_naive_volume = source_regions_.external_source_present(sr) ||
+                          source_regions_.is_small(sr);
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
-      if (source_regions_.external_source_present(sr) ||
-          source_regions_.is_small(sr) || strong_source ||
-          source_regions_.n_negative_fluxes(sr) >= demotion_count_threshold) {
-        volume = volume_iteration;
-      } else {
-        volume = volume_simulation_avg;
-      }
+      used_naive_volume =
+        source_regions_.external_source_present(sr) ||
+        source_regions_.is_small(sr) || strong_source ||
+        source_regions_.n_negative_fluxes(sr) >= demotion_count_threshold;
       break;
     case RandomRayVolumeEstimator::ADAPTIVE_RWINDOW: {
       double r = (volume_simulation_avg > 0.0)
                    ? volume_iteration / volume_simulation_avg
                    : 1.0;
-      if (source_regions_.external_source_present(sr) ||
-          source_regions_.is_small(sr) || strong_source ||
-          std::abs(r - 1.0) > VOLUME_RATIO_WINDOW) {
-        volume = volume_iteration;
-      } else {
-        volume = volume_simulation_avg;
-      }
+      used_naive_volume = source_regions_.external_source_present(sr) ||
+                          source_regions_.is_small(sr) || strong_source ||
+                          std::abs(r - 1.0) > VOLUME_RATIO_WINDOW;
     } break;
     default:
       fatal_error("Invalid volume estimator type");
+    }
+    volume = used_naive_volume ? volume_iteration : volume_simulation_avg;
+
+    // On the final iteration, classify the naive volume treatment by cause
+    // (mutually exclusive, in priority order, so the causes sum to the
+    // total) for the end-of-simulation report.
+    if (final_iteration && used_naive_volume) {
+      n_naive++;
+      if (source_regions_.external_source_present(sr) || strong_source) {
+        n_strong++;
+      } else if (source_regions_.n_negative_fluxes(sr) >=
+                 demotion_count_threshold) {
+        n_demoted++;
+      } else if (source_regions_.is_small(sr)) {
+        n_small++;
+      }
     }
 
     for (int g = 0; g < negroups_; g++) {
@@ -363,7 +368,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
             source_regions_.n_negative_fluxes(sr)++;
             negative_this_iteration = true;
           }
-          n_negative_rescues++;
         }
       } else if (volume_simulation_avg > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
@@ -400,11 +404,14 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
   }
 
-  // Accumulate special-treatment statistics for end-of-simulation reporting
-  n_small_region_iterations_ += n_small;
-  n_strong_source_region_iterations_ += n_strong_source;
-  n_negative_flux_rescues_ += n_negative_rescues;
-  n_region_iterations_ += n_source_regions();
+  // Store the final-iteration treatment snapshot for reporting
+  if (final_iteration) {
+    n_final_naive_ = n_naive;
+    n_final_strong_ = n_strong;
+    n_final_demoted_ = n_demoted;
+    n_final_small_ = n_small;
+    final_stats_valid_ = true;
+  }
 
   // Return the number of source regions that were hit this iteration
   return n_hits;

@@ -105,13 +105,14 @@ public:
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms
 
-  // Counters tracking how often source regions receive special volume
-  // treatment, accumulated over all (source region, iteration) pairs for
-  // end-of-simulation reporting
-  int64_t n_small_region_iterations_ {0};
-  int64_t n_strong_source_region_iterations_ {0};
-  int64_t n_negative_flux_rescues_ {0};
-  int64_t n_region_iterations_ {0};
+  // Final-iteration snapshot of the naive volume treatment, classified by
+  // cause with mutually exclusive attribution (the cause lines sum to the
+  // total), for end-of-simulation reporting
+  int64_t n_final_naive_ {0};
+  int64_t n_final_strong_ {0};
+  int64_t n_final_demoted_ {0};
+  int64_t n_final_small_ {0};
+  bool final_stats_valid_ {false};
 
   // 1D array representing source region starting offset for each OpenMC Cell
   // in model::cells
