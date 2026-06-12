@@ -612,26 +612,17 @@ void RandomRaySimulation::print_results_random_ray(
       fatal_error("Invalid volume estimator type");
     }
     fmt::print(" Volume Estimator Type             = {}\n", estimator);
-    if (domain_->n_region_iterations_ > 0) {
-      fmt::print(" Avg Small SR Fraction             = {:.4f}%\n",
-        100.0 * domain_->n_small_region_iterations_ /
-          static_cast<double>(domain_->n_region_iterations_));
-      fmt::print(" Avg Strong Source SR Fraction     = {:.4f}%\n",
-        100.0 * domain_->n_strong_source_region_iterations_ /
-          static_cast<double>(domain_->n_region_iterations_));
-      fmt::print(" Negative Flux Rescue Events       = {}\n",
-        domain_->n_negative_flux_rescues_);
-      double demotion_count_threshold =
-        std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
-          NEGATIVE_FLUX_DEMOTION_RATE * settings::n_batches);
-      int64_t n_demoted = 0;
-      for (int64_t sr = 0; sr < domain_->n_source_regions(); sr++) {
-        if (domain_->source_regions_.n_negative_fluxes(sr) >=
-            demotion_count_threshold) {
-          n_demoted++;
-        }
-      }
-      fmt::print(" Demoted (Chronic Negative) SRs    = {}\n", n_demoted);
+    if (domain_->final_stats_valid_) {
+      double inv = 100.0 / domain_->n_source_regions();
+      fmt::print(" Naive Volume Treatment (final iteration, by cause):\n");
+      fmt::print("   Total                           = {} SRs ({:.4f}%)\n",
+        domain_->n_final_naive_, domain_->n_final_naive_ * inv);
+      fmt::print("   Strong/External Source          = {} SRs ({:.4f}%)\n",
+        domain_->n_final_strong_, domain_->n_final_strong_ * inv);
+      fmt::print("   Chronic Negative Flux (demoted) = {} SRs ({:.4f}%)\n",
+        domain_->n_final_demoted_, domain_->n_final_demoted_ * inv);
+      fmt::print("   Hit-Starved (Small)             = {} SRs ({:.4f}%)\n",
+        domain_->n_final_small_, domain_->n_final_small_ * inv);
     }
 
     std::string adjoint_true = (FlatSourceDomain::adjoint_) ? "ON" : "OFF";
