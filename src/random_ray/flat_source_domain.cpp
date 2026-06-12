@@ -234,8 +234,12 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   double inverse_batch = 1.0 / simulation::current_batch;
   int64_t n_small = 0;
   int64_t n_strong_source = 0;
+  int64_t n_negative_rescues = 0;
+  double demotion_count_threshold = std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
+    NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
 
-#pragma omp parallel for reduction(+ : n_hits, n_small, n_strong_source)
+#pragma omp parallel for reduction(                                           \
+  + : n_hits, n_small, n_strong_source, n_negative_rescues)
   for (int64_t sr = 0; sr < n_source_regions(); sr++) {
 
     double volume_simulation_avg = source_regions_.volume(sr);
@@ -279,6 +283,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
     n_small += source_regions_.is_small(sr);
     n_strong_source += strong_source;
+    bool negative_this_iteration = false;
 
     // The volume treatment depends on the volume estimator type
     // and whether or not an external source is present in the cell.
@@ -300,7 +305,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
       if (source_regions_.external_source_present(sr) ||
-          source_regions_.is_small(sr) || strong_source) {
+          source_regions_.is_small(sr) || strong_source ||
+          source_regions_.n_negative_fluxes(sr) >= demotion_count_threshold) {
         volume = volume_iteration;
       } else {
         volume = volume_simulation_avg;
@@ -317,7 +323,36 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // the flat source from the previous iteration plus the contributions
         // from rays passing through the source region (computed during the
         // transport sweep)
+        float raw_flux = source_regions_.scalar_flux_new(sr, g);
         set_flux_to_flux_plus_source(sr, volume, g);
+
+        // Streaming-dominated cells near strong localized sources can have
+        // large per-iteration variance in their accumulated angular flux
+        // contributions (a few discrete rays carry most of the throughput),
+        // which the simulation-averaged volume converts into sign-flipping
+        // noise. Such cells cannot be detected by the strong-source ratio
+        // test, as their own source is weak relative to their (streaming)
+        // flux. If the simulation-averaged estimate goes negative, the
+        // region is permanently demoted to the naive (iteration) volume
+        // estimator, whose update is a positively-weighted average of the
+        // sampled angular fluxes and therefore cannot go negative with a
+        // non-negative source. The demotion is a persistent latch rather
+        // than a per-iteration substitution: replacing only the negative
+        // fluctuations of an estimator clips the lower tail of its noise
+        // distribution and biases the mean upward, while a latched region
+        // is simply a naive-estimator region from that point on, which is
+        // unbiased.
+        if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+            volume != volume_iteration &&
+            source_regions_.scalar_flux_new(sr, g) < 0.0f) {
+          source_regions_.scalar_flux_new(sr, g) = raw_flux;
+          set_flux_to_flux_plus_source(sr, volume_iteration, g);
+          if (!negative_this_iteration) {
+            source_regions_.n_negative_fluxes(sr)++;
+            negative_this_iteration = true;
+          }
+          n_negative_rescues++;
+        }
       } else if (volume_simulation_avg > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we need to make a choice about what
@@ -333,7 +368,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // is going to be trivial when the miss rate is a few percent or less.
         if (source_regions_.external_source_present(sr) ||
             (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
-              (strong_source || source_regions_.is_small(sr)))) {
+              (strong_source || source_regions_.is_small(sr) ||
+                source_regions_.n_negative_fluxes(sr) >=
+                  demotion_count_threshold))) {
           set_flux_to_old_flux(sr, g);
         } else {
           set_flux_to_source(sr, g);
@@ -352,6 +389,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   // Accumulate special-treatment statistics for end-of-simulation reporting
   n_small_region_iterations_ += n_small;
   n_strong_source_region_iterations_ += n_strong_source;
+  n_negative_flux_rescues_ += n_negative_rescues;
   n_region_iterations_ += n_source_regions();
 
   // Return the number of source regions that were hit this iteration

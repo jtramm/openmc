@@ -110,6 +110,7 @@ public:
   // end-of-simulation reporting
   int64_t n_small_region_iterations_ {0};
   int64_t n_strong_source_region_iterations_ {0};
+  int64_t n_negative_flux_rescues_ {0};
   int64_t n_region_iterations_ {0};
 
   // 1D array representing source region starting offset for each OpenMC Cell

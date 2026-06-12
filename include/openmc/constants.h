@@ -65,6 +65,18 @@ constexpr int MAX_SAMPLE {100000};
 // source region in the random ray solver
 constexpr double MIN_HITS_PER_BATCH {1.5};
 
+// Thresholds for demoting a source region to the naive volume estimator
+// under the adaptive volume policy. A region is demoted when the
+// simulation-averaged volume has produced a negative flux in at least
+// NEGATIVE_FLUX_DEMOTION_MIN_COUNT iterations and in at least
+// NEGATIVE_FLUX_DEMOTION_RATE of all iterations so far. Isolated negative
+// fluctuations are instead repaired per-iteration (with negligible
+// selection bias, as the repair is rare), preserving the unbiased
+// simulation-averaged estimator in regions where negativity is not
+// chronic.
+constexpr double NEGATIVE_FLUX_DEMOTION_MIN_COUNT {3.0};
+constexpr double NEGATIVE_FLUX_DEMOTION_RATE {0.005};
+
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
 // prevent extremely large adjoint source terms from being generated.

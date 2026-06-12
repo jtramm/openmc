@@ -614,6 +614,19 @@ void RandomRaySimulation::print_results_random_ray(
       fmt::print(" Avg Strong Source SR Fraction     = {:.4f}%\n",
         100.0 * domain_->n_strong_source_region_iterations_ /
           static_cast<double>(domain_->n_region_iterations_));
+      fmt::print(" Negative Flux Rescue Events       = {}\n",
+        domain_->n_negative_flux_rescues_);
+      double demotion_count_threshold =
+        std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
+          NEGATIVE_FLUX_DEMOTION_RATE * settings::n_batches);
+      int64_t n_demoted = 0;
+      for (int64_t sr = 0; sr < domain_->n_source_regions(); sr++) {
+        if (domain_->source_regions_.n_negative_fluxes(sr) >=
+            demotion_count_threshold) {
+          n_demoted++;
+        }
+      }
+      fmt::print(" Demoted (Chronic Negative) SRs    = {}\n", n_demoted);
     }
 
     std::string adjoint_true = (FlatSourceDomain::adjoint_) ? "ON" : "OFF";
