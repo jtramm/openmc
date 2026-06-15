@@ -215,8 +215,13 @@ void FlatSourceDomain::set_flux_to_flux_plus_source(
   }
 }
 
-void FlatSourceDomain::rescale_flux_volume(int64_t sr, int g, double ratio)
+void FlatSourceDomain::convert_flux_to_naive_volume(int64_t sr, int g)
 {
+  // The volume ratio is V_average / V_iteration: subtracting the source
+  // recovers the volume-normalized transport term, multiplying by this ratio
+  // re-normalizes it to the naive (iteration) volume, and adding the source
+  // back yields the flux the naive estimator would have produced.
+  double ratio = source_regions_.volume(sr) / source_regions_.volume_naive(sr);
   int material = source_regions_.material(sr);
   if (material == MATERIAL_VOID) {
     if (settings::run_mode == RunMode::FIXED_SOURCE) {
@@ -383,7 +388,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
             !used_naive_volume &&
             source_regions_.scalar_flux_new(sr, g) < 0.0f) {
-          rescale_flux_volume(sr, g, volume / volume_iteration);
+          convert_flux_to_naive_volume(sr, g);
           // The rescue's outcome attributes the negativity to its cause: a
           // flux the consistent naive volume turns non-negative was a
           // volume-extrapolation artifact and counts toward volume

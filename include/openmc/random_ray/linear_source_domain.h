@@ -33,7 +33,7 @@ protected:
   //----------------------------------------------------------------------------
   // Methods
   void set_flux_to_flux_plus_source(int64_t sr, double volume, int g) override;
-  void rescale_flux_volume(int64_t sr, int g, double ratio) override;
+  void convert_flux_to_naive_volume(int64_t sr, int g) override;
   void set_flux_to_old_flux(int64_t sr, int g) override;
 
 }; // class LinearSourceDomain
