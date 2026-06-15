@@ -65,6 +65,15 @@ constexpr int MAX_SAMPLE {100000};
 // source region in the random ray solver
 constexpr double MIN_HITS_PER_BATCH {1.5};
 
+// Strong-source ratio threshold for the adaptive volume estimator. A source
+// region is treated as having a "strong" inhomogeneous source -- and is given
+// the naive volume and previous-flux miss treatment -- in any group where the
+// reduced source q/Sigma_t exceeds this multiple of the region's scalar flux,
+// indicating a source sustained by an external or in-scatter contribution
+// rather than by the local flux. The value sits well inside the plateau where
+// benign problems are untriggered while pathological cells are still caught.
+constexpr double ADAPTIVE_VOLUME_KAPPA {4.0};
+
 // Thresholds for demoting a source region to the naive volume estimator
 // under the adaptive volume policy. A region is demoted when the
 // simulation-averaged volume has produced a negative flux in at least
@@ -92,14 +101,6 @@ constexpr int LINEAR_SOURCE_GRADIENT_WARMUP_BATCHES {10};
 // tilts of optically thick regions are genuine physics that the limiter
 // would otherwise clip, degrading the linear source's accuracy advantage.
 constexpr double SOURCE_GRADIENT_LIMITER_MAX_TAU {1.0};
-
-// Half-width of the volume-ratio acceptance window for the experimental
-// adaptive_rwindow policy: when this iteration's volume ratio
-// V_iteration/V_average differs from unity by more than this value, the
-// naive volume is used for the iteration (the simulation-averaged update is
-// a linear extrapolation in the ratio, so far-from-unity ratios extrapolate
-// far beyond the sampled data).
-constexpr double VOLUME_RATIO_WINDOW {0.5};
 
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
@@ -405,8 +406,7 @@ enum class RandomRayVolumeEstimator {
   NAIVE,
   SIMULATION_AVERAGED,
   HYBRID,
-  ADAPTIVE,
-  ADAPTIVE_RWINDOW
+  ADAPTIVE
 };
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };

@@ -126,14 +126,13 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // per-iteration noise at the gradient scale that the volume choice cannot
   // cancel. Zeroing the gradients there extends the existing flat-source
   // fallback already applied to hit-starved (small) regions.
-  if ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
-        volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE_RWINDOW) &&
+  if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
       material != MATERIAL_VOID) {
     bool strong_source = false;
     for (int g = 0; g < negroups_; g++) {
       double src = srh.source(g);
       if (src < 0.0 ||
-          src > volume_kappa_ * std::max(srh.scalar_flux_old(g), 0.0)) {
+          src > ADAPTIVE_VOLUME_KAPPA * std::max(srh.scalar_flux_old(g), 0.0)) {
         strong_source = true;
         break;
       }

@@ -511,8 +511,8 @@ when using the naive estimator, though at the cost of a notable increase in
 variance. Empirical testing reveals that on most eigenvalue problems, the
 simulation averaged estimator does win out overall in numerical performance, as
 a much coarser quadrature can be used resulting in faster runtimes overall.
-Thus, OpenMC uses the simulation averaged estimator as default in its random ray
-mode for eigenvalue solves.
+Thus, the simulation averaged estimator is generally preferred over the naive
+estimator for eigenvalue solves.
 
 OpenMC also features a "hybrid" volume estimator that uses the naive estimator
 for all regions containing an external (fixed) source term. For all other
@@ -523,6 +523,26 @@ with external source terms via use of the naive estimator. In general, it is
 recommended to use the "hybrid" estimator, which is the default method used
 in OpenMC. If instability is encountered despite high ray densities, then
 the naive estimator may be preferable.
+
+OpenMC also features an "adaptive" volume estimator that generalizes the
+hybrid estimator. Rather than selecting the estimator from the presence of an
+external source alone, it uses the simulation averaged estimator by default and
+falls back to the naive estimator (and the previous-iteration miss treatment)
+on a per-region, per-group basis wherever the simulation averaged estimator is
+prone to instability. Three conditions trigger the fallback: a reduced source
+that greatly exceeds the region's scalar flux (a source sustained by an
+external or in-scatter contribution rather than by the local flux), a
+hit-starved region, and a region in which the simulation averaged estimator
+chronically produces negative fluxes. For the last condition, any negative flux
+produced in an iteration is repaired by recomputing it with the naive
+(iteration) volume, which is a positively weighted average and so cannot be
+negative; regions where these repairs become chronic are demoted to the naive
+estimator for the remainder of the solve. Whereas the hybrid estimator guards
+only regions with explicit external sources, the adaptive estimator also
+catches the streaming- and scattering-dominated regions of optically thin fixed
+source problems, where the simulation averaged and hybrid estimators can
+otherwise develop persistent negative fluxes. It is therefore recommended for
+fixed source and shielding problems that exhibit such instability.
 
 A table that summarizes the pros and cons, as well as recommendations for
 different use cases, is given in the :ref:`volume

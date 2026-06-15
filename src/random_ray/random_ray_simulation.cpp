@@ -288,7 +288,6 @@ void validate_random_ray_inputs()
 void openmc_finalize_random_ray()
 {
   FlatSourceDomain::volume_estimator_ = RandomRayVolumeEstimator::HYBRID;
-  FlatSourceDomain::volume_kappa_ = 4.0;
   FlatSourceDomain::volume_normalized_flux_tallies_ = false;
   FlatSourceDomain::adjoint_ = false;
   FlatSourceDomain::fw_cadis_local_ = false;
@@ -600,13 +599,7 @@ void RandomRaySimulation::print_results_random_ray(
       estimator = "Hybrid";
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
-      estimator = fmt::format(
-        "Adaptive (kappa = {:.4g})", FlatSourceDomain::volume_kappa_);
-      break;
-    case RandomRayVolumeEstimator::ADAPTIVE_RWINDOW:
-      estimator = fmt::format("Adaptive R-Window (kappa = {:.4g}, "
-                              "window = {:.2g})",
-        FlatSourceDomain::volume_kappa_, VOLUME_RATIO_WINDOW);
+      estimator = "Adaptive";
       break;
     default:
       fatal_error("Invalid volume estimator type");

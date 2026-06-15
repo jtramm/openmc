@@ -1058,6 +1058,22 @@ following methods are currently available in OpenMC:
        * Stability of the naive estimator in cells with fixed sources
      - * Can lead to slightly negative fluxes in cells where the simulation
          averaged estimator is used
+   * - ``adaptive``
+     - Generalizes the hybrid estimator. Uses the simulation averaged estimator
+       by default, but applies the naive estimator (and the previous-iteration
+       miss treatment) per cell and energy group wherever it is needed for
+       stability: cells whose reduced source greatly exceeds their flux (a
+       strong external or in-scatter source), hit-starved cells, and cells in
+       which the simulation averaged estimator chronically produces negative
+       fluxes. The fallback decision is made automatically from each cell's
+       behavior during the run.
+     - * Retains the low bias of the simulation averaged estimator wherever it
+         is well behaved
+       * Eliminates the negative fluxes and numerical instability that the
+         simulation averaged and hybrid estimators can exhibit in optically
+         thin, scattering- or streaming-dominated problems
+       * No parameters to tune
+     - * Slightly more per-cell bookkeeping than the other estimators
 
 These estimators can be selected by setting the ``volume_estimator`` field in the
 :attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
@@ -1066,6 +1082,16 @@ estimator, the following code would be used:
 ::
 
     settings.random_ray['volume_estimator'] = 'naive'
+
+The ``adaptive`` estimator is recommended for fixed source and shielding
+problems in which the default ``hybrid`` estimator produces negative fluxes or
+numerical instability. This commonly occurs in optically thin,
+scattering- or streaming-dominated regions (for example, the air- or
+void-filled regions of a shielding model), where a small number of cells can
+develop persistent negative fluxes that degrade tally results and, in
+variance reduction workflows, the quality of generated weight windows. The
+adaptive estimator detects and stabilizes those cells automatically while
+leaving the rest of the problem on the low-bias simulation averaged estimator.
 
 -----------------
 Adjoint Flux Mode

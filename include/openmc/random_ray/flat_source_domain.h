@@ -92,11 +92,6 @@ public:
   // Static data members
   static RandomRayVolumeEstimator volume_estimator_;
 
-  // Ratio of reduced source to previous scalar flux above which a source
-  // region is treated as having a strong inhomogeneous source by the
-  // adaptive volume estimator
-  static double volume_kappa_;
-
   //----------------------------------------------------------------------------
   // Public Data members
   double k_eff_ {1.0};              // Eigenvalue

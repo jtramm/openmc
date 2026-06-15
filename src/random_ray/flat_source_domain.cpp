@@ -29,7 +29,6 @@ namespace openmc {
 // Static Variable Declarations
 RandomRayVolumeEstimator FlatSourceDomain::volume_estimator_ {
   RandomRayVolumeEstimator::HYBRID};
-double FlatSourceDomain::volume_kappa_ {4.0};
 bool FlatSourceDomain::volume_normalized_flux_tallies_ {false};
 bool FlatSourceDomain::adjoint_ {false};
 bool FlatSourceDomain::fw_cadis_local_ {false};
@@ -304,7 +303,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     for (int g = 0; g < negroups_; g++) {
       float src = source_regions_.source(sr, g);
       float flux_old = source_regions_.scalar_flux_old(sr, g);
-      if (src < 0.0f || src > volume_kappa_ * std::max(flux_old, 0.0f)) {
+      if (src < 0.0f || src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
         strong_source = true;
         break;
       }
@@ -332,14 +331,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         source_regions_.is_small(sr) || strong_source ||
         source_regions_.n_negative_fluxes(sr) >= demotion_count_threshold;
       break;
-    case RandomRayVolumeEstimator::ADAPTIVE_RWINDOW: {
-      double r = (volume_simulation_avg > 0.0)
-                   ? volume_iteration / volume_simulation_avg
-                   : 1.0;
-      used_naive_volume = source_regions_.external_source_present(sr) ||
-                          source_regions_.is_small(sr) || strong_source ||
-                          std::abs(r - 1.0) > VOLUME_RATIO_WINDOW;
-    } break;
     default:
       fatal_error("Invalid volume estimator type");
     }
@@ -435,9 +426,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // injects a small degree of correlation into the simulation, but this
         // is going to be trivial when the miss rate is a few percent or less.
         if (source_regions_.external_source_present(sr) ||
-            ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
-               volume_estimator_ ==
-                 RandomRayVolumeEstimator::ADAPTIVE_RWINDOW) &&
+            (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
               (strong_source || source_regions_.is_small(sr) ||
                 source_regions_.n_negative_fluxes(sr) >=
                   demotion_count_threshold))) {
