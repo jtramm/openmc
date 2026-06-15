@@ -77,6 +77,14 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 constexpr double NEGATIVE_FLUX_DEMOTION_MIN_COUNT {3.0};
 constexpr double NEGATIVE_FLUX_DEMOTION_RATE {0.005};
 
+// Number of initial batches during which the linear source gradients are held
+// at zero (a flat source). The per-region centroids and spatial moment matrix
+// are poorly conditioned until enough ray samples have accumulated, so
+// computing gradients earlier risks numerical instability. Distinct from the
+// chronic-negativity demotion count above: this is a one-time global warmup on
+// the moment statistics, not a per-region event threshold.
+constexpr int LINEAR_SOURCE_GRADIENT_WARMUP_BATCHES {10};
+
 // The linear source gradient limiter is applied only to source regions that
 // are optically thin (cell optical thickness below this value) in the group
 // being limited. A negative local source in an optically thick region is
