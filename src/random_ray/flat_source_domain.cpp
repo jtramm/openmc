@@ -299,14 +299,18 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // can greatly exceed the physical flux. A negative reduced source (from an
     // unphysical flux elsewhere) is also treated as strong so that consistent
     // normalization can restore a physical value.
+    // Only the adaptive estimator consults the strong-source flag, so the
+    // other estimators skip the test (and its end-of-run report) entirely.
     bool strong_source = false;
-    for (int g = 0; g < negroups_; g++) {
-      float src = source_regions_.source(sr, g);
-      float flux_old = source_regions_.scalar_flux_old(sr, g);
-      if (src < 0.0f ||
-          src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
-        strong_source = true;
-        break;
+    if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE) {
+      for (int g = 0; g < negroups_; g++) {
+        float src = source_regions_.source(sr, g);
+        float flux_old = source_regions_.scalar_flux_old(sr, g);
+        if (src < 0.0f ||
+            src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
+          strong_source = true;
+          break;
+        }
       }
     }
     bool negative_this_iteration = false;
@@ -340,7 +344,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // On the final iteration, classify the naive volume treatment by cause
     // (mutually exclusive, in priority order, so the causes sum to the
     // total) for the end-of-simulation report.
-    if (final_iteration && used_naive_volume) {
+    if (final_iteration && used_naive_volume &&
+        volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE) {
       n_naive++;
       if (source_regions_.external_source_present(sr) || strong_source) {
         n_strong++;
@@ -445,8 +450,10 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     }
   }
 
-  // Store the final-iteration treatment snapshot for reporting
-  if (final_iteration) {
+  // Store the final-iteration treatment snapshot for reporting (adaptive only;
+  // the other estimators do not produce a by-cause naive-treatment breakdown)
+  if (final_iteration &&
+      volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE) {
     n_final_naive_ = n_naive;
     n_final_strong_ = n_strong;
     n_final_demoted_ = n_demoted;
