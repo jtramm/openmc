@@ -303,7 +303,8 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     for (int g = 0; g < negroups_; g++) {
       float src = source_regions_.source(sr, g);
       float flux_old = source_regions_.scalar_flux_old(sr, g);
-      if (src < 0.0f || src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
+      if (src < 0.0f ||
+          src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
         strong_source = true;
         break;
       }
