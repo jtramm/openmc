@@ -70,8 +70,9 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // the naive volume and previous-flux miss treatment -- in any group where the
 // reduced source q/Sigma_t exceeds this multiple of the region's scalar flux,
 // indicating a source sustained by an external or in-scatter contribution
-// rather than by the local flux. The value sits well inside the plateau where
-// benign problems are untriggered while pathological cells are still caught.
+// rather than by the local flux. The value sits well inside the range over
+// which benign problems remain untriggered while pathological cells are still
+// caught.
 constexpr double ADAPTIVE_VOLUME_KAPPA {4.0};
 
 // Thresholds for demoting a source region to the naive volume estimator
@@ -97,9 +98,8 @@ constexpr int LINEAR_SOURCE_GRADIENT_WARMUP_BATCHES {10};
 // The linear source gradient limiter is applied only to source regions that
 // are optically thin (cell optical thickness below this value) in the group
 // being limited. A negative local source in an optically thick region is
-// attenuated within the region and cannot propagate, and the steep source
-// tilts of optically thick regions are genuine physics that the limiter
-// would otherwise clip, degrading the linear source's accuracy advantage.
+// attenuated within the region before a ray can carry it across, so it cannot
+// propagate and the limiter is not needed there for stability.
 constexpr double SOURCE_GRADIENT_LIMITER_MAX_TAU {1.0};
 
 // The minimum flux value to be considered non-zero when computing adjoint

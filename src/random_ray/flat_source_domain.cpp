@@ -288,16 +288,16 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // Determine if the source region has a "strong" inhomogeneous source,
     // defined as any group whose reduced source greatly exceeds the previous
     // iteration's scalar flux. In that condition the cell sits far below its
-    // own infinite-medium flux (q/Sigma_t), which only occurs when an
-    // optically thin cell holds a source that does not derive from its own
-    // local flux (an external source, or in-scatter from other groups). The
+    // own infinite-medium flux (q/Sigma_t), which arises when an optically
+    // thin cell holds a source that does not derive from its own local flux
+    // (an external source, or in-scatter from other groups). The
     // flux update in such cells is a near-cancellation of the transport term
     // against q/Sigma_t, which is only exact when the volumes used by the two
     // terms are consistent -- so these cells require the naive (iteration)
     // volume estimator and the previous-flux miss treatment to avoid error
     // terms proportional to (q/Sigma_t) * (1 - V_iteration/V_average) that
-    // can greatly exceed the physical flux. A negative reduced source (from a
-    // garbage flux elsewhere) is also treated as strong so that consistent
+    // can greatly exceed the physical flux. A negative reduced source (from an
+    // unphysical flux elsewhere) is also treated as strong so that consistent
     // normalization can restore a physical value.
     bool strong_source = false;
     for (int g = 0; g < negroups_; g++) {
@@ -360,13 +360,12 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // transport sweep)
         set_flux_to_flux_plus_source(sr, volume, g);
 
-        // Streaming-dominated cells near strong localized sources can have
-        // large per-iteration variance in their accumulated angular flux
-        // contributions (a few discrete rays carry most of the throughput),
-        // which the simulation-averaged volume converts into sign-flipping
-        // noise. Such cells cannot be detected by the strong-source ratio
-        // test, as their own source is weak relative to their (streaming)
-        // flux. If the simulation-averaged estimate goes negative, the
+        // Some cells accumulate their angular flux from only a few discrete
+        // ray crossings per iteration, giving the per-iteration estimate a
+        // large variance that the simulation-averaged volume converts into
+        // sign-flipping noise. Such cells are not caught by the strong-source
+        // ratio test, as their reduced source is weak relative to their flux.
+        // If the simulation-averaged estimate goes negative, the
         // region is permanently demoted to the naive (iteration) volume
         // estimator, whose update is a positively-weighted average of the
         // sampled angular fluxes and therefore cannot go negative with a
@@ -400,10 +399,10 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // produced by linear source tilts rather than the volume estimator,
         // for which no consistent recomputation exists) is replaced by the
         // previous iteration's estimate. The event feeds the counter that
-        // latches gradients flat, so the cause is removed and the
-        // substitution occurs at most a few times per region over a run --
-        // a vanishing fraction of the iterations entering the accumulated
-        // tallies.
+        // latches the region's gradients flat once such negativity becomes
+        // chronic, which removes the cause; the substitution therefore
+        // affects only a small fraction of the iterations entering the
+        // accumulated tallies.
         if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
             source_regions_.scalar_flux_new(sr, g) < 0.0f) {
           set_flux_to_old_flux(sr, g);

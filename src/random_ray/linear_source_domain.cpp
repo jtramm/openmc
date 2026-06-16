@@ -168,11 +168,11 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // ellipsoid implied by the spatial moments matrix M is
   // sqrt(3 q_gradient^T M q_gradient), the multidimensional generalization
   // of the slab-exact half-extent h = sqrt(3 <dx^2>). Optically thick
-  // regions are exempt: their negative local emission self-attenuates
-  // rather than propagating, and their steep tilts are genuine physics
-  // whose clipping would degrade the linear source's accuracy advantage
-  // where it matters most. Regions with trustworthy moments and gentle
-  // gradients are unaffected.
+  // regions are exempt: a negative local emission there is attenuated within
+  // the region before a ray can carry it across, so it cannot propagate and
+  // limiting is not needed for stability; clipping the gradient would discard
+  // sub-region shape information for no stability benefit. Regions with
+  // trustworthy moments and gentle gradients are unaffected.
   if (material != MATERIAL_VOID) {
     const MomentMatrix& m = srh.mom_matrix();
     double hx = std::sqrt(3.0 * std::max(m.a, 0.0));

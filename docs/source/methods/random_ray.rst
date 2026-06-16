@@ -528,8 +528,8 @@ OpenMC also features an "adaptive" volume estimator that generalizes the
 hybrid estimator. Rather than selecting the estimator from the presence of an
 external source alone, it uses the simulation averaged estimator by default and
 falls back to the naive estimator (and the previous-iteration miss treatment)
-on a per-region, per-group basis wherever the simulation averaged estimator is
-prone to instability. Three conditions trigger the fallback: a reduced source
+on a per-region basis wherever the simulation averaged estimator is prone to
+instability. Three conditions trigger the fallback: a reduced source
 that greatly exceeds the region's scalar flux (a source sustained by an
 external or in-scatter contribution rather than by the local flux), a
 hit-starved region, and a region in which the simulation averaged estimator
@@ -539,9 +539,9 @@ produced in an iteration is repaired by recomputing it with the naive
 negative; regions where these repairs become chronic are demoted to the naive
 estimator for the remainder of the solve. Whereas the hybrid estimator guards
 only regions with explicit external sources, the adaptive estimator also
-catches the streaming- and scattering-dominated regions of optically thin fixed
-source problems, where the simulation averaged and hybrid estimators can
-otherwise develop persistent negative fluxes. It is therefore recommended for
+catches the optically thin regions of fixed source problems where the
+simulation averaged and hybrid estimators can otherwise develop persistent
+negative fluxes. It is therefore recommended for
 fixed source and shielding problems that exhibit such instability.
 
 A table that summarizes the pros and cons, as well as recommendations for

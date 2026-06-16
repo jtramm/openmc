@@ -1061,7 +1061,7 @@ following methods are currently available in OpenMC:
    * - ``adaptive``
      - Generalizes the hybrid estimator. Uses the simulation averaged estimator
        by default, but applies the naive estimator (and the previous-iteration
-       miss treatment) per cell and energy group wherever it is needed for
+       miss treatment) per cell wherever it is needed for
        stability: cells whose reduced source greatly exceeds their flux (a
        strong external or in-scatter source), hit-starved cells, and cells in
        which the simulation averaged estimator chronically produces negative
@@ -1071,7 +1071,7 @@ following methods are currently available in OpenMC:
          is well behaved
        * Eliminates the negative fluxes and numerical instability that the
          simulation averaged and hybrid estimators can exhibit in optically
-         thin, scattering- or streaming-dominated problems
+         thin fixed source problems
        * No parameters to tune
      - * Slightly more per-cell bookkeeping than the other estimators
 
