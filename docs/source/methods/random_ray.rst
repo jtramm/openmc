@@ -529,11 +529,15 @@ hybrid estimator. Rather than selecting the estimator from the presence of an
 external source alone, it uses the simulation averaged estimator by default and
 falls back to the naive estimator (and the previous-iteration miss treatment)
 on a per-region basis wherever the simulation averaged estimator is prone to
-instability. Three conditions trigger the fallback: a reduced source
+instability. Four conditions trigger the fallback: a reduced source
 that greatly exceeds the region's scalar flux (a source sustained by an
-external or in-scatter contribution rather than by the local flux), a
-hit-starved region, and a region in which the simulation averaged estimator
-chronically produces negative fluxes. For the last condition, any negative flux
+external or in-scatter contribution rather than by the local flux), a reduced
+source that is itself negative (which can occur under transport-corrected cross
+sections, whose negative within-group scattering term can drive the reduced
+source below zero even for a non-negative flux), a hit-starved region, and a
+region in which the
+simulation averaged estimator chronically produces negative fluxes. For the
+last condition, any negative flux
 produced in an iteration is repaired by recomputing it with the naive
 (iteration) volume, which is a positively weighted average and so cannot be
 negative; regions where these repairs become chronic are demoted to the naive

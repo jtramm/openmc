@@ -296,9 +296,20 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // terms are consistent -- so these cells require the naive (iteration)
     // volume estimator and the previous-flux miss treatment to avoid error
     // terms proportional to (q/Sigma_t) * (1 - V_iteration/V_average) that
-    // can greatly exceed the physical flux. A negative reduced source (from an
-    // unphysical flux elsewhere) is also treated as strong so that consistent
-    // normalization can restore a physical value.
+    // can greatly exceed the physical flux.
+    //
+    // A reduced source that is itself negative is also treated as strong. This
+    // does not arise from a negative flux (the per-iteration positivity floor
+    // forbids those); it arises under transport-corrected (e.g. TCP0) cross
+    // sections, whose within-group scattering term can be negative, driving
+    // q/Sigma_t below zero even for a non-negative flux. The diagonal (Gunow)
+    // stabilization keeps that iteration convergent but acts on the flux, not
+    // on the source sign, so such regions still need the consistent (naive)
+    // volume and previous-flux miss treatment to keep a negative source from
+    // depositing negative flux through the miss path. In a normal slowing-down
+    // spectrum the positive in-scatter from faster groups dominates the
+    // negative within-group term, so in practice this condition rarely fires.
+    //
     // Only the adaptive estimator consults the strong-source flag, so the
     // other estimators skip the test (and its end-of-run report) entirely.
     bool strong_source = false;

@@ -128,6 +128,10 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // fallback already applied to hit-starved (small) regions.
   if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
       material != MATERIAL_VOID) {
+    // This mirrors the flat-domain strong-source test: a reduced source far
+    // above the flux, or a negative reduced source (possible under
+    // transport-corrected cross sections). See add_source_to_scalar_flux for
+    // the full rationale.
     bool strong_source = false;
     for (int g = 0; g < negroups_; g++) {
       double src = srh.source(g);

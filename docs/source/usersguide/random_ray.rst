@@ -1063,10 +1063,11 @@ following methods are currently available in OpenMC:
        by default, but applies the naive estimator (and the previous-iteration
        miss treatment) per cell wherever it is needed for
        stability: cells whose reduced source greatly exceeds their flux (a
-       strong external or in-scatter source), hit-starved cells, and cells in
-       which the simulation averaged estimator chronically produces negative
-       fluxes. The fallback decision is made automatically from each cell's
-       behavior during the run.
+       strong external or in-scatter source), cells whose reduced source is
+       itself negative (possible under transport-corrected cross sections),
+       hit-starved cells, and cells in which the simulation averaged estimator
+       chronically produces negative fluxes. The fallback decision is made
+       automatically from each cell's behavior during the run.
      - * Retains the low bias of the simulation averaged estimator wherever it
          is well behaved
        * Eliminates the negative fluxes and numerical instability that the
