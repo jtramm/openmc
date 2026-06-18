@@ -406,7 +406,8 @@ enum class RandomRayVolumeEstimator {
   NAIVE,
   SIMULATION_AVERAGED,
   HYBRID,
-  ADAPTIVE
+  ADAPTIVE,
+  INACTIVE_DEMOTION
 };
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };

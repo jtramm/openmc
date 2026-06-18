@@ -19,7 +19,8 @@ class MGXSTestHarness(TolerantPyAPITestHarness):
 @pytest.mark.parametrize("estimator", ["hybrid",
                                        "simulation_averaged",
                                        "naive",
-                                       "adaptive"
+                                       "adaptive",
+                                       "inactive_demotion"
                                        ])
 def test_random_ray_volume_estimator_linear(estimator):
     with change_directory(estimator):

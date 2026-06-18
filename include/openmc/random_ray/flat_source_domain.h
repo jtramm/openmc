@@ -39,6 +39,7 @@ public:
   void reset_tally_volumes();
   void random_ray_tally();
   virtual void accumulate_iteration_flux();
+  void inactive_demotion_step();
   void output_to_vtk() const;
   void convert_external_sources(bool use_adjoint_sources);
   void count_external_source_regions();

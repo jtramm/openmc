@@ -1075,6 +1075,24 @@ following methods are currently available in OpenMC:
          thin fixed source problems
        * No parameters to tune
      - * Slightly more per-cell bookkeeping than the other estimators
+   * - ``inactive_demotion``
+     - A variant of the adaptive estimator that decides the demotion to the
+       naive estimator once, at the end of the inactive batches, rather than
+       reacting to per-iteration negatives. It runs the unmodified simulation
+       averaged estimator (with the same strong-source and hit-starved
+       fallbacks as ``adaptive``) throughout the inactive phase, then demotes
+       only those cells whose accumulated flux is negative -- i.e. whose
+       converged estimate is genuinely negative rather than merely noisy. No
+       per-iteration rescue or positivity floor is applied.
+     - * Same low bias as the simulation averaged estimator wherever it is well
+         behaved, without the slight upward bias that per-iteration demotion
+         can introduce by clipping the lower tail of noisy cells
+       * No parameters to tune
+     - * Does not strictly guarantee non-negative active-phase fluxes: a few
+         near-zero cells can still fluctuate slightly negative by statistical
+         chance (these are discarded downstream by the weight-window
+         generator, which ignores non-positive fluxes)
+       * Requires inactive batches in order to make the demotion decision
 
 These estimators can be selected by setting the ``volume_estimator`` field in the
 :attr:`openmc.Settings.random_ray` dictionary. For example, to use the naive
@@ -1093,6 +1111,16 @@ develop persistent negative fluxes that degrade tally results and, in
 variance reduction workflows, the quality of generated weight windows. The
 adaptive estimator detects and stabilizes those cells automatically while
 leaving the rest of the problem on the low-bias simulation averaged estimator.
+
+The ``inactive_demotion`` estimator is a refinement of ``adaptive`` for the same
+fixed source and shielding problems. Because it decides the demotion from each
+cell's accumulated (converged) flux at the end of the inactive phase, rather
+than reacting to individual per-iteration negatives, it avoids the small upward
+bias that per-iteration demotion can introduce in cells that are noisy but not
+genuinely negative. The trade-off is that it does not strictly guarantee
+non-negative fluxes in every active-phase cell; the rare near-zero cells that
+fluctuate negative are filtered out by the weight-window generator, which
+discards non-positive fluxes.
 
 -----------------
 Adjoint Flux Mode

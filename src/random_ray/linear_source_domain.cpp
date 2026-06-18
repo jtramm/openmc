@@ -126,7 +126,8 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // per-iteration noise at the gradient scale that the volume choice cannot
   // cancel. Zeroing the gradients there extends the existing flat-source
   // fallback already applied to hit-starved (small) regions.
-  if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+  if ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
+        volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION) &&
       material != MATERIAL_VOID) {
     // This mirrors the flat-domain strong-source test: a reduced source far
     // above the flux, or a negative reduced source (possible under

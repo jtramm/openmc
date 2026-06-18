@@ -102,6 +102,56 @@ void FlatSourceDomain::accumulate_iteration_flux()
   }
 }
 
+// Demotion step for the inactive-demotion volume estimator (no-op for the
+// others). Rather than reacting to per-iteration negatives, this estimator
+// runs the unmodified simulation-averaged update throughout the inactive phase
+// and decides demotion once, from the actual sign of each region's converged
+// estimate. During the inactive phase the (un-rescued) flux is accumulated;
+// on the final inactive batch, any region whose accumulated flux is negative
+// in any group is demoted to the naive (iteration) volume estimator for the
+// active phase -- a positively weighted estimator that cannot go negative with
+// a non-negative source -- while every other region keeps the unbiased
+// simulation-averaged estimator. Because the decision is made on the
+// accumulated mean rather than on individual fluctuations, the lower tail of
+// the noise distribution is not clipped, so regions that are merely noisy (and
+// average non-negative) are left unbiased. The demotion is recorded in
+// n_negative_fluxes (>= 1 == demoted), consumed by the volume switch and miss
+// treatment in add_source_to_scalar_flux.
+void FlatSourceDomain::inactive_demotion_step()
+{
+  if (volume_estimator_ != RandomRayVolumeEstimator::INACTIVE_DEMOTION)
+    return;
+  if (simulation::current_batch > settings::n_inactive)
+    return;
+
+    // scalar_flux_final is untouched until active accumulation begins, so it
+    // serves as the temporary inactive accumulator.
+#pragma omp parallel for
+  for (int64_t se = 0; se < n_source_elements(); se++) {
+    source_regions_.scalar_flux_final(se) +=
+      source_regions_.scalar_flux_new(se);
+  }
+
+  // On the last inactive batch, settle the demotion decision and clear the
+  // accumulator so the active phase tallies start from zero.
+  if (simulation::current_batch == settings::n_inactive) {
+#pragma omp parallel for
+    for (int64_t sr = 0; sr < n_source_regions(); sr++) {
+      bool negative = false;
+      for (int g = 0; g < negroups_; g++) {
+        if (source_regions_.scalar_flux_final(sr, g) < 0.0) {
+          negative = true;
+          break;
+        }
+      }
+      source_regions_.n_negative_fluxes(sr) = negative ? 1 : 0;
+      for (int g = 0; g < negroups_; g++) {
+        source_regions_.scalar_flux_final(sr, g) = 0.0;
+      }
+    }
+  }
+}
+
 void FlatSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
 {
   // Reset all source regions to zero (important for void regions)
@@ -262,8 +312,24 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   int64_t n_demoted = 0;
   int64_t n_small = 0;
   bool final_iteration = (simulation::current_batch == settings::n_batches);
-  double demotion_count_threshold = std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
-    NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
+  // The adaptive estimator demotes a region once its per-iteration negativity
+  // becomes chronic (a rate-based count threshold). The inactive-demotion
+  // estimator instead sets a one-shot demotion flag at the end of the inactive
+  // phase (see inactive_demotion_step), stored in the same n_negative_fluxes
+  // field as 0/1, so its threshold is simply 1.
+  double demotion_count_threshold =
+    (volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION)
+      ? 1.0
+      : std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
+          NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
+
+  // The adaptive and inactive-demotion estimators share the proactive
+  // strong-source (kappa) test, the demote-to-naive volume switch, and the
+  // previous-flux miss treatment; only the demotion trigger differs (chronic
+  // per-iteration negativity vs. a one-shot end-of-inactive sign check).
+  const bool adaptive_family =
+    volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
+    volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION;
 
 #pragma omp parallel for reduction(                                           \
   + : n_hits, n_naive, n_strong, n_demoted, n_small)
@@ -313,7 +379,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // Only the adaptive estimator consults the strong-source flag, so the
     // other estimators skip the test (and its end-of-run report) entirely.
     bool strong_source = false;
-    if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE) {
+    if (adaptive_family) {
       for (int g = 0; g < negroups_; g++) {
         float src = source_regions_.source(sr, g);
         float flux_old = source_regions_.scalar_flux_old(sr, g);
@@ -342,6 +408,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
                           source_regions_.is_small(sr);
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
+    case RandomRayVolumeEstimator::INACTIVE_DEMOTION:
       used_naive_volume =
         source_regions_.external_source_present(sr) ||
         source_regions_.is_small(sr) || strong_source ||
@@ -355,8 +422,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // On the final iteration, classify the naive volume treatment by cause
     // (mutually exclusive, in priority order, so the causes sum to the
     // total) for the end-of-simulation report.
-    if (final_iteration && used_naive_volume &&
-        volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE) {
+    if (final_iteration && used_naive_volume && adaptive_family) {
       n_naive++;
       if (source_regions_.external_source_present(sr) || strong_source) {
         n_strong++;
@@ -442,7 +508,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // injects a small degree of correlation into the simulation, but this
         // is going to be trivial when the miss rate is a few percent or less.
         if (source_regions_.external_source_present(sr) ||
-            (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
+            (adaptive_family &&
               (strong_source || source_regions_.is_small(sr) ||
                 source_regions_.n_negative_fluxes(sr) >=
                   demotion_count_threshold))) {

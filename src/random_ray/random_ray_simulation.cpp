@@ -468,6 +468,11 @@ void RandomRaySimulation::simulate()
         domain_->random_ray_tally();
       }
 
+      // For the inactive-demotion estimator, accumulate the inactive-phase flux
+      // and, on the final inactive batch, settle which regions are demoted to
+      // the naive volume estimator (no-op for the other estimators).
+      domain_->inactive_demotion_step();
+
       // Set phi_old = phi_new
       domain_->flux_swap();
 
@@ -600,6 +605,9 @@ void RandomRaySimulation::print_results_random_ray(
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
       estimator = "Adaptive";
+      break;
+    case RandomRayVolumeEstimator::INACTIVE_DEMOTION:
+      estimator = "Inactive Demotion";
       break;
     default:
       fatal_error("Invalid volume estimator type");

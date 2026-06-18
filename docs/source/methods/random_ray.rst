@@ -548,6 +548,27 @@ simulation averaged and hybrid estimators can otherwise develop persistent
 negative fluxes. It is therefore recommended for
 fixed source and shielding problems that exhibit such instability.
 
+OpenMC additionally features an "inactive demotion" volume estimator, a variant
+of the adaptive estimator that differs only in how the negative-flux fallback is
+triggered. The adaptive estimator reacts to negative fluxes per iteration: each
+negative flux is repaired with the naive volume, and a region is demoted once
+such repairs become chronic. Repairing or demoting on individual fluctuations,
+however, removes only the negative excursions of the estimator, clipping the
+lower tail of its noise distribution and biasing the accumulated mean upward.
+The inactive demotion estimator avoids this by deferring the decision: it
+applies no per-iteration repair, runs the unmodified simulation averaged
+estimator (retaining the strong-source and hit-starved fallbacks) throughout the
+inactive batches while accumulating each region's flux, and then, at the
+transition to the active batches, demotes to the naive estimator only those
+regions whose accumulated (and therefore noise-averaged) flux is negative.
+Because the demotion is based on the sign of the converged estimate rather than
+on isolated fluctuations, regions that are merely noisy but average non-negative
+retain the unbiased simulation averaged estimator. The trade-off is that
+non-negative fluxes are no longer strictly enforced in every active iteration,
+so a small number of near-zero regions may register slightly negative in the
+active tally; in variance reduction workflows these are discarded by the
+weight-window generator, which ignores non-positive fluxes.
+
 A table that summarizes the pros and cons, as well as recommendations for
 different use cases, is given in the :ref:`volume
 estimators<usersguide_vol_estimators>` section of the user guide.
