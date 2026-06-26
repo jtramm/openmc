@@ -615,7 +615,7 @@ void RandomRaySimulation::print_results_random_ray(
       fmt::print(" Naive Volume Treatment (final iteration, by cause):\n");
       fmt::print("   Total                           = {} SRs ({:.4f}%)\n",
         domain_->n_final_naive_, domain_->n_final_naive_ * inv);
-      fmt::print("   Strong/External Source          = {} SRs ({:.4f}%)\n",
+      fmt::print("   Strong Source                   = {} SRs ({:.4f}%)\n",
         domain_->n_final_strong_, domain_->n_final_strong_ * inv);
       fmt::print("   Converged Negative (demoted)    = {} SRs ({:.4f}%)\n",
         domain_->n_final_demoted_, domain_->n_final_demoted_ * inv);

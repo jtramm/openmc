@@ -352,13 +352,23 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     //
     // Only the adaptive estimator consults the strong-source flag, so the
     // other estimators skip the test (and its end-of-run report) entirely.
+    // Void (and effectively-void, sub-MINIMUM_MACRO_XS) regions are also
+    // excluded: they carry no q/Sigma_t term -- their flux is the streaming
+    // tally plus a bounded external contribution -- so the near-cancellation
+    // the test guards against cannot occur, and demoting them to the naive
+    // volume would only add ratio bias. This matches the linear domain, which
+    // already gates its strong-source gradient fallback on MATERIAL_VOID.
     bool strong_source =
-      is_adaptive && region_has_strong_source(&source_regions_.source(sr, 0),
-                       &source_regions_.scalar_flux_old(sr, 0));
-    // Per-region demotion reasons. The external-source, hit-starved (small),
-    // and strong-source flags are re-evaluated every iteration; converged_neg
-    // is the one-shot flag set at the end of the inactive phase by
-    // inactive_demotion_step. All are g-independent.
+      is_adaptive && source_regions_.material(sr) != MATERIAL_VOID &&
+      region_has_strong_source(&source_regions_.source(sr, 0),
+        &source_regions_.scalar_flux_old(sr, 0));
+    // Per-region demotion reasons. The hit-starved (small) and strong-source
+    // flags are re-evaluated every iteration; converged_neg is the one-shot
+    // flag set at the end of the inactive phase by inactive_demotion_step. The
+    // external-source flag drives only the hybrid policy (and the default miss
+    // treatment); the adaptive estimator catches a low-cross-section external
+    // region through the kappa strong-source test instead, since its external
+    // term is folded into q/Sigma_t. All are g-independent.
     bool external = source_regions_.external_source_present(sr);
     bool small = source_regions_.is_small(sr);
     bool converged_neg = source_regions_.n_negative_fluxes(sr) > 0;
@@ -370,10 +380,12 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     //      the previous iterate.
     // The previous-flux miss treatment is needed wherever assigning the bare
     // reduced source q/Sigma_t to a missed region would bias it: a low-cross-
-    // section region carrying an external source would otherwise deposit its
-    // full infinite-medium flux every time it is missed, and the adaptive
-    // estimator extends the same protection to every region it demotes. Both
-    // decisions are made once here so the per-group loop stays estimator-
+    // section region would otherwise deposit its full infinite-medium flux
+    // every time it is missed. Hybrid keys this on the external-source flag;
+    // the adaptive estimator instead extends the previous-flux treatment to
+    // every region it demotes, which (through the kappa test) already covers
+    // any region whose q/Sigma_t greatly exceeds its flux -- external or not.
+    // Both decisions are made once here so the per-group loop stays estimator-
     // agnostic.
     bool use_naive_volume = false;
     bool use_old_flux_on_miss = external;
@@ -387,7 +399,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       use_naive_volume = external || small;
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
-      use_naive_volume = external || small || strong_source || converged_neg;
+      use_naive_volume = small || strong_source || converged_neg;
       use_old_flux_on_miss = use_naive_volume;
       break;
     default:
@@ -400,7 +412,7 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     // total -- for the end-of-simulation report.
     if (final_iteration && is_adaptive && use_naive_volume) {
       n_naive++;
-      if (external || strong_source) {
+      if (strong_source) {
         n_strong++;
       } else if (converged_neg) {
         n_demoted++;
