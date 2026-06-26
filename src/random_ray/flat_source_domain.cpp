@@ -102,7 +102,7 @@ void FlatSourceDomain::accumulate_iteration_flux()
   }
 }
 
-// Demotion step for the inactive-demotion volume estimator (no-op for the
+// Demotion step for the adaptive volume estimator (no-op for the
 // others). Rather than reacting to per-iteration negatives, this estimator
 // runs the unmodified simulation-averaged update throughout the inactive phase
 // and decides demotion once, from the actual sign of each region's converged
@@ -119,7 +119,7 @@ void FlatSourceDomain::accumulate_iteration_flux()
 // treatment in add_source_to_scalar_flux.
 void FlatSourceDomain::inactive_demotion_step()
 {
-  if (volume_estimator_ != RandomRayVolumeEstimator::INACTIVE_DEMOTION)
+  if (volume_estimator_ != RandomRayVolumeEstimator::ADAPTIVE)
     return;
   if (simulation::current_batch > settings::n_inactive)
     return;
@@ -264,32 +264,6 @@ void FlatSourceDomain::set_flux_to_flux_plus_source(
   }
 }
 
-void FlatSourceDomain::convert_flux_to_naive_volume(int64_t sr, int g)
-{
-  // The volume ratio is V_average / V_iteration: subtracting the source
-  // recovers the volume-normalized transport term, multiplying by this ratio
-  // re-normalizes it to the naive (iteration) volume, and adding the source
-  // back yields the flux the naive estimator would have produced.
-  double ratio = source_regions_.volume(sr) / source_regions_.volume_naive(sr);
-  int material = source_regions_.material(sr);
-  if (material == MATERIAL_VOID) {
-    if (settings::run_mode == RunMode::FIXED_SOURCE) {
-      double source_part = 0.5f * source_regions_.external_source(sr, g) *
-                           source_regions_.volume_sq(sr);
-      source_regions_.scalar_flux_new(sr, g) =
-        (source_regions_.scalar_flux_new(sr, g) - source_part) * ratio +
-        source_part;
-    } else {
-      source_regions_.scalar_flux_new(sr, g) *= ratio;
-    }
-  } else {
-    source_regions_.scalar_flux_new(sr, g) =
-      (source_regions_.scalar_flux_new(sr, g) - source_regions_.source(sr, g)) *
-        ratio +
-      source_regions_.source(sr, g);
-  }
-}
-
 void FlatSourceDomain::set_flux_to_old_flux(int64_t sr, int g)
 {
   source_regions_.scalar_flux_new(sr, g) =
@@ -312,24 +286,16 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
   int64_t n_demoted = 0;
   int64_t n_small = 0;
   bool final_iteration = (simulation::current_batch == settings::n_batches);
-  // The adaptive estimator demotes a region once its per-iteration negativity
-  // becomes chronic (a rate-based count threshold). The inactive-demotion
-  // estimator instead sets a one-shot demotion flag at the end of the inactive
-  // phase (see inactive_demotion_step), stored in the same n_negative_fluxes
-  // field as 0/1, so its threshold is simply 1.
-  double demotion_count_threshold =
-    (volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION)
-      ? 1.0
-      : std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
-          NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
+  // The adaptive estimator decides demotion once, at the end of the inactive
+  // phase (see inactive_demotion_step), recording it in n_negative_fluxes as a
+  // 0/1 flag, so a region counts as demoted when that flag is at least 1.
+  double demotion_count_threshold = 1.0;
 
-  // The adaptive and inactive-demotion estimators share the proactive
-  // strong-source (kappa) test, the demote-to-naive volume switch, and the
-  // previous-flux miss treatment; only the demotion trigger differs (chronic
-  // per-iteration negativity vs. a one-shot end-of-inactive sign check).
+  // The adaptive estimator uses the proactive strong-source (kappa) test, the
+  // demote-to-naive volume switch, and the previous-flux miss treatment, with
+  // demotion decided once at the end of the inactive phase.
   const bool adaptive_family =
-    volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
-    volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION;
+    volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE;
 
 #pragma omp parallel for reduction(                                           \
   + : n_hits, n_naive, n_strong, n_demoted, n_small)
@@ -390,9 +356,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         }
       }
     }
-    bool negative_this_iteration = false;
-    bool tilt_event_this_iteration = false;
-
     // The volume treatment depends on the volume estimator type
     // and whether or not an external source is present in the cell.
     double volume;
@@ -408,7 +371,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
                           source_regions_.is_small(sr);
       break;
     case RandomRayVolumeEstimator::ADAPTIVE:
-    case RandomRayVolumeEstimator::INACTIVE_DEMOTION:
       used_naive_volume =
         source_regions_.external_source_present(sr) ||
         source_regions_.is_small(sr) || strong_source ||
@@ -442,58 +404,6 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // from rays passing through the source region (computed during the
         // transport sweep)
         set_flux_to_flux_plus_source(sr, volume, g);
-
-        // Some cells accumulate their angular flux from only a few discrete
-        // ray crossings per iteration, giving the per-iteration estimate a
-        // large variance that the simulation-averaged volume converts into
-        // sign-flipping noise. Such cells are not caught by the strong-source
-        // ratio test, as their reduced source is weak relative to their flux.
-        // If the simulation-averaged estimate goes negative, the
-        // region is permanently demoted to the naive (iteration) volume
-        // estimator, whose update is a positively-weighted average of the
-        // sampled angular fluxes and therefore cannot go negative with a
-        // non-negative source. The demotion is a persistent latch rather
-        // than a per-iteration substitution: replacing only the negative
-        // fluctuations of an estimator clips the lower tail of its noise
-        // distribution and biases the mean upward, while a latched region
-        // is simply a naive-estimator region from that point on, which is
-        // unbiased.
-        if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
-            !used_naive_volume &&
-            source_regions_.scalar_flux_new(sr, g) < 0.0f) {
-          convert_flux_to_naive_volume(sr, g);
-          // The rescue's outcome attributes the negativity to its cause: a
-          // flux the consistent naive volume turns non-negative was a
-          // volume-extrapolation artifact and counts toward volume
-          // demotion, while one that remains negative was produced by the
-          // linear source tilt and counts toward the gradient latch
-          // instead. Keeping the two counters separate prevents tilt noise
-          // from demoting a sound volume estimator and volume noise from
-          // flattening sound gradients.
-          if (source_regions_.scalar_flux_new(sr, g) >= 0.0f) {
-            if (!negative_this_iteration) {
-              source_regions_.n_negative_fluxes(sr)++;
-              negative_this_iteration = true;
-            }
-          }
-        }
-
-        // Positivity floor: a negative flux that survives the rescue (one
-        // produced by linear source tilts rather than the volume estimator,
-        // for which no consistent recomputation exists) is replaced by the
-        // previous iteration's estimate. The event feeds the counter that
-        // latches the region's gradients flat once such negativity becomes
-        // chronic, which removes the cause; the substitution therefore
-        // affects only a small fraction of the iterations entering the
-        // accumulated tallies.
-        if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
-            source_regions_.scalar_flux_new(sr, g) < 0.0f) {
-          set_flux_to_old_flux(sr, g);
-          if (!tilt_event_this_iteration) {
-            source_regions_.n_tilt_events(sr)++;
-            tilt_event_this_iteration = true;
-          }
-        }
       } else if (volume_simulation_avg > 0.0) {
         // 2. If the FSR was not hit this iteration, but has been hit some
         // previous iteration, then we need to make a choice about what

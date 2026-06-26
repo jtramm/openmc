@@ -529,45 +529,36 @@ hybrid estimator. Rather than selecting the estimator from the presence of an
 external source alone, it uses the simulation averaged estimator by default and
 falls back to the naive estimator (and the previous-iteration miss treatment)
 on a per-region basis wherever the simulation averaged estimator is prone to
-instability. Four conditions trigger the fallback: a reduced source
-that greatly exceeds the region's scalar flux (a source sustained by an
+instability. The fallback is triggered by any of the following: a reduced
+source that greatly exceeds the region's scalar flux (a source sustained by an
 external or in-scatter contribution rather than by the local flux), a reduced
 source that is itself negative (which can occur under transport-corrected cross
 sections, whose negative within-group scattering term can drive the reduced
 source below zero even for a non-negative flux), a hit-starved region, and a
-region in which the
-simulation averaged estimator chronically produces negative fluxes. For the
-last condition, any negative flux
-produced in an iteration is repaired by recomputing it with the naive
-(iteration) volume, which is a positively weighted average and so cannot be
-negative; regions where these repairs become chronic are demoted to the naive
-estimator for the remainder of the solve. Whereas the hybrid estimator guards
-only regions with explicit external sources, the adaptive estimator also
-catches the optically thin regions of fixed source problems where the
-simulation averaged and hybrid estimators can otherwise develop persistent
-negative fluxes. It is therefore recommended for
-fixed source and shielding problems that exhibit such instability.
+region whose flux converges to a negative value.
 
-OpenMC additionally features an "inactive demotion" volume estimator, a variant
-of the adaptive estimator that differs only in how the negative-flux fallback is
-triggered. The adaptive estimator reacts to negative fluxes per iteration: each
-negative flux is repaired with the naive volume, and a region is demoted once
-such repairs become chronic. Repairing or demoting on individual fluctuations,
-however, removes only the negative excursions of the estimator, clipping the
-lower tail of its noise distribution and biasing the accumulated mean upward.
-The inactive demotion estimator avoids this by deferring the decision: it
-applies no per-iteration repair, runs the unmodified simulation averaged
-estimator (retaining the strong-source and hit-starved fallbacks) throughout the
-inactive batches while accumulating each region's flux, and then, at the
-transition to the active batches, demotes to the naive estimator only those
-regions whose accumulated (and therefore noise-averaged) flux is negative.
-Because the demotion is based on the sign of the converged estimate rather than
-on isolated fluctuations, regions that are merely noisy but average non-negative
-retain the unbiased simulation averaged estimator. The trade-off is that
-non-negative fluxes are no longer strictly enforced in every active iteration,
-so a small number of near-zero regions may register slightly negative in the
-active tally; in variance reduction workflows these are discarded by the
-weight-window generator, which ignores non-positive fluxes.
+The first three conditions are evaluated each iteration from already-resident
+data. The negative-flux condition is instead decided once, at the transition
+from the inactive to the active batches: the unmodified simulation averaged
+estimator is run throughout the inactive phase while each region's flux is
+accumulated, and any region whose accumulated (and therefore noise-averaged)
+flux is negative is demoted to the naive estimator for all of the active
+batches. Deferring the decision to the sign of the converged estimate -- rather
+than reacting to individual per-iteration negatives -- avoids the upward bias
+that repairing or demoting on isolated fluctuations would introduce by clipping
+only the lower tail of the estimator's noise distribution; regions that are
+merely noisy but average non-negative retain the unbiased simulation averaged
+estimator. The trade-off is that non-negative fluxes are no longer strictly
+enforced in every active iteration, so a small number of near-zero regions may
+register slightly negative in the active tally; in variance reduction workflows
+these are discarded by the weight-window generator, which ignores non-positive
+fluxes.
+
+Whereas the hybrid estimator guards only regions with explicit external
+sources, the adaptive estimator also catches the optically thin regions of
+fixed source problems where the simulation averaged and hybrid estimators can
+otherwise develop persistent negative fluxes. It is therefore recommended for
+fixed source and shielding problems that exhibit such instability.
 
 A table that summarizes the pros and cons, as well as recommendations for
 different use cases, is given in the :ref:`volume
@@ -1043,6 +1034,87 @@ The new exponentials introduced, again for simplicity, are simply:
 The contents of this section, alongside the equations for the flat source and
 scalar flux, Equations :eq:`source_update` and :eq:`phi_sim` respectively,
 completes the set of equations for LS.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Source Gradient Limiting
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Nothing in the linear solve of Equation :eq:`m_equation` constrains the
+reconstructed source to be non-negative. The flat component :math:`Q_{i,g}` is
+non-negative by construction, but the gradient
+:math:`\boldsymbol{\vec{Q}}_{i,g}` is obtained from the stochastically estimated
+-- and, in poorly sampled regions, ill-conditioned -- spatial moments matrix
+:math:`\mathbf{M}_i`, so a spuriously steep gradient can drive the region source
+:math:`\tilde{Q}_{i,g}(\mathbf{u})` of Equation :eq:`region_source` negative
+over part of the region's spatial extent. Because a region that emits a negative
+source produces negative angular flux along the ray segments crossing it, and
+those rays then carry the contamination downstream, a single region with an
+overshooting gradient can produce negative scalar fluxes far from itself.
+
+To prevent this, OpenMC bounds the magnitude of each group's gradient so that
+:math:`\tilde{Q}_{i,g}(\mathbf{u}) \geq 0` across the region. Because the local
+coordinate :math:`\mathbf{u}` is centroid-relative -- and, to the accuracy of
+the second-moment description, symmetric about the centroid -- the minimum of
+the region source is
+
+.. math::
+    :label: ls_min_source
+
+    \min_{\mathbf{u}} \tilde{Q}_{i,g}(\mathbf{u}) = Q_{i,g} - \max_{\mathbf{u}}
+    \left| \boldsymbol{\vec{Q}}_{i,g} \cdot \mathbf{u} \right| \;\mathrm{,}
+
+so positivity requires the worst-case linear excursion
+:math:`\delta_{i,g} = \max_{\mathbf{u}} | \boldsymbol{\vec{Q}}_{i,g} \cdot
+\mathbf{u} |` to satisfy :math:`\delta_{i,g} \leq Q_{i,g}`.
+
+The excursion is estimated from the geometry already encoded in the spatial
+moments matrix :math:`\mathbf{M}_i = \langle \mathbf{u}\, \mathbf{u}^\mathsf{T}
+\rangle`. Along the unit gradient direction :math:`\hat{\mathbf{Q}} =
+\boldsymbol{\vec{Q}}_{i,g} / | \boldsymbol{\vec{Q}}_{i,g} |`, the region's
+mean-square extent is :math:`\langle (\mathbf{u} \cdot \hat{\mathbf{Q}})^2
+\rangle = \hat{\mathbf{Q}}^\mathsf{T} \mathbf{M}_i \hat{\mathbf{Q}}`. Treating
+that one-dimensional extent as a uniform slab of half-width :math:`h`, for which
+:math:`\langle x^2 \rangle = h^2/3` and hence :math:`h = \sqrt{3 \langle x^2
+\rangle}`, the worst-case excursion is the slab half-width scaled by the
+gradient magnitude:
+
+.. math::
+    :label: ls_overshoot
+
+    \delta_{i,g} = | \boldsymbol{\vec{Q}}_{i,g} | \sqrt{3\, \hat{\mathbf{Q}}^\mathsf{T}
+    \mathbf{M}_i \hat{\mathbf{Q}}} = \sqrt{3\, \boldsymbol{\vec{Q}}_{i,g}^\mathsf{T}
+    \mathbf{M}_i \boldsymbol{\vec{Q}}_{i,g}} \;\mathrm{.}
+
+In one dimension this is exact (:math:`\delta = h | Q' |` for a uniform slab of
+half-width :math:`h`); in three dimensions it is the slab-equivalent estimate
+along the gradient direction. When :math:`\delta_{i,g} > Q_{i,g}`, the gradient
+is rescaled by
+
+.. math::
+    :label: ls_limiter
+
+    \boldsymbol{\vec{Q}}_{i,g} \;\rightarrow\; \frac{\max(Q_{i,g},\, 0)}{\delta_{i,g}}\,
+    \boldsymbol{\vec{Q}}_{i,g} \;\mathrm{,}
+
+which scales the excursion down to :math:`Q_{i,g}` so that :math:`\min_{\mathbf{u}}
+\tilde{Q}_{i,g}(\mathbf{u}) = 0` (the gradient is zeroed outright if
+:math:`Q_{i,g} \leq 0`). Only the gradient is scaled, so the flat,
+volume-averaged emission :math:`Q_{i,g}` -- and therefore the region's total
+emitted source -- is preserved exactly; the limiter trades sub-region shape
+information for positivity without biasing the mean.
+
+Two points are worth emphasizing. First, the bound relies on the second-moment
+(slab) description of the region rather than its exact geometry, so positivity
+is enforced only over the moment ellipsoid implied by :math:`\mathbf{M}_i`, not
+in the corners of an arbitrarily shaped source region; in practice the small
+residual negativity this can leave is handled by the downstream treatments
+already described. Second, the limiter is applied per energy group and only to
+optically thin groups: in any group where the region spans at least one mean
+free path -- :math:`\Sigma_{\mathrm{t},i,g} L_i \geq \tau_{\max}`, with
+:math:`\tau_{\max} = 1` and :math:`L_i = 2 \max_v \sqrt{3\, (\mathbf{M}_i)_{vv}}`
+the region's largest extent -- the limiter is skipped, because a negative local
+emission there is reabsorbed within the region before a ray can carry it across,
+and clipping the gradient would only discard valid shape information.
 
 .. _methods-shannon-entropy-random-ray:
 

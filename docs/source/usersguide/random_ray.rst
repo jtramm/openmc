@@ -1060,33 +1060,24 @@ following methods are currently available in OpenMC:
          averaged estimator is used
    * - ``adaptive``
      - Generalizes the hybrid estimator. Uses the simulation averaged estimator
-       by default, but applies the naive estimator (and the previous-iteration
-       miss treatment) per cell wherever it is needed for
-       stability: cells whose reduced source greatly exceeds their flux (a
-       strong external or in-scatter source), cells whose reduced source is
-       itself negative (possible under transport-corrected cross sections),
-       hit-starved cells, and cells in which the simulation averaged estimator
-       chronically produces negative fluxes. The fallback decision is made
-       automatically from each cell's behavior during the run.
+       by default, but falls back to the naive estimator (and the
+       previous-iteration miss treatment) wherever it is needed for stability:
+       cells whose reduced source greatly exceeds their flux (a strong external
+       or in-scatter source), cells whose reduced source is itself negative
+       (possible under transport-corrected cross sections), hit-starved cells,
+       and cells whose accumulated flux is negative at the end of the inactive
+       phase. This last demotion is a one-shot decision: the unmodified
+       simulation averaged estimator runs throughout the inactive phase, and any
+       cell whose converged (accumulated) flux is negative -- genuinely
+       negative rather than merely noisy -- is demoted to the naive estimator
+       for all of the active batches. The decision is made automatically from
+       each cell's behavior during the run, with no per-iteration rescue or
+       positivity floor.
      - * Retains the low bias of the simulation averaged estimator wherever it
          is well behaved
-       * Eliminates the negative fluxes and numerical instability that the
-         simulation averaged and hybrid estimators can exhibit in optically
-         thin fixed source problems
-       * No parameters to tune
-     - * Slightly more per-cell bookkeeping than the other estimators
-   * - ``inactive_demotion``
-     - A variant of the adaptive estimator that decides the demotion to the
-       naive estimator once, at the end of the inactive batches, rather than
-       reacting to per-iteration negatives. It runs the unmodified simulation
-       averaged estimator (with the same strong-source and hit-starved
-       fallbacks as ``adaptive``) throughout the inactive phase, then demotes
-       only those cells whose accumulated flux is negative -- i.e. whose
-       converged estimate is genuinely negative rather than merely noisy. No
-       per-iteration rescue or positivity floor is applied.
-     - * Same low bias as the simulation averaged estimator wherever it is well
-         behaved, without the slight upward bias that per-iteration demotion
-         can introduce by clipping the lower tail of noisy cells
+       * Eliminates the negative-flux instabilities that the simulation averaged
+         and hybrid estimators can exhibit in optically thin, in-scatter-fed
+         fixed source problems
        * No parameters to tune
      - * Does not strictly guarantee non-negative active-phase fluxes: a few
          near-zero cells can still fluctuate slightly negative by statistical
@@ -1111,16 +1102,13 @@ develop persistent negative fluxes that degrade tally results and, in
 variance reduction workflows, the quality of generated weight windows. The
 adaptive estimator detects and stabilizes those cells automatically while
 leaving the rest of the problem on the low-bias simulation averaged estimator.
-
-The ``inactive_demotion`` estimator is a refinement of ``adaptive`` for the same
-fixed source and shielding problems. Because it decides the demotion from each
-cell's accumulated (converged) flux at the end of the inactive phase, rather
-than reacting to individual per-iteration negatives, it avoids the small upward
-bias that per-iteration demotion can introduce in cells that are noisy but not
-genuinely negative. The trade-off is that it does not strictly guarantee
-non-negative fluxes in every active-phase cell; the rare near-zero cells that
-fluctuate negative are filtered out by the weight-window generator, which
-discards non-positive fluxes.
+Because the negative-flux demotion is decided once, from each cell's accumulated
+(converged) flux at the end of the inactive phase rather than from individual
+per-iteration negatives, it avoids the small upward bias that per-iteration
+demotion can introduce in cells that are noisy but not genuinely negative. The
+trade-off is that it does not strictly guarantee non-negative fluxes in every
+active-phase cell; the rare near-zero cells that fluctuate negative are filtered
+out by the weight-window generator, which discards non-positive fluxes.
 
 -----------------
 Adjoint Flux Mode

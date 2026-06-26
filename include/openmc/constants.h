@@ -75,18 +75,6 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // caught.
 constexpr double ADAPTIVE_VOLUME_KAPPA {4.0};
 
-// Thresholds for demoting a source region to the naive volume estimator
-// under the adaptive volume policy. A region is demoted when the
-// simulation-averaged volume has produced a negative flux in at least
-// NEGATIVE_FLUX_DEMOTION_MIN_COUNT iterations and in at least
-// NEGATIVE_FLUX_DEMOTION_RATE of all iterations so far. Isolated negative
-// fluctuations are instead repaired per-iteration (with negligible
-// selection bias, as the repair is rare), preserving the unbiased
-// simulation-averaged estimator in regions where negativity is not
-// chronic.
-constexpr double NEGATIVE_FLUX_DEMOTION_MIN_COUNT {3.0};
-constexpr double NEGATIVE_FLUX_DEMOTION_RATE {0.005};
-
 // Number of initial batches during which the linear source gradients are held
 // at zero (a flat source). The per-region centroids and spatial moment matrix
 // are poorly conditioned until enough ray samples have accumulated, so
@@ -406,8 +394,7 @@ enum class RandomRayVolumeEstimator {
   NAIVE,
   SIMULATION_AVERAGED,
   HYBRID,
-  ADAPTIVE,
-  INACTIVE_DEMOTION
+  ADAPTIVE
 };
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };

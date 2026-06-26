@@ -175,14 +175,6 @@ protected:
   void apply_external_source_to_cell_and_children(
     int32_t i_cell, int src_idx, int32_t target_material_id);
   virtual void set_flux_to_flux_plus_source(int64_t sr, double volume, int g);
-
-  //! Re-express an element's freshly computed flux as if the transport term
-  //! had been normalized by the naive (iteration) volume rather than the
-  //! simulation-averaged one. Used by the negative-flux rescue. The
-  //! conversion is algebraic because the destructive in-place flux update has
-  //! already overwritten the raw transport term; the volume ratio is derived
-  //! internally from the region's stored volumes.
-  virtual void convert_flux_to_naive_volume(int64_t sr, int g);
   void set_flux_to_source(int64_t sr, int g);
   virtual void set_flux_to_old_flux(int64_t sr, int g);
 

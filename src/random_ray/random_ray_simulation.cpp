@@ -468,9 +468,9 @@ void RandomRaySimulation::simulate()
         domain_->random_ray_tally();
       }
 
-      // For the inactive-demotion estimator, accumulate the inactive-phase flux
-      // and, on the final inactive batch, settle which regions are demoted to
-      // the naive volume estimator (no-op for the other estimators).
+      // For the adaptive estimator, accumulate the inactive-phase flux and, on
+      // the final inactive batch, settle which regions are demoted to the naive
+      // volume estimator (no-op for the other estimators).
       domain_->inactive_demotion_step();
 
       // Set phi_old = phi_new
@@ -606,9 +606,6 @@ void RandomRaySimulation::print_results_random_ray(
     case RandomRayVolumeEstimator::ADAPTIVE:
       estimator = "Adaptive";
       break;
-    case RandomRayVolumeEstimator::INACTIVE_DEMOTION:
-      estimator = "Inactive Demotion";
-      break;
     default:
       fatal_error("Invalid volume estimator type");
     }
@@ -620,7 +617,7 @@ void RandomRaySimulation::print_results_random_ray(
         domain_->n_final_naive_, domain_->n_final_naive_ * inv);
       fmt::print("   Strong/External Source          = {} SRs ({:.4f}%)\n",
         domain_->n_final_strong_, domain_->n_final_strong_ * inv);
-      fmt::print("   Chronic Negative Flux (demoted) = {} SRs ({:.4f}%)\n",
+      fmt::print("   Converged Negative (demoted)    = {} SRs ({:.4f}%)\n",
         domain_->n_final_demoted_, domain_->n_final_demoted_ * inv);
       fmt::print("   Hit-Starved (Small)             = {} SRs ({:.4f}%)\n",
         domain_->n_final_small_, domain_->n_final_small_ * inv);

@@ -117,17 +117,16 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
     }
   }
 
-  // Under the adaptive volume estimators, regions receiving the protected
-  // (naive volume) treatment for a strong inhomogeneous source or chronic
-  // negativity also fall back to a flat source representation. In such
-  // regions the reduced source greatly exceeds the scalar flux, so the
-  // flat-source cancellation must be exact; the gradient terms attenuate
-  // segments against the local rather than the flat source, introducing
-  // per-iteration noise at the gradient scale that the volume choice cannot
-  // cancel. Zeroing the gradients there extends the existing flat-source
-  // fallback already applied to hit-starved (small) regions.
-  if ((volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE ||
-        volume_estimator_ == RandomRayVolumeEstimator::INACTIVE_DEMOTION) &&
+  // Under the adaptive volume estimator, regions receiving the protected
+  // (naive volume) treatment for a strong inhomogeneous source also fall back
+  // to a flat source representation. In such regions the reduced source greatly
+  // exceeds the scalar flux, so the flat-source cancellation must be exact; the
+  // gradient terms attenuate segments against the local rather than the flat
+  // source, introducing per-iteration noise at the gradient scale that the
+  // volume choice cannot cancel. Zeroing the gradients there extends the
+  // existing flat-source fallback already applied to hit-starved (small)
+  // regions.
+  if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
       material != MATERIAL_VOID) {
     // This mirrors the flat-domain strong-source test: a reduced source far
     // above the flux, or a negative reduced source (possible under
@@ -142,15 +141,7 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
         break;
       }
     }
-    // Gradients are latched flat by the same chronic-negativity criterion
-    // used for volume demotion: a region whose negativity is persistent has
-    // untrustworthy tilts. Isolated events are instead handled by the
-    // positivity floor at flux-update time, which keeps them out of the
-    // accumulated tallies without permanently disabling the linear source
-    // in regions whose moments are otherwise sound.
-    double demotion_count_threshold = std::max(NEGATIVE_FLUX_DEMOTION_MIN_COUNT,
-      NEGATIVE_FLUX_DEMOTION_RATE * simulation::current_batch);
-    if (strong_source || srh.n_tilt_events() >= demotion_count_threshold) {
+    if (strong_source) {
       for (int g = 0; g < negroups_; g++) {
         srh.source_gradients(g) = {0.0, 0.0, 0.0};
       }
@@ -264,15 +255,6 @@ void LinearSourceDomain::set_flux_to_flux_plus_source(
   } else {
     source_regions_.flux_moments_new(sr, g) *= (1.0 / volume);
   }
-}
-
-void LinearSourceDomain::convert_flux_to_naive_volume(int64_t sr, int g)
-{
-  FlatSourceDomain::convert_flux_to_naive_volume(sr, g);
-  // Moments are normalized by the same volume as the scalar flux (zeroed
-  // moments of small regions stay zero under scaling)
-  double ratio = source_regions_.volume(sr) / source_regions_.volume_naive(sr);
-  source_regions_.flux_moments_new(sr, g) *= ratio;
 }
 
 void LinearSourceDomain::set_flux_to_old_flux(int64_t sr, int g)
