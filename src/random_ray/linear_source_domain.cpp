@@ -127,24 +127,14 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // existing flat-source fallback already applied to hit-starved (small)
   // regions.
   if (volume_estimator_ == RandomRayVolumeEstimator::ADAPTIVE &&
-      material != MATERIAL_VOID) {
-    // This mirrors the flat-domain strong-source test: a reduced source far
-    // above the flux, or a negative reduced source (possible under
-    // transport-corrected cross sections). See add_source_to_scalar_flux for
-    // the full rationale.
-    bool strong_source = false;
+      material != MATERIAL_VOID &&
+      region_has_strong_source(&srh.source(0), &srh.scalar_flux_old(0))) {
+    // A strong-source region falls back to a flat source: its gradient terms
+    // are per-iteration noise that the volume choice cannot cancel (see
+    // region_has_strong_source and add_source_to_scalar_flux for the full
+    // rationale), so they are zeroed.
     for (int g = 0; g < negroups_; g++) {
-      double src = srh.source(g);
-      if (src < 0.0 ||
-          src > ADAPTIVE_VOLUME_KAPPA * std::max(srh.scalar_flux_old(g), 0.0)) {
-        strong_source = true;
-        break;
-      }
-    }
-    if (strong_source) {
-      for (int g = 0; g < negroups_; g++) {
-        srh.source_gradients(g) = {0.0, 0.0, 0.0};
-      }
+      srh.source_gradients(g) = {0.0, 0.0, 0.0};
     }
   }
 

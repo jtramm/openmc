@@ -275,6 +275,18 @@ void FlatSourceDomain::set_flux_to_source(int64_t sr, int g)
   source_regions_.scalar_flux_new(sr, g) = source_regions_.source(sr, g);
 }
 
+bool FlatSourceDomain::region_has_strong_source(
+  const float* reduced_source, const double* flux_old) const
+{
+  for (int g = 0; g < negroups_; g++) {
+    double src = reduced_source[g];
+    if (src < 0.0 || src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old[g], 0.0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Combine transport flux contributions and flat source contributions from the
 // previous iteration to generate this iteration's estimate of scalar flux.
 int64_t FlatSourceDomain::add_source_to_scalar_flux()
@@ -340,18 +352,9 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
     //
     // Only the adaptive estimator consults the strong-source flag, so the
     // other estimators skip the test (and its end-of-run report) entirely.
-    bool strong_source = false;
-    if (is_adaptive) {
-      for (int g = 0; g < negroups_; g++) {
-        float src = source_regions_.source(sr, g);
-        float flux_old = source_regions_.scalar_flux_old(sr, g);
-        if (src < 0.0f ||
-            src > ADAPTIVE_VOLUME_KAPPA * std::max(flux_old, 0.0f)) {
-          strong_source = true;
-          break;
-        }
-      }
-    }
+    bool strong_source =
+      is_adaptive && region_has_strong_source(&source_regions_.source(sr, 0),
+                       &source_regions_.scalar_flux_old(sr, 0));
     // Per-region demotion reasons. The external-source, hit-starved (small),
     // and strong-source flags are re-evaluated every iteration; converged_neg
     // is the one-shot flag set at the end of the inactive phase by
