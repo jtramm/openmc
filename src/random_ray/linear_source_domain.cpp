@@ -1,5 +1,8 @@
 #include "openmc/random_ray/linear_source_domain.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "openmc/cell.h"
 #include "openmc/geometry.h"
 #include "openmc/material.h"
@@ -89,14 +92,13 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
       srh.source(g_out) =
         (scatter_flat + fission_flat * inverse_k_eff) / sigma_t;
 
-      // Compute the linear source terms. In the first 10 iterations when the
-      // centroids and spatial moments are not well known, we will leave the
-      // source gradients as zero so as to avoid causing any numerical
-      // instability. If a negative source is encountered, this region must be
-      // very small/noisy or have poorly developed spatial moments, so we zero
-      // the source gradients (effectively making this a flat source region
-      // temporarily), so as to improve stability.
-      if (simulation::current_batch > 10 && srh.source(g_out) >= 0.0) {
+      // Compute the linear source terms. During the first
+      // LINEAR_SOURCE_GRADIENT_WARMUP_BATCHES iterations, when the centroids
+      // and spatial moments are not well known, the source gradients are
+      // left at zero to avoid numerical instability. Negative and
+      // excessively steep sources are handled by the gradient limiter below,
+      // after the external source (which carries no gradient) is added.
+      if (simulation::current_batch > LINEAR_SOURCE_GRADIENT_WARMUP_BATCHES) {
         srh.source_gradients(g_out) =
           invM * ((scatter_linear + fission_linear * inverse_k_eff) / sigma_t);
       } else {
@@ -109,6 +111,55 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   if (settings::run_mode == RunMode::FIXED_SOURCE) {
     for (int g = 0; g < negroups_; g++) {
       srh.source(g) += srh.external_source(g);
+    }
+  }
+
+  // Limit the source gradients so the modeled local source
+  // q(r) = q_flat + (r - centroid) . q_gradient
+  // stays non-negative over the region as described by its spatial moments.
+  // Noisy fitted moments can produce spuriously steep gradients (the
+  // inverted moment matrix amplifies noise along any thin extent of the
+  // region), and a region whose modeled source goes negative over part of
+  // its extent drives crossing rays negative and exports the contamination
+  // downstream. The worst-case overshoot of the linear term over the moment
+  // ellipsoid is sqrt(3 g^T M g), which is exact for a slab and per-axis
+  // exact for a box. Rescaling the gradient to cap that overshoot at the
+  // flat source preserves the region's mean emission exactly, since the
+  // linear term integrates to zero over the region, and gradients that pass
+  // the test are left bit-identical. A group whose flat source is negative
+  // has its gradient zeroed, as no meaningful shape information exists in
+  // that state. Groups in which the region is optically thick along the
+  // gradient direction are exempt, since steep fits across a thick span are
+  // physical and clipping them produces an error that compounds with depth
+  // in deep-penetration problems. See the methods documentation for the
+  // derivation.
+  if (material != MATERIAL_VOID) {
+    const MomentMatrix& m = srh.mom_matrix();
+    for (int g = 0; g < negroups_; g++) {
+      MomentArray& gradient = srh.source_gradients(g);
+      double flat = srh.source(g);
+      if (flat < 0.0) {
+        gradient = {0.0, 0.0, 0.0};
+        continue;
+      }
+      double quad =
+        m.a * gradient.x * gradient.x + m.d * gradient.y * gradient.y +
+        m.f * gradient.z * gradient.z +
+        2.0 * (m.b * gradient.x * gradient.y + m.c * gradient.x * gradient.z +
+                m.e * gradient.y * gradient.z);
+      double overshoot = std::sqrt(3.0 * std::max(quad, 0.0));
+      if (overshoot <= flat) {
+        continue;
+      }
+      double sigma_t =
+        sigma_t_[(material * ntemperature_ + temp) * negroups_ + g] *
+        density_mult;
+      double gradient_norm = gradient.norm();
+      if (2.0 * sigma_t * overshoot >=
+          SOURCE_GRADIENT_LIMITER_MAX_TAU * gradient_norm) {
+        continue;
+      }
+      gradient *= flat / overshoot;
     }
   }
 }

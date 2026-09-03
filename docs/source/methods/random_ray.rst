@@ -999,6 +999,44 @@ The contents of this section, alongside the equations for the flat source and
 scalar flux, Equations :eq:`source_update` and :eq:`phi_sim` respectively,
 completes the set of equations for LS.
 
+~~~~~~~~~~~~~~~~~~~~~~~~
+Source Gradient Limiting
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The fitted source gradient :math:`\vec{Q}_i = M_i^{-1} \vec{q}_i` amplifies
+noise in the fitted source moments along any thin extent of the region,
+where the moment matrix :math:`M_i` is nearly singular, so a poorly sampled
+region can carry a spurious gradient arbitrarily steep relative to its mean
+source. Such a region emits a negative source over part of its extent, and
+rays crossing the negative lobe carry negative angular flux downstream. In
+optically thin media with scattering ratios near one (for example, the
+air-filled regions of shielding problems), the in-group feedback can then
+amplify the exported negativity without bound.
+
+OpenMC therefore limits each group's source gradient so the modeled source
+stays non-negative over the region as described by its spatial moments. The
+worst-case overshoot of the linear term over the moment ellipsoid is
+:math:`\sqrt{3 \vec{Q}_i^T M_i \vec{Q}_i}`, where the factor of three makes
+the bound exact for a slab (a uniform interval of length :math:`L` has
+:math:`\langle x^2 \rangle = L^2/12`) and per-axis exact for a box. If the
+overshoot exceeds the flat source, the gradient vector is rescaled so the
+two are equal. Because the linear term integrates to zero over the region,
+the rescaling preserves the region's mean emission exactly, and gradients
+that pass the test are left untouched. A group whose flat source is
+negative has its gradient zeroed, as no meaningful shape information exists
+in that state.
+
+Groups in which the region is optically thick along the gradient direction
+(an optical thickness of :math:`2 \Sigma_t \sqrt{3 \vec{Q}_i^T M_i
+\vec{Q}_i} / |\vec{Q}_i|` at or above one) are exempt from limiting. A
+steep fit across an optically thick span is physical, as a linear fit to a
+sharply attenuated flux legitimately crosses zero near the region edge, and
+clipping such fits produces an error that compounds with depth in
+deep-penetration problems. The optically thin media that amplify exported
+negativity can never be thick along any direction, so they are always
+limited. The limiter requires no user input and leaves well-resolved
+solutions unchanged.
+
 .. _methods-shannon-entropy-random-ray:
 
 -----------------------------
