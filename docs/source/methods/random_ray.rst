@@ -1022,8 +1022,9 @@ the bound exact for a slab (a uniform interval of length :math:`L` has
 overshoot exceeds the flat source, the gradient vector is rescaled so the
 two are equal. The bound covers the moment ellipsoid rather than the true
 region shape, and the corners of box-like or mesh-cut regions lie beyond it
-by up to :math:`\sqrt{3}`, so the limiter reduces rather than eliminates
-modeled-source negativity for arbitrary shapes. Because the linear term
+(up to a factor of :math:`\sqrt{3}` farther from the centroid), so the
+limiter reduces rather than eliminates modeled-source negativity for
+arbitrary shapes. Because the linear term
 integrates to zero over the region, the rescaling preserves the region's
 mean emission exactly, and gradients that pass the test are left
 untouched. A group whose flat source is
