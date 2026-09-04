@@ -1020,9 +1020,13 @@ worst-case overshoot of the linear term over the moment ellipsoid is
 the bound exact for a slab (a uniform interval of length :math:`L` has
 :math:`\langle x^2 \rangle = L^2/12`) and per-axis exact for a box. If the
 overshoot exceeds the flat source, the gradient vector is rescaled so the
-two are equal. Because the linear term integrates to zero over the region,
-the rescaling preserves the region's mean emission exactly, and gradients
-that pass the test are left untouched. A group whose flat source is
+two are equal. The bound covers the moment ellipsoid rather than the true
+region shape, and the corners of box-like or mesh-cut regions lie beyond it
+by up to :math:`\sqrt{3}`, so the limiter reduces rather than eliminates
+modeled-source negativity for arbitrary shapes. Because the linear term
+integrates to zero over the region, the rescaling preserves the region's
+mean emission exactly, and gradients that pass the test are left
+untouched. A group whose flat source is
 negative has its gradient zeroed, as no meaningful shape information exists
 in that state.
 

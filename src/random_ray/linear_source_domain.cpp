@@ -123,10 +123,13 @@ void LinearSourceDomain::update_single_neutron_source(SourceRegionHandle& srh)
   // its extent drives crossing rays negative and exports the contamination
   // downstream. The worst-case overshoot of the linear term over the moment
   // ellipsoid is sqrt(3 g^T M g), which is exact for a slab and per-axis
-  // exact for a box. Rescaling the gradient to cap that overshoot at the
-  // flat source preserves the region's mean emission exactly, since the
-  // linear term integrates to zero over the region, and gradients that pass
-  // the test are left bit-identical. A group whose flat source is negative
+  // exact for a box. Corners of box-like or mesh-cut regions lie beyond the
+  // ellipsoid (by up to sqrt(3)), so the limiter reduces rather than
+  // eliminates modeled-source negativity for arbitrary shapes. Rescaling
+  // the gradient to cap the overshoot at the flat source preserves the
+  // region's mean emission exactly, since the linear term integrates to
+  // zero over the region, and gradients that pass the test are left
+  // bit-identical. A group whose flat source is negative
   // has its gradient zeroed, as no meaningful shape information exists in
   // that state. Groups in which the region is optically thick along the
   // gradient direction are exempt, since steep fits across a thick span are

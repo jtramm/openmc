@@ -980,9 +980,10 @@ LS enables the use of coarser mesh discretizations and lower ray populations,
 offsetting the increased computation per ray.
 
 Linear source gradients are automatically limited so that the modeled source
-remains non-negative over each region's spatial extent, which prevents the
-negative-flux instabilities that spurious gradients can otherwise ignite in
-optically thin, scattering-dominated regions. Regions that are optically
+remains non-negative over the extent described by each region's spatial
+moments, which suppresses the negative-flux instabilities that spurious
+gradients can otherwise ignite in optically thin, scattering-dominated
+regions. Regions that are optically
 thick along the gradient direction are exempt, as steep source shapes there
 are physical. The limiter requires no user input and leaves well-resolved
 solutions unchanged; see the :ref:`methods documentation
