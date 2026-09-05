@@ -414,11 +414,13 @@ void RandomRay::attenuate_flux_inner(
 
   // Trace this segment against the tally meshes so that tally scores can
   // be apportioned when a tally mesh subdivides a source region. Every
-  // active segment is traced while the piece estimates develop during the
-  // inactive batches, after which only a sample of each ray's segments is
-  // traced.
+  // active segment is traced while the piece estimates develop, for the
+  // inactive batches clamped to a minimum and maximum window, after which
+  // only a sample of each ray's segments is traced.
   if (is_active && !domain_->tally_mesh_slots_.empty()) {
-    if (simulation::current_batch <= settings::n_inactive ||
+    int full_rate_batches = std::clamp(settings::n_inactive,
+      TALLY_MESH_MIN_TRACE_BATCHES, TALLY_MESH_MAX_TRACE_BATCHES);
+    if (simulation::current_batch <= full_rate_batches ||
         (tally_mesh_segment_counter_++ % TALLY_MESH_TRACE_INTERVAL) == 0) {
       accumulate_tally_mesh_pieces(srh, distance, r);
     }
@@ -441,24 +443,26 @@ void RandomRay::accumulate_tally_mesh_pieces(
   // A mesh already subdividing this source region cannot subdivide it
   // further, so its slot is skipped entirely.
   int own_mesh = srh.mesh();
-  Position no_translation {0.0, 0.0, 0.0};
-  auto slot_skipped = [&](int s) {
-    return slots[s].mesh_idx == own_mesh &&
-           slots[s].translation == no_translation;
-  };
 
-  // Ray trace against each tally mesh before taking the lock
+  // Ray trace against each tally mesh before taking the lock, applying the
+  // same translation-then-rotation transform the mesh filter itself uses.
   for (int s = 0; s < n_slots; s++) {
     tally_mesh_bins_[s].resize(0);
     tally_mesh_lengths_[s].resize(0);
-    if (slot_skipped(s)) {
+    if (domain_->tally_slot_skipped(own_mesh, s)) {
       continue;
     }
     Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
     Position start = r - slots[s].translation;
     Position end = start + distance * u();
+    Direction ut = u();
+    if (!slots[s].rotation.empty()) {
+      start = start.rotate(slots[s].rotation);
+      end = end.rotate(slots[s].rotation);
+      ut = ut.rotate(slots[s].rotation);
+    }
     mesh->bins_crossed(
-      start, end, u(), tally_mesh_bins_[s], tally_mesh_lengths_[s]);
+      start, end, ut, tally_mesh_bins_[s], tally_mesh_lengths_[s]);
   }
 
   // Accumulate all slots under a single acquisition of the region's lock.
@@ -471,7 +475,7 @@ void RandomRay::accumulate_tally_mesh_pieces(
     piece_slots.resize(n_slots);
   }
   for (int s = 0; s < n_slots; s++) {
-    if (slot_skipped(s)) {
+    if (domain_->tally_slot_skipped(own_mesh, s)) {
       continue;
     }
     TallyMeshPieces& pieces = piece_slots[s];
@@ -485,14 +489,19 @@ void RandomRay::accumulate_tally_mesh_pieces(
     // crossed bin spanning the start of the segment, so the midpoint of
     // that span lies inside the mesh. A segment that enters the mesh
     // partway does not report where the mesh begins, so the candidate
-    // point is verified against the mesh before being recorded, and
-    // recording waits for a suitable segment otherwise.
+    // point is verified against the mesh, in the filter's transformed
+    // frame, before being recorded, and recording waits for a suitable
+    // segment otherwise. The point itself is stored in the lab frame,
+    // since it seeds a particle whose filters apply their own transforms.
     if (!pieces.has_inside_pos && tally_mesh_bins_[s].size() > 0) {
       Position candidate =
         r + (0.5 * tally_mesh_lengths_[s][0] * distance) * u();
+      Position check = candidate - slots[s].translation;
+      if (!slots[s].rotation.empty()) {
+        check = check.rotate(slots[s].rotation);
+      }
       Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
-      if (mesh->get_bin(candidate - slots[s].translation) ==
-          tally_mesh_bins_[s][0]) {
+      if (mesh->get_bin(check) == tally_mesh_bins_[s][0]) {
         pieces.inside_pos = candidate;
         pieces.has_inside_pos = 1;
       }

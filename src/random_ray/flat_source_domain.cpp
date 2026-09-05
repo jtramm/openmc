@@ -451,18 +451,20 @@ void FlatSourceDomain::init_tally_mesh_slots()
       }
       auto* mf = static_cast<MeshFilter*>(f);
 
-      // Find or create the slot for this (mesh, translation) pair
+      // Find or create the slot for this (mesh, translation, rotation)
       int slot = C_NONE;
       for (int s = 0; s < tally_mesh_slots_.size(); s++) {
         if (tally_mesh_slots_[s].mesh_idx == mf->mesh() &&
-            tally_mesh_slots_[s].translation == mf->translation()) {
+            tally_mesh_slots_[s].translation == mf->translation() &&
+            tally_mesh_slots_[s].rotation == mf->rotation()) {
           slot = s;
           break;
         }
       }
       if (slot == C_NONE) {
         slot = tally_mesh_slots_.size();
-        tally_mesh_slots_.push_back({mf->mesh(), mf->translation()});
+        tally_mesh_slots_.push_back(
+          {mf->mesh(), mf->translation(), mf->rotation()});
       }
       tally_slots_[i_tally].push_back(slot);
 
@@ -531,6 +533,13 @@ const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
   }
   const TallyMeshPieces& pieces = piece_slots[task.mesh_slot];
   if (!tally_mesh_pieces_subdivided(pieces)) {
+    return nullptr;
+  }
+  // A region can be transiently classified as subdivided before any of its
+  // traced track length has landed inside the mesh, leaving no bins to
+  // apportion over. Score whole through the original bin rather than
+  // dropping the region's contribution.
+  if (pieces.bins.empty()) {
     return nullptr;
   }
   return &pieces;
@@ -659,8 +668,13 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
         // If the region has not been traced against the mesh yet, the
         // mapping stays incomplete so it is attempted again next batch.
         // If tracing has proven the region lies wholly outside the mesh,
-        // no task is needed and the mapping is complete.
-        if (mesh_info.slot >= 0) {
+        // or the mesh is the region's own subdividing mesh (whose interior
+        // is guaranteed to contain the recorded position, so the failure
+        // came from another filter), no task is needed and the mapping is
+        // complete.
+        const int own_mesh = source_regions_.mesh(sr);
+        if (mesh_info.slot >= 0 &&
+            !tally_slot_skipped(own_mesh, mesh_info.slot)) {
           const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
           if (piece_slots.empty() || piece_slots[mesh_info.slot].total == 0.0) {
             all_source_regions_mapped = false;
@@ -682,8 +696,49 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
             all_source_regions_mapped = false;
             any_deferral = true;
           }
-          // Otherwise, tracing has proven the region lies wholly outside
-          // this mesh, so no task is needed.
+        } else if (mesh_info.slot == TallyTask::MULTI_MESH) {
+          // A tally with multiple mesh filters cannot be rebuilt from a
+          // single inside point. If any of its meshes shows the region
+          // straddling a mesh boundary, apportioned or partial scoring
+          // would be required, which is unsupported, so abort loudly
+          // rather than silently dropping the region's contribution. If
+          // the region has simply not been traced yet, try again next
+          // batch. Otherwise the region lies outside the tally's meshes
+          // or was excluded by another filter, and no task is needed.
+          const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
+          bool untraced = false;
+          bool straddles = false;
+          for (int s : tally_slots_[i_tally]) {
+            if (tally_slot_skipped(own_mesh, s)) {
+              continue;
+            }
+            if (piece_slots.empty() || piece_slots[s].total == 0.0) {
+              untraced = true;
+              continue;
+            }
+            const TallyMeshPieces& pc = piece_slots[s];
+            double inside = 0.0;
+            for (double length : pc.lengths) {
+              inside += length;
+            }
+            bool partial =
+              (pc.total - inside) > TALLY_MESH_SUBDIVIDE_TOLERANCE * pc.total;
+            if (tally_mesh_pieces_subdivided(pc) ||
+                (partial && !pc.bins.empty())) {
+              straddles = true;
+            }
+          }
+          if (straddles) {
+            fatal_error(
+              fmt::format("Tally {} has multiple mesh filters, and one of "
+                          "its meshes subdivides a source region. Scoring a "
+                          "source region subdivided by a tally mesh is only "
+                          "supported for tallies with a single mesh filter.",
+                model::tallies[i_tally]->id()));
+          } else if (untraced) {
+            all_source_regions_mapped = false;
+            any_deferral = true;
+          }
         }
       }
       // Reset all the filter matches for the next tally event.

@@ -236,3 +236,183 @@ def test_multiple_mesh_filters_fatal(tmp_path):
     model.tallies = openmc.Tallies([t])
     with pytest.raises(RuntimeError, match='multiple mesh filters'):
         model.run(cwd=str(tmp_path))
+
+
+def test_multiple_mesh_filters_edge_fatal(tmp_path):
+    """The two-mesh-filter abort must also fire when one mesh's edge cuts
+    source regions and their midpoints fall outside it, rather than
+    silently dropping those regions from the tally."""
+    model, cell = uniform_model(tmp_path)
+    t = openmc.Tally(name='twomesh')
+    t.filters = [openmc.MeshFilter(tally_mesh((5, 5, 5))),
+                 openmc.MeshFilter(tally_mesh((1, 1, 1), hi=(3.0, L, L)))]
+    t.scores = ['flux']
+    model.tallies = openmc.Tallies([t])
+    with pytest.raises(RuntimeError, match='multiple mesh filters'):
+        model.run(cwd=str(tmp_path))
+
+
+def test_rotated_mesh_filter(tmp_path):
+    """A rotated mesh filter whose bin planes cut source regions.
+
+    The filter mesh spans [-10, 10] with four bins along its local x axis
+    and is rotated 90 degrees about z, so in the lab frame its bin planes
+    are y planes, one of which (|y'| = 5) passes through source region
+    interiors. The rotated image of the uniform cube covers exactly two
+    bins equally, so those two bins must each hold half the total flux and
+    the other two must hold none.
+    """
+    model, cell = uniform_model(tmp_path)
+    mf = openmc.MeshFilter(
+        tally_mesh((4, 1, 1), lo=(-10.0, -10.0, -10.0), hi=(10.0, 10.0, 10.0)))
+    mf.rotation = (0.0, 0.0, 90.0)
+    t = openmc.Tally(name='rot')
+    t.filters = [mf]
+    t.scores = ['flux']
+    model.tallies = openmc.Tallies([t])
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies.append(ref)
+
+    out = run_and_read(model, tmp_path, ['rot', 'cellref'])
+    total = out['cellref'][0]
+    vals = np.sort(out['rot'])
+    assert abs(out['rot'].sum() - total) / total < 1e-6
+    assert vals[0] < 1e-6 * total and vals[1] < 1e-6 * total
+    assert abs(vals[2] / total - 0.5) < 0.01
+    assert abs(vals[3] / total - 0.5) < 0.01
+
+
+def test_own_mesh_with_excluding_filter(tmp_path):
+    """A tally on the source region mesh itself, restricted by a cell
+    filter that excludes part of the domain.
+
+    The excluded regions can never match the tally, which must resolve
+    cleanly rather than deferring the tally mapping forever. The included
+    half must still score correctly.
+    """
+    openmc.reset_auto_ids()
+    model = openmc.Model()
+    build_mgxs(str(tmp_path / 'mgxs.h5'), False)
+    m = openmc.Material(name='mat')
+    m.set_density('macro', 1.0)
+    m.add_macroscopic(openmc.Macroscopic('mat'))
+    model.materials = openmc.Materials([m])
+    model.materials.cross_sections = str(tmp_path / 'mgxs.h5')
+
+    box = openmc.model.RectangularParallelepiped(
+        0, L, 0, L, 0, L, boundary_type='reflective')
+    plane = openmc.XPlane(5.0)
+    cell_a = openmc.Cell(fill=m, region=-box & -plane)
+    cell_b = openmc.Cell(fill=m, region=-box & +plane)
+    model.geometry = openmc.Geometry([cell_a, cell_b])
+
+    s = model.settings
+    s.energy_mode = 'multi-group'
+    s.particles = 500
+    s.inactive = 40
+    s.batches = 160
+    s.seed = 1
+    s.run_mode = 'fixed source'
+    s.source = openmc.IndependentSource(
+        space=openmc.stats.Box((0, 0, 0), (L, L, L)),
+        energy=openmc.stats.Discrete([1.0e6], [1.0]),
+        constraints={'domains': [cell_a, cell_b]})
+
+    srmesh = openmc.RegularMesh()
+    srmesh.lower_left = (0, 0, 0)
+    srmesh.upper_right = (L, L, L)
+    srmesh.dimension = (5, 5, 5)
+    s.random_ray = {
+        'distance_inactive': 30.0,
+        'distance_active': 300.0,
+        'ray_source': openmc.IndependentSource(
+            space=openmc.stats.Box((0, 0, 0), (L, L, L))),
+        'source_shape': 'flat',
+        'source_region_meshes': [(srmesh, [model.geometry.root_universe])],
+    }
+
+    t = openmc.Tally(name='half')
+    t.filters = [openmc.MeshFilter(srmesh), openmc.CellFilter(cell_a)]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='aref')
+    ref.filters = [openmc.CellFilter(cell_a)]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['half', 'aref'])
+    total_a = out['aref'][0]
+    assert abs(out['half'].sum() - total_a) / total_a < 1e-9
+
+
+def test_short_inactive_edge_straddle(tmp_path):
+    """The partial-coverage edge case with almost no inactive batches.
+
+    Piece estimates normally develop during the inactive phase. With one
+    inactive batch, the minimum full-rate tracing window must still keep
+    edge-straddling regions from being dropped or grossly misweighted.
+    """
+    model, cell = uniform_model(tmp_path)
+    model.settings.inactive = 1
+    model.settings.batches = 121
+    model.tallies = openmc.Tallies([
+        mesh_flux_tally(tally_mesh((1, 1, 1), hi=(3.0, L, L)), 'left'),
+    ])
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies.append(ref)
+
+    out = run_and_read(model, tmp_path, ['left', 'cellref'])
+    frac = out['left'][0] / out['cellref'][0]
+    assert abs(frac - 0.3) < 0.03
+
+
+def test_three_meshes_at_once(tmp_path):
+    """Three non-aligned full-coverage meshes tallied simultaneously.
+
+    Each mesh must independently report uniform bins and conserve the
+    total, exercising the per-mesh piece tables side by side.
+    """
+    model, cell = uniform_model(tmp_path)
+    model.tallies = openmc.Tallies([
+        mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3'),
+        mesh_flux_tally(tally_mesh((4, 4, 4)), 'm4'),
+        mesh_flux_tally(tally_mesh((7, 7, 7)), 'm7'),
+    ])
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies.append(ref)
+
+    out = run_and_read(model, tmp_path, ['m3', 'm4', 'm7', 'cellref'])
+    total = out['cellref'][0]
+    for name, tol in (('m3', 0.02), ('m4', 0.02), ('m7', 0.04)):
+        assert_uniform(out[name], tol)
+        assert abs(out[name].sum() - total) / total < 1e-9
+
+
+def test_determinism(tmp_path):
+    """Repeat runs must be bitwise identical on one thread and agree to
+    accumulation-order rounding with threading, matching the solver's
+    pre-existing reproducibility contract."""
+    for threads, bitwise in ((1, True), (4, False)):
+        vals = []
+        for rep in (1, 2):
+            wd = tmp_path / f't{threads}_{rep}'
+            wd.mkdir()
+            model, cell = uniform_model(wd)
+            model.tallies = openmc.Tallies([
+                mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3'),
+            ])
+            os.environ['OMP_NUM_THREADS'] = str(threads)
+            try:
+                out = run_and_read(model, wd, ['m3'])
+            finally:
+                os.environ.pop('OMP_NUM_THREADS', None)
+            vals.append(out['m3'])
+        if bitwise:
+            assert np.array_equal(vals[0], vals[1])
+        else:
+            assert np.abs((vals[0] - vals[1]) / vals[0]).max() < 1e-12

@@ -80,15 +80,28 @@ public:
   //----------------------------------------------------------------------------
   // Tally mesh subdivision support
 
-  // One slot per distinct (mesh, translation) pair appearing in the mesh
-  // filters of the tally set. Ray segments are traced against each slot's
-  // mesh so that a source region subdivided by a tally mesh can have its
-  // tally scores apportioned among the mesh bins it overlaps.
+  // One slot per distinct (mesh, translation, rotation) triple appearing in
+  // the mesh filters of the tally set. Ray segments are traced against each
+  // slot's mesh, in the filter's own transformed frame, so that a source
+  // region subdivided by a tally mesh can have its tally scores apportioned
+  // among the mesh bins it overlaps.
   struct TallyMeshSlot {
     int32_t mesh_idx;
     Position translation {0.0, 0.0, 0.0};
+    vector<double> rotation;
   };
   vector<TallyMeshSlot> tally_mesh_slots_;
+
+  // A slot is skipped for a source region when its mesh, untransformed,
+  // already subdivides that region through the source region decomposition,
+  // since such a mesh cannot cut the region further and the region's
+  // recorded position is guaranteed to lie inside it.
+  bool tally_slot_skipped(int own_mesh, int slot) const
+  {
+    const TallyMeshSlot& s = tally_mesh_slots_[slot];
+    return s.mesh_idx == own_mesh &&
+           s.translation == Position {0.0, 0.0, 0.0} && s.rotation.empty();
+  }
 
   // Per tally, the slots of its mesh filters (empty if none)
   vector<vector<int>> tally_slots_;
