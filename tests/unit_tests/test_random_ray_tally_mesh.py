@@ -18,28 +18,40 @@ import openmc.mgxs
 L = 10.0
 
 
-def build_mgxs(path, fissile):
-    groups = openmc.mgxs.EnergyGroups(group_edges=[1e-5, 20.0e6])
-    d = openmc.XSdata('mat', groups)
-    d.order = 0
-    d.set_total([1.0])
-    d.set_absorption([0.5])
-    d.set_scatter_matrix(np.array([[[0.5]]]))
-    if fissile:
-        d.set_fission([0.5])
-        d.set_nu_fission([0.75])
-        d.set_chi([1.0])
+def build_mgxs(path, fissile, ngroups=1):
+    if ngroups == 1:
+        groups = openmc.mgxs.EnergyGroups(group_edges=[1e-5, 20.0e6])
+        d = openmc.XSdata('mat', groups)
+        d.order = 0
+        d.set_total([1.0])
+        d.set_absorption([0.5])
+        d.set_scatter_matrix(np.array([[[0.5]]]))
+        if fissile:
+            d.set_fission([0.5])
+            d.set_nu_fission([0.75])
+            d.set_chi([1.0])
+    else:
+        assert ngroups == 2 and not fissile
+        groups = openmc.mgxs.EnergyGroups(group_edges=[1e-5, 1.0e3, 20.0e6])
+        d = openmc.XSdata('mat', groups)
+        d.order = 0
+        d.set_total([1.0, 1.0])
+        d.set_absorption([0.5, 0.7])
+        # Within-group scattering plus fast-to-slow downscatter
+        d.set_scatter_matrix(
+            np.array([[[0.3], [0.2]], [[0.0], [0.3]]]))
     lib = openmc.MGXSLibrary(groups)
     lib.add_xsdatas([d])
     lib.export_to_hdf5(path)
 
 
-def uniform_model(tmp_path, fissile=False, shape='flat', sr_dim=(5, 5, 5)):
+def uniform_model(tmp_path, fissile=False, shape='flat', sr_dim=(5, 5, 5),
+                  ngroups=1):
     """Reflective cube of uniform material with 2 cm source regions."""
     openmc.reset_auto_ids()
     model = openmc.Model()
     mgxs_path = str(tmp_path / 'mgxs.h5')
-    build_mgxs(mgxs_path, fissile)
+    build_mgxs(mgxs_path, fissile, ngroups)
 
     m = openmc.Material(name='mat')
     m.set_density('macro', 1.0)
@@ -419,6 +431,144 @@ def test_adjoint_uniform(tmp_path):
     assert_uniform(out['m3'], 0.02)
     total = out['cellref'][0]
     assert abs(out['m3'].sum() - total) / total < 1e-9
+
+
+@pytest.mark.parametrize('mesh_first', [True, False])
+def test_mesh_with_energy_filter(tmp_path, mesh_first):
+    """A subdividing mesh filter combined with an energy filter.
+
+    With two energy groups the mesh filter's stride in the flattened
+    filter index differs from one in one of the two filter orders, so
+    this exercises the stride arithmetic that shifts apportioned scores
+    to sibling bins. Both groups are spatially uniform (the slow group is
+    fed by downscatter), so every mesh bin must be uniform within each
+    group and each group must conserve against an energy-filtered cell
+    tally.
+    """
+    model, cell = uniform_model(tmp_path, ngroups=2)
+    efilt = openmc.EnergyFilter([1e-5, 1.0e3, 20.0e6])
+    mfilt = openmc.MeshFilter(tally_mesh((3, 3, 3)))
+    t = openmc.Tally(name='me')
+    t.filters = [mfilt, efilt] if mesh_first else [efilt, mfilt]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell), openmc.EnergyFilter(
+        [1e-5, 1.0e3, 20.0e6])]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['me', 'cellref'])
+    shape = (27, 2) if mesh_first else (2, 27)
+    vals = out['me'].reshape(shape)
+    per_group = vals.T if mesh_first else vals
+    ref_groups = out['cellref']
+    assert ref_groups[0] > 0 and ref_groups[1] > 0
+    for g in range(2):
+        assert_uniform(per_group[g], 0.02)
+        assert abs(per_group[g].sum() - ref_groups[g]) / ref_groups[g] < 1e-9
+
+
+def test_translated_mesh_filter(tmp_path):
+    """A translated mesh filter half covering the domain.
+
+    The mesh spans the cube but the filter translation shifts it by half
+    the cube width, so it covers x in [5, 10] in the lab frame, with its
+    effective edge cutting through the source regions spanning x in
+    [4, 6]. The single bin must report half the domain total.
+    """
+    model, cell = uniform_model(tmp_path)
+    mf = openmc.MeshFilter(tally_mesh((1, 1, 1)))
+    mf.translation = (5.0, 0.0, 0.0)
+    t = openmc.Tally(name='shifted')
+    t.filters = [mf]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['shifted', 'cellref'])
+    frac = out['shifted'][0] / out['cellref'][0]
+    assert abs(frac - 0.5) < 0.01
+
+
+def test_rectilinear_mesh(tmp_path):
+    """A rectilinear tally mesh with unequal bin widths cutting regions.
+
+    Bin planes at x = 1 and x = 3.5 pass through source region
+    interiors. In the uniform medium each bin must score in proportion
+    to its width.
+    """
+    model, cell = uniform_model(tmp_path)
+    mm = openmc.RectilinearMesh()
+    mm.x_grid = [0.0, 1.0, 3.5, 10.0]
+    mm.y_grid = [0.0, L]
+    mm.z_grid = [0.0, L]
+    t = openmc.Tally(name='rect')
+    t.filters = [openmc.MeshFilter(mm)]
+    t.scores = ['flux']
+    model.tallies = openmc.Tallies([t])
+
+    out = run_and_read(model, tmp_path, ['rect'])
+    widths = np.array([1.0, 2.5, 6.5])
+    assert_uniform(out['rect'] / widths, 0.02)
+
+
+def test_cylindrical_mesh(tmp_path):
+    """A cylindrical tally mesh embedded inside the cube.
+
+    Every mesh surface is curved or interior, so region pieces are cut
+    by cylinders rather than planes, and the regions at the outer radius
+    straddle the mesh edge. Each (r, z) bin must score in proportion to
+    its analytic volume, and the mesh total must match the covered
+    fraction of the domain.
+    """
+    model, cell = uniform_model(tmp_path)
+    mm = openmc.CylindricalMesh(
+        r_grid=[0.0, 1.5, 3.5],
+        phi_grid=[0.0, 2 * np.pi],
+        z_grid=[0.0, 5.0, 10.0],
+        origin=(5.0, 5.0, 0.0))
+    t = openmc.Tally(name='cyl')
+    t.filters = [openmc.MeshFilter(mm)]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['cyl', 'cellref'])
+    r_vols = np.array([np.pi * 1.5**2, np.pi * (3.5**2 - 1.5**2)])
+    vols = np.concatenate([r_vols * 5.0, r_vols * 5.0])
+    vals = out['cyl']
+    density = out['cellref'][0] / L**3
+    assert_uniform(vals / vols, 0.03)
+    expected_total = density * np.pi * 3.5**2 * 10.0
+    assert abs(vals.sum() - expected_total) / expected_total < 0.02
+
+
+def test_spherical_mesh(tmp_path):
+    """A spherical tally mesh embedded inside the cube, with two radial
+    shells cutting regions along spheres. Each shell must score in
+    proportion to its analytic volume."""
+    model, cell = uniform_model(tmp_path)
+    mm = openmc.SphericalMesh(r_grid=[0.0, 2.0, 4.0], origin=(5.0, 5.0, 5.0))
+    t = openmc.Tally(name='sph')
+    t.filters = [openmc.MeshFilter(mm)]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['sph', 'cellref'])
+    vols = np.array([4 / 3 * np.pi * 2.0**3,
+                     4 / 3 * np.pi * (4.0**3 - 2.0**3)])
+    vals = out['sph']
+    density = out['cellref'][0] / L**3
+    assert_uniform(vals / vols, 0.03)
+    expected_total = density * 4 / 3 * np.pi * 4.0**3
+    assert abs(vals.sum() - expected_total) / expected_total < 0.02
 
 
 def test_determinism(tmp_path):

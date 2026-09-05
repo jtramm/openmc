@@ -619,6 +619,35 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
         // Builds this tally's tasks from a particle's filter combinations.
         // Returns false if the particle matched no combination.
         auto build_tasks = [&](Particle& part) {
+          // The mapping particle carries a zero-length track, which the
+          // tracklength binning path of a mesh filter does not support for
+          // every mesh type (an unstructured mesh's ray fire finds nothing
+          // over zero distance). The mapping is a point query, so seed each
+          // mesh filter's match from a direct point lookup in the filter's
+          // own transformed frame, which also anchors apportioned scoring
+          // consistently for all mesh types.
+          for (int j = 0; j < tally.filters().size(); j++) {
+            int i_filt = tally.filters(j);
+            Filter* f = model::tally_filters[i_filt].get();
+            if (f->type() != FilterType::MESH) {
+              continue;
+            }
+            auto* mf = static_cast<MeshFilter*>(f);
+            Position rp = part.r() - mf->translation();
+            if (!mf->rotation().empty()) {
+              rp = rp.rotate(mf->rotation());
+            }
+            auto& match = part.filter_matches()[i_filt];
+            match.bins_.clear();
+            match.weights_.clear();
+            int bin = model::meshes[mf->mesh()]->get_bin(rp);
+            if (bin >= 0) {
+              match.bins_.push_back(bin);
+              match.weights_.push_back(1.0);
+            }
+            match.bins_present_ = true;
+          }
+
           auto filter_iter = FilterBinIter(tally, part);
           auto end = FilterBinIter(tally, true, &part.filter_matches());
           if (filter_iter == end)
