@@ -76,9 +76,12 @@ the number of rays per batch is adjusted. The goal here is to ensure that the
 source region miss rate is below 1%, which is reported by OpenMC at the end of
 the simulation (or before via a warning if it is very high).
 
-.. warning::
-    If using a mesh filter for tallying or weight window generation, ensure that
-    the same mesh is used for source region decomposition via
+.. note::
+    A tally or weight window mesh may freely subdivide source regions, with
+    scores apportioned by each region's overlap with the mesh elements. The
+    apportioned scores only resolve detail at source region fidelity, so for
+    the best results on a fine mesh, also use that mesh for source region
+    decomposition via
     ``model.settings.random_ray['source_region_meshes']``.
 
 ------------------------
@@ -501,12 +504,19 @@ Tallies
 Most tallies, filters, and scores that you would expect to work with a
 multigroup solver like random ray are supported. For example, you can define 3D
 mesh tallies with energy filters and flux, fission, and nu-fission scores, etc.
-There are some restrictions though. For starters, it is assumed that all filter
-mesh boundaries will conform to physical surface boundaries (or lattice
-boundaries) in the simulation geometry. It is acceptable for multiple cells
-(FSRs) to be contained within a mesh element (e.g., pincell-level or
-assembly-level tallies should work), but it is currently left as undefined
-behavior if a single simulation cell is contained in multiple mesh elements.
+Tally mesh boundaries do not need to conform to the simulation geometry or to
+the source regions. When a mesh element boundary cuts through a source region,
+the region's scores are apportioned among the elements it overlaps in
+proportion to each element's share of the region's volume, as measured by ray
+tracing the tally mesh (see :ref:`the methods documentation
+<methods_random_ray_tally_subdivide>`). The apportioned scores resolve spatial
+detail at the fidelity of the source regions themselves, so a tally mesh finer
+than the source regions reveals the solver's piecewise source approximation
+rather than additional physical detail. If sub-source-region tally resolution
+is needed, the source regions should be refined as well, for instance by
+applying the tally mesh in ``source_region_meshes``. One restriction remains,
+in that a tally with more than one mesh filter is only supported when neither
+mesh subdivides a source region.
 
 Supported scores:
     - flux

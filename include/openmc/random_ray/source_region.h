@@ -54,6 +54,24 @@ struct TallyTask {
   int64_t filter_idx;
   int score_idx;
   int score_type;
+
+  // Values for the mesh_slot field. A value >= 0 indexes the domain's list
+  // of tally mesh slots and indicates that this task's tally has a single
+  // mesh filter, allowing the task's score to be apportioned among mesh
+  // bins if the source region is subdivided by that mesh. NO_MESH means the
+  // tally has no mesh filter. MULTI_MESH means the tally has more than one
+  // mesh filter, which is only supported while no scoring source region is
+  // subdivided by any of them.
+  static constexpr int NO_MESH {-1};
+  static constexpr int MULTI_MESH {-2};
+
+  // Tally mesh slot of the tally's mesh filter (or NO_MESH/MULTI_MESH)
+  int mesh_slot {NO_MESH};
+  // Stride of the mesh filter within the tally's flattened filter index
+  int64_t mesh_stride {0};
+  // Mesh bin of the recorded position the task's filter_idx was built from
+  int mesh_bin_mid {0};
+
   TallyTask(int tally_idx, int64_t filter_idx, int score_idx, int score_type)
     : tally_idx(tally_idx), filter_idx(filter_idx), score_idx(score_idx),
       score_type(score_type)
@@ -79,6 +97,37 @@ struct TallyTask {
       return seed;
     }
   };
+};
+
+// Accumulates, for one source region and one tally mesh, the ray track
+// length observed in each mesh bin the region overlaps, together with the
+// total track length of all traced segments. When a source region is
+// subdivided by a tally mesh, the per-bin track length fractions provide
+// ray-based estimates of the piece volume fractions, which are used to
+// apportion the region's tally scores among the mesh bins.
+struct TallyMeshPieces {
+  vector<int> bins;       //!< Mesh bins observed within this source region
+  vector<double> lengths; //!< Accumulated track length within each bin
+  double total {0.0};     //!< Total track length of all traced segments
+
+  // A recorded point inside the mesh within this source region. When a
+  // region straddles the edge of a tally mesh, its recorded midpoint may
+  // lie outside the mesh, in which case this fallback position lets the
+  // tally mapping still be built for the mesh's tallies.
+  Position inside_pos {0.0, 0.0, 0.0};
+  int has_inside_pos {0};
+
+  void add(int bin, double length)
+  {
+    for (size_t i = 0; i < bins.size(); i++) {
+      if (bins[i] == bin) {
+        lengths[i] += length;
+        return;
+      }
+    }
+    bins.push_back(bin);
+    lengths.push_back(length);
+  }
 };
 
 // The SourceRegionKey combines a base source region (i.e., a material
@@ -169,6 +218,11 @@ public:
   // convenient for ensuring that volumes are only tallied once per source
   // region, regardless of how many energy groups are used for tallying.
   std::unordered_set<TallyTask, TallyTask::HashFunctor>* volume_task_;
+
+  // Per tally mesh slot, the track length accumulators used to apportion
+  // tally scores when a tally mesh subdivides this source region. Sized
+  // lazily on first accumulation.
+  vector<TallyMeshPieces>* tally_mesh_pieces_;
 
   // Mesh that subdivides this source region
   int* mesh_;
@@ -270,6 +324,12 @@ public:
   int64_t& parent_sr() { return *parent_sr_; }
   const int64_t parent_sr() const { return *parent_sr_; }
 
+  vector<TallyMeshPieces>& tally_mesh_pieces() { return *tally_mesh_pieces_; }
+  const vector<TallyMeshPieces>& tally_mesh_pieces() const
+  {
+    return *tally_mesh_pieces_;
+  }
+
   double& scalar_flux_old(int g) { return scalar_flux_old_[g]; }
   const double scalar_flux_old(int g) const { return scalar_flux_old_[g]; }
 
@@ -337,10 +397,11 @@ public:
   double volume_naive_ {0.0}; //!< Volume as integrated from this iteration only
   int position_recorded_ {0}; //!< Has the position been recorded yet?
   int external_source_present_ {
-    0};               //!< Is an external source present in this region?
-  int is_small_ {0};  //!< Is it "small", receiving < 1.5 hits per iteration?
-  int n_hits_ {0};    //!< Number of total hits (ray crossings)
-                      // Mesh that subdivides this source region
+    0};              //!< Is an external source present in this region?
+  int is_small_ {0}; //!< Is it "small", receiving < 1.5 hits per iteration?
+  int n_hits_ {0};   //!< Number of total hits (ray crossings)
+  int tally_map_deferred_ {0}; //!< Tally mapping incomplete pending tracing
+                               // Mesh that subdivides this source region
   int mesh_ {C_NONE}; //!< Index in openmc::model::meshes array that subdivides
                       //!< this source region
   int64_t parent_sr_ {C_NONE}; //!< Index of a parent source region
@@ -360,6 +421,10 @@ public:
   // convenient for ensuring that volumes are only tallied once per source
   // region, regardless of how many energy groups are used for tallying.
   std::unordered_set<TallyTask, TallyTask::HashFunctor> volume_task_;
+
+  // Per tally mesh slot track length accumulators for apportioning tally
+  // scores when a tally mesh subdivides this source region.
+  vector<TallyMeshPieces> tally_mesh_pieces_;
 
   //---------------------------------------
   // Energy group-wise 1D arrays
@@ -416,6 +481,12 @@ public:
 
   int& n_hits(int64_t sr) { return n_hits_[sr]; }
   const int n_hits(int64_t sr) const { return n_hits_[sr]; }
+
+  int& tally_map_deferred(int64_t sr) { return tally_map_deferred_[sr]; }
+  const int tally_map_deferred(int64_t sr) const
+  {
+    return tally_map_deferred_[sr];
+  }
 
   OpenMPMutex& lock(int64_t sr) { return lock_[sr]; }
   const OpenMPMutex& lock(int64_t sr) const { return lock_[sr]; }
@@ -618,6 +689,15 @@ public:
   int64_t& parent_sr(int64_t sr) { return parent_sr_[sr]; }
   const int64_t parent_sr(int64_t sr) const { return parent_sr_[sr]; }
 
+  vector<TallyMeshPieces>& tally_mesh_pieces(int64_t sr)
+  {
+    return tally_mesh_pieces_[sr];
+  }
+  const vector<TallyMeshPieces>& tally_mesh_pieces(int64_t sr) const
+  {
+    return tally_mesh_pieces_[sr];
+  }
+
   //----------------------------------------------------------------------------
   // Public Methods
 
@@ -646,6 +726,7 @@ private:
   vector<double> density_mult_;
   vector<int> is_small_;
   vector<int> n_hits_;
+  vector<int> tally_map_deferred_;
   vector<int> mesh_;
   vector<int64_t> parent_sr_;
   vector<OpenMPMutex> lock_;
@@ -666,6 +747,10 @@ private:
   // convenient for ensuring that volumes are only tallied once per source
   // region, regardless of how many energy groups are used for tallying.
   vector<std::unordered_set<TallyTask, TallyTask::HashFunctor>> volume_task_;
+
+  // Per source region, per tally mesh slot track length accumulators for
+  // apportioning tally scores when a tally mesh subdivides a source region.
+  vector<vector<TallyMeshPieces>> tally_mesh_pieces_;
 
   // SoA energy group-wise 2D arrays flattened to 1D
   vector<double> scalar_flux_old_;

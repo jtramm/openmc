@@ -65,6 +65,22 @@ constexpr int MAX_SAMPLE {100000};
 // source region in the random ray solver
 constexpr double MIN_HITS_PER_BATCH {1.5};
 
+// When tally mesh filters are present in a random ray solve, ray segments
+// are traced against each tally mesh to measure the track length each
+// source region deposits in each mesh bin, which provides the weights for
+// apportioning a region's tally scores when a tally mesh subdivides it.
+// Tracing every segment is only needed while the estimates develop, so
+// after the inactive batches only every Nth active segment of each ray is
+// traced.
+constexpr int TALLY_MESH_TRACE_INTERVAL {16};
+
+// A source region is treated as subdivided by a tally mesh only when the
+// traced track length observed outside its largest mesh bin exceeds this
+// fraction of the total traced track length. Regions that conform to the
+// mesh stay on the exact single-bin scoring path, with the tolerance
+// absorbing floating point slivers from the mesh ray tracing.
+constexpr double TALLY_MESH_SUBDIVIDE_TOLERANCE {1e-6};
+
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
 // prevent extremely large adjoint source terms from being generated.

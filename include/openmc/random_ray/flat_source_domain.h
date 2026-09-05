@@ -72,6 +72,34 @@ public:
   SourceRegionKey lookup_source_region_key(const GeometryState& p) const;
   int64_t lookup_mesh_bin(int64_t sr, Position r) const;
   int lookup_mesh_idx(int64_t sr) const;
+  void init_tally_mesh_slots();
+  bool tally_mesh_pieces_subdivided(const TallyMeshPieces& pieces) const;
+  const TallyMeshPieces* tally_task_pieces(
+    int64_t sr, const TallyTask& task) const;
+
+  //----------------------------------------------------------------------------
+  // Tally mesh subdivision support
+
+  // One slot per distinct (mesh, translation) pair appearing in the mesh
+  // filters of the tally set. Ray segments are traced against each slot's
+  // mesh so that a source region subdivided by a tally mesh can have its
+  // tally scores apportioned among the mesh bins it overlaps.
+  struct TallyMeshSlot {
+    int32_t mesh_idx;
+    Position translation {0.0, 0.0, 0.0};
+  };
+  vector<TallyMeshSlot> tally_mesh_slots_;
+
+  // Per tally, the slots of its mesh filters (empty if none)
+  vector<vector<int>> tally_slots_;
+
+  // Per tally, the mesh apportioning values tasks of that tally carry
+  struct TallyMeshInfo {
+    int slot {TallyTask::NO_MESH};
+    int64_t stride {0};
+    int64_t n_bins {0};
+  };
+  vector<TallyMeshInfo> tally_mesh_info_;
 
   //----------------------------------------------------------------------------
   // Static Data members
@@ -99,6 +127,10 @@ public:
   // Public Data members
   double k_eff_ {1.0};              // Eigenvalue
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
+
+  // True when some source region's tally mapping was deferred pending
+  // tally mesh tracing, requiring another mapping pass next batch
+  bool tally_map_deferrals_ {false};
 
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms

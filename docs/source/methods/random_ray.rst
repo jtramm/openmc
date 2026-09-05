@@ -814,14 +814,39 @@ Most tallies, filters, and scores that you would expect to work with a
 multigroup solver like random ray should work. For example, you can define 3D
 mesh tallies with energy filters and flux, fission, and nu-fission scores, etc.
 
-There are some restrictions though. For starters, it is assumed that all filter
-mesh boundaries will conform to physical surface boundaries (or lattice
-boundaries) in the simulation geometry. It is acceptable for multiple cells
-(FSRs) to be contained within a filter mesh cell (e.g., pincell-level or
-assembly-level tallies should work), but it is currently left as undefined
-behavior if a single simulation cell is able to score to multiple filter mesh
-cells. In the future, the capability to fully support mesh tallies may be added
-to OpenMC, but for now this restriction needs to be respected.
+Tallies in random ray are not scored during transport. Instead, each source
+region is mapped once to the tally bins it belongs to, and at the end of each
+active batch the region's flux is converted into scores through that mapping.
+The mapping for spatial filters is established from a position recorded
+inside each region.
+
+.. _methods_random_ray_tally_subdivide:
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Tally Meshes that Subdivide Source Regions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A tally mesh element boundary may cut through the interior of a source
+region. A single mapped bin would then be ambiguous, as parts of the region
+belong to different elements. To handle this, ray segments are also traced
+against each mesh appearing in a tally mesh filter, accumulating the track
+length each source region deposits in each mesh element. The track length
+fractions are ray-based estimates of the volume fractions of the pieces the
+mesh cuts the region into. At tally time, a subdivided region's scores are
+apportioned among the elements it overlaps in proportion to those fractions,
+which conserves the region's total contribution exactly. A region whose
+recorded position falls outside a partially covering mesh is remapped from a
+traced point inside the mesh, and its scores are weighted by the fraction of
+its volume the mesh covers.
+
+Regions that conform to a tally mesh are detected by the same tracing and
+score through the original single-bin path unchanged. Tracing every segment
+is only needed while the volume fraction estimates develop, so every active
+segment is traced during the inactive batches and a fixed sample of each
+ray's segments is traced thereafter. The apportioned scores represent the
+region's flux distributed uniformly over its volume, so tally meshes finer
+than the source regions resolve the solver's piecewise source approximation
+rather than additional physical detail.
 
 Flux tallies are handled slightly differently than in Monte Carlo. By default,
 in MC, flux tallies are reported in units of tracklength (cm), so must be

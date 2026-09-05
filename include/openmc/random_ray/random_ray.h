@@ -37,6 +37,9 @@ public:
   void attenuate_flux_linear_source_void(
     SourceRegionHandle& srh, double distance, bool is_active, Position r);
 
+  void accumulate_tally_mesh_pieces(
+    SourceRegionHandle& srh, double distance, Position r);
+
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
   uint64_t transport_history_based_single_ray();
   SourceSite sample_prng();
@@ -64,6 +67,13 @@ private:
   vector<MomentArray> delta_moments_;
   vector<int> mesh_bins_;
   vector<double> mesh_fractional_lengths_;
+
+  // Scratch space and per-ray segment counter for tracing segments against
+  // tally meshes, used to apportion tally scores when a tally mesh
+  // subdivides a source region.
+  vector<vector<int>> tally_mesh_bins_;
+  vector<vector<double>> tally_mesh_lengths_;
+  int64_t tally_mesh_segment_counter_ {0};
 
   int negroups_;
   int ntemperature_;

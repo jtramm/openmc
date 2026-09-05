@@ -411,6 +411,94 @@ void RandomRay::attenuate_flux_inner(
   default:
     fatal_error("Unknown source shape for random ray transport.");
   }
+
+  // Trace this segment against the tally meshes so that tally scores can
+  // be apportioned when a tally mesh subdivides a source region. Every
+  // active segment is traced while the piece estimates develop during the
+  // inactive batches, after which only a sample of each ray's segments is
+  // traced.
+  if (is_active && !domain_->tally_mesh_slots_.empty()) {
+    if (simulation::current_batch <= settings::n_inactive ||
+        (tally_mesh_segment_counter_++ % TALLY_MESH_TRACE_INTERVAL) == 0) {
+      accumulate_tally_mesh_pieces(srh, distance, r);
+    }
+  }
+}
+
+// Traces a segment against each tally mesh and accumulates, under the
+// source region's lock, the track length the segment deposits in each mesh
+// bin. The per-bin length fractions estimate the volume fractions of the
+// pieces a tally mesh cuts the source region into, and are used at tally
+// time to apportion the region's scores among those bins.
+void RandomRay::accumulate_tally_mesh_pieces(
+  SourceRegionHandle& srh, double distance, Position r)
+{
+  const auto& slots = domain_->tally_mesh_slots_;
+  int n_slots = slots.size();
+  tally_mesh_bins_.resize(n_slots);
+  tally_mesh_lengths_.resize(n_slots);
+
+  // A mesh already subdividing this source region cannot subdivide it
+  // further, so its slot is skipped entirely.
+  int own_mesh = srh.mesh();
+  Position no_translation {0.0, 0.0, 0.0};
+  auto slot_skipped = [&](int s) {
+    return slots[s].mesh_idx == own_mesh &&
+           slots[s].translation == no_translation;
+  };
+
+  // Ray trace against each tally mesh before taking the lock
+  for (int s = 0; s < n_slots; s++) {
+    tally_mesh_bins_[s].resize(0);
+    tally_mesh_lengths_[s].resize(0);
+    if (slot_skipped(s)) {
+      continue;
+    }
+    Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
+    Position start = r - slots[s].translation;
+    Position end = start + distance * u();
+    mesh->bins_crossed(
+      start, end, u(), tally_mesh_bins_[s], tally_mesh_lengths_[s]);
+  }
+
+  // Accumulate all slots under a single acquisition of the region's lock.
+  // The total accumulates the full segment length, including any portion
+  // lying outside a mesh, so that regions straddling a mesh boundary score
+  // only their inside fraction.
+  srh.lock();
+  auto& piece_slots = srh.tally_mesh_pieces();
+  if (piece_slots.empty()) {
+    piece_slots.resize(n_slots);
+  }
+  for (int s = 0; s < n_slots; s++) {
+    if (slot_skipped(s)) {
+      continue;
+    }
+    TallyMeshPieces& pieces = piece_slots[s];
+    for (int b = 0; b < tally_mesh_bins_[s].size(); b++) {
+      pieces.add(tally_mesh_bins_[s][b], tally_mesh_lengths_[s][b] * distance);
+    }
+    pieces.total += distance;
+
+    // Record a point inside the mesh for this region if one has not been
+    // recorded yet. A segment that starts inside the mesh has its first
+    // crossed bin spanning the start of the segment, so the midpoint of
+    // that span lies inside the mesh. A segment that enters the mesh
+    // partway does not report where the mesh begins, so the candidate
+    // point is verified against the mesh before being recorded, and
+    // recording waits for a suitable segment otherwise.
+    if (!pieces.has_inside_pos && tally_mesh_bins_[s].size() > 0) {
+      Position candidate =
+        r + (0.5 * tally_mesh_lengths_[s][0] * distance) * u();
+      Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
+      if (mesh->get_bin(candidate - slots[s].translation) ==
+          tally_mesh_bins_[s][0]) {
+        pieces.inside_pos = candidate;
+        pieces.has_inside_pos = 1;
+      }
+    }
+  }
+  srh.unlock();
 }
 
 // This function forms the inner loop of the random ray transport process.
@@ -775,6 +863,9 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   // Reset particle event counter
   n_event() = 0;
+
+  // Reset the tally mesh trace sampling counter
+  tally_mesh_segment_counter_ = 0;
 
   is_active_ = (distance_inactive_ <= 0.0);
 

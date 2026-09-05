@@ -12,6 +12,7 @@
 #include "openmc/random_ray/random_ray.h"
 #include "openmc/simulation.h"
 #include "openmc/tallies/filter.h"
+#include "openmc/tallies/filter_mesh.h"
 #include "openmc/tallies/tally.h"
 #include "openmc/tallies/tally_scoring.h"
 #include "openmc/timer.h"
@@ -57,6 +58,11 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   // Initialize source regions.
   bool is_linear = RandomRay::source_shape_ != RandomRaySourceShape::FLAT;
   source_regions_ = SourceRegionContainer(negroups_, is_linear);
+
+  // Identify the distinct meshes appearing in tally mesh filters so that
+  // ray segments can be traced against them, allowing tally meshes to
+  // subdivide source regions.
+  init_tally_mesh_slots();
 
   // Initialize tally volumes
   if (volume_normalized_flux_tallies_) {
@@ -402,15 +408,12 @@ void FlatSourceDomain::compute_k_eff()
 // the location of a single known ray midpoint that passed through the
 // FSR. I.e., during transport, the first ray to pass through a given FSR
 // will write down its midpoint for use with this function. This is a cheap
-// and easy way of mapping FSRs to spatial tally filters, but comes with
-// the downside of adding the restriction that spatial tally filters must
-// share boundaries with the physical geometry of the simulation (so as
-// not to subdivide any FSR). It is acceptable for a spatial tally region
-// to contain multiple FSRs, but not the other way around.
-
-// TODO: In future work, it would be preferable to offer a more general
-// (but perhaps slightly more expensive) option for handling arbitrary
-// spatial tallies that would be allowed to subdivide FSRs.
+// and easy way of mapping FSRs to spatial tally filters. When a tally
+// mesh subdivides an FSR, the mapped bin serves as the anchor from which
+// the FSR's scores are apportioned among the mesh bins it overlaps, using
+// the track length fractions accumulated by
+// RandomRay::accumulate_tally_mesh_pieces(). Non-mesh spatial filters
+// follow the cell geometry and so can never subdivide an FSR.
 
 // Besides generating the mapping structure, this function also keeps track
 // of whether or not all flat source regions have been hit yet. This is
@@ -426,6 +429,112 @@ void FlatSourceDomain::compute_k_eff()
 // and it will operate from that index until the end of the array. This
 // is useful as it can be called for both explicit user source regions or
 // when a source region mesh is overlaid.
+
+// Scans the tally set for mesh filters and builds one "slot" per distinct
+// (mesh, translation) pair. Ray segments are traced against each slot's
+// mesh during transport to measure the track length each source region
+// deposits in each mesh bin, which provides the weights for apportioning a
+// region's tally scores when a tally mesh subdivides it. Also records, per
+// tally, the slot and filter stride its tasks need for apportioned scoring.
+void FlatSourceDomain::init_tally_mesh_slots()
+{
+  tally_mesh_slots_.clear();
+  tally_slots_.assign(model::tallies.size(), {});
+  tally_mesh_info_.assign(model::tallies.size(), {});
+
+  for (int i_tally = 0; i_tally < model::tallies.size(); i_tally++) {
+    Tally& tally {*model::tallies[i_tally]};
+    for (int j = 0; j < tally.filters().size(); j++) {
+      Filter* f = model::tally_filters[tally.filters(j)].get();
+      if (f->type() != FilterType::MESH) {
+        continue;
+      }
+      auto* mf = static_cast<MeshFilter*>(f);
+
+      // Find or create the slot for this (mesh, translation) pair
+      int slot = C_NONE;
+      for (int s = 0; s < tally_mesh_slots_.size(); s++) {
+        if (tally_mesh_slots_[s].mesh_idx == mf->mesh() &&
+            tally_mesh_slots_[s].translation == mf->translation()) {
+          slot = s;
+          break;
+        }
+      }
+      if (slot == C_NONE) {
+        slot = tally_mesh_slots_.size();
+        tally_mesh_slots_.push_back({mf->mesh(), mf->translation()});
+      }
+      tally_slots_[i_tally].push_back(slot);
+
+      // Tasks for a tally with a single mesh filter carry that filter's
+      // slot and stride so their scores can be apportioned among mesh
+      // bins. Tallies with multiple mesh filters are marked as such, since
+      // apportioning would require the joint refinement of their meshes.
+      if (tally_slots_[i_tally].size() == 1) {
+        tally_mesh_info_[i_tally].slot = slot;
+        tally_mesh_info_[i_tally].stride = tally.strides(j);
+        tally_mesh_info_[i_tally].n_bins = f->n_bins();
+      } else {
+        tally_mesh_info_[i_tally].slot = TallyTask::MULTI_MESH;
+        tally_mesh_info_[i_tally].stride = 0;
+        tally_mesh_info_[i_tally].n_bins = 0;
+      }
+    }
+  }
+}
+
+// A source region counts as subdivided by a tally mesh only when the
+// traced track length observed outside its largest bin exceeds a small
+// fraction of the total. Regions that conform to the mesh therefore stay
+// on the exact single-bin scoring path, with the tolerance absorbing
+// floating point slivers from the mesh ray tracing.
+bool FlatSourceDomain::tally_mesh_pieces_subdivided(
+  const TallyMeshPieces& pieces) const
+{
+  if (pieces.total <= 0.0) {
+    return false;
+  }
+  double max_length = 0.0;
+  for (double length : pieces.lengths) {
+    max_length = std::max(max_length, length);
+  }
+  return (pieces.total - max_length) >
+         TALLY_MESH_SUBDIVIDE_TOLERANCE * pieces.total;
+}
+
+// Returns the piece accumulators a task's score should be apportioned
+// across, or nullptr when the source region is not subdivided by the
+// task's tally mesh, in which case the task scores whole to its original
+// bin exactly as it would without any tally meshes present.
+const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
+  int64_t sr, const TallyTask& task) const
+{
+  if (task.mesh_slot == TallyTask::NO_MESH || tally_mesh_slots_.empty()) {
+    return nullptr;
+  }
+  const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
+  if (piece_slots.empty()) {
+    return nullptr;
+  }
+  if (task.mesh_slot == TallyTask::MULTI_MESH) {
+    for (int s : tally_slots_[task.tally_idx]) {
+      if (tally_mesh_pieces_subdivided(piece_slots[s])) {
+        fatal_error(
+          fmt::format("Tally {} has multiple mesh filters, and one of its "
+                      "meshes subdivides a source region. Scoring a source "
+                      "region subdivided by a tally mesh is only supported "
+                      "for tallies with a single mesh filter.",
+            model::tallies[task.tally_idx]->id()));
+      }
+    }
+    return nullptr;
+  }
+  const TallyMeshPieces& pieces = piece_slots[task.mesh_slot];
+  if (!tally_mesh_pieces_subdivided(pieces)) {
+    return nullptr;
+  }
+  return &pieces;
+}
 
 void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 {
@@ -454,6 +563,10 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
     p.u() = {1.0, 0.0, 0.0};
     bool found = exhaustive_find_cell(p);
 
+    // Tracks whether any tally's mapping for this source region had to be
+    // deferred pending mesh tracing (see the mesh filter fallback below)
+    bool any_deferral = false;
+
     // Loop over energy groups (so as to support energy filters)
     for (int g = 0; g < negroups_; g++) {
 
@@ -465,9 +578,10 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 
       int64_t source_element = sr * negroups_ + g;
 
-      // If this task has already been populated, we don't need to do
-      // it again.
-      if (source_regions_.tally_task(sr, g).size() > 0) {
+      // If this task has already been populated and no tally's mapping
+      // was deferred pending mesh tracing, we don't need to do it again.
+      if (source_regions_.tally_task(sr, g).size() > 0 &&
+          !source_regions_.tally_map_deferred(sr)) {
         continue;
       }
 
@@ -477,36 +591,109 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
       for (int i_tally = 0; i_tally < model::tallies.size(); i_tally++) {
         Tally& tally {*model::tallies[i_tally]};
 
-        // Initialize an iterator over valid filter bin combinations.
-        // If there are no valid combinations, use a continue statement
-        // to ensure we skip the assume_separate break below.
-        auto filter_iter = FilterBinIter(tally, p);
-        auto end = FilterBinIter(tally, true, &p.filter_matches());
-        if (filter_iter == end)
-          continue;
-
-        // Loop over filter bins.
-        for (; filter_iter != end; ++filter_iter) {
-          auto filter_index = filter_iter.index_;
-          auto filter_weight = filter_iter.weight_;
-
-          // Loop over scores
-          for (int score = 0; score < tally.scores_.size(); score++) {
-            auto score_bin = tally.scores_[score];
-            // If a valid tally, filter, and score combination has been found,
-            // then add it to the list of tally tasks for this source element.
-            TallyTask task(i_tally, filter_index, score, score_bin);
-            source_regions_.tally_task(sr, g).push_back(task);
-
-            // Also add this task to the list of volume tasks for this source
-            // region.
-            source_regions_.volume_task(sr).insert(task);
+        // A previous pass may have completed some tallies for this
+        // element while deferring others, so skip tallies whose tasks
+        // already exist.
+        bool have_tasks = false;
+        for (const auto& t : source_regions_.tally_task(sr, g)) {
+          if (t.tally_idx == i_tally) {
+            have_tasks = true;
+            break;
           }
+        }
+        if (have_tasks) {
+          continue;
+        }
+
+        const TallyMeshInfo& mesh_info = tally_mesh_info_[i_tally];
+
+        // Builds this tally's tasks from a particle's filter combinations.
+        // Returns false if the particle matched no combination.
+        auto build_tasks = [&](Particle& part) {
+          auto filter_iter = FilterBinIter(tally, part);
+          auto end = FilterBinIter(tally, true, &part.filter_matches());
+          if (filter_iter == end)
+            return false;
+
+          // Loop over filter bins.
+          for (; filter_iter != end; ++filter_iter) {
+            auto filter_index = filter_iter.index_;
+            auto filter_weight = filter_iter.weight_;
+
+            // Loop over scores
+            for (int score = 0; score < tally.scores_.size(); score++) {
+              auto score_bin = tally.scores_[score];
+              // If a valid tally, filter, and score combination has been
+              // found, then add it to the list of tally tasks for this
+              // source element.
+              TallyTask task(i_tally, filter_index, score, score_bin);
+              task.mesh_slot = mesh_info.slot;
+              if (mesh_info.slot >= 0) {
+                // Recover the mesh bin component of the flattened filter
+                // index arithmetically, so the anchor bin used for piece
+                // scoring is consistent with the filter index by
+                // construction regardless of how the filter resolved any
+                // boundary ties.
+                task.mesh_stride = mesh_info.stride;
+                task.mesh_bin_mid =
+                  (filter_index / mesh_info.stride) % mesh_info.n_bins;
+              }
+              source_regions_.tally_task(sr, g).push_back(task);
+
+              // Also add this task to the list of volume tasks for this
+              // source region.
+              source_regions_.volume_task(sr).insert(task);
+            }
+          }
+          return true;
+        };
+
+        if (build_tasks(p)) {
+          continue;
+        }
+
+        // No filter combination matched at the recorded midpoint. When the
+        // tally has a mesh filter, the region may straddle the edge of the
+        // mesh with its midpoint outside. If tracing has recorded a point
+        // inside the mesh, the mapping is rebuilt from that point instead.
+        // If the region has not been traced against the mesh yet, the
+        // mapping stays incomplete so it is attempted again next batch.
+        // If tracing has proven the region lies wholly outside the mesh,
+        // no task is needed and the mapping is complete.
+        if (mesh_info.slot >= 0) {
+          const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
+          if (piece_slots.empty() || piece_slots[mesh_info.slot].total == 0.0) {
+            all_source_regions_mapped = false;
+            any_deferral = true;
+          } else if (piece_slots[mesh_info.slot].has_inside_pos) {
+            Particle p_inside;
+            p_inside.r() = piece_slots[mesh_info.slot].inside_pos;
+            p_inside.r_last() = p_inside.r();
+            p_inside.u() = {1.0, 0.0, 0.0};
+            p_inside.g() = p.g();
+            p_inside.g_last() = p.g_last();
+            p_inside.E() = p.E();
+            p_inside.E_last() = p.E_last();
+            exhaustive_find_cell(p_inside);
+            build_tasks(p_inside);
+          } else if (!piece_slots[mesh_info.slot].bins.empty()) {
+            // In-mesh track length exists but no verified inside point
+            // has been recorded yet, so try again next batch.
+            all_source_regions_mapped = false;
+            any_deferral = true;
+          }
+          // Otherwise, tracing has proven the region lies wholly outside
+          // this mesh, so no task is needed.
         }
       }
       // Reset all the filter matches for the next tally event.
       for (auto& match : p.filter_matches())
         match.bins_present_ = false;
+    }
+
+    source_regions_.tally_map_deferred(sr) = any_deferral ? 1 : 0;
+    if (any_deferral) {
+      tally_map_deferrals_ = true;
     }
   }
   openmc::simulation::time_tallies.stop();
@@ -694,11 +881,28 @@ void FlatSourceDomain::random_ray_tally()
                       "are supported in random ray mode.");
           break;
         }
-        // Apply score to the appropriate tally bin
+        // Apply score to the appropriate tally bin. If a tally mesh
+        // subdivides this source region, the score is instead apportioned
+        // among the mesh bins the region overlaps, weighted by the track
+        // length observed in each, which estimates each piece's share of
+        // the region's volume.
         Tally& tally {*model::tallies[task.tally_idx]};
+        const TallyMeshPieces* pieces = tally_task_pieces(sr, task);
+        if (!pieces) {
 #pragma omp atomic
-        tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
-          score;
+          tally.results_(task.filter_idx, task.score_idx, TallyResult::VALUE) +=
+            score;
+        } else {
+          for (int p = 0; p < pieces->bins.size(); p++) {
+            double weight = pieces->lengths[p] / pieces->total;
+            int64_t filter_idx =
+              task.filter_idx +
+              (pieces->bins[p] - task.mesh_bin_mid) * task.mesh_stride;
+#pragma omp atomic
+            tally.results_(filter_idx, task.score_idx, TallyResult::VALUE) +=
+              score * weight;
+          }
+        }
       }
     }
 
@@ -708,9 +912,22 @@ void FlatSourceDomain::random_ray_tally()
     if (volume_normalized_flux_tallies_) {
       for (const auto& task : source_regions_.volume_task(sr)) {
         if (task.score_type == SCORE_FLUX) {
+          const TallyMeshPieces* pieces = tally_task_pieces(sr, task);
+          if (!pieces) {
 #pragma omp atomic
-          tally_volumes_[task.tally_idx](task.filter_idx, task.score_idx) +=
-            volume;
+            tally_volumes_[task.tally_idx](task.filter_idx, task.score_idx) +=
+              volume;
+          } else {
+            for (int p = 0; p < pieces->bins.size(); p++) {
+              double weight = pieces->lengths[p] / pieces->total;
+              int64_t filter_idx =
+                task.filter_idx +
+                (pieces->bins[p] - task.mesh_bin_mid) * task.mesh_stride;
+#pragma omp atomic
+              tally_volumes_[task.tally_idx](filter_idx, task.score_idx) +=
+                volume * weight;
+            }
+          }
         }
       }
     }
@@ -1740,6 +1957,14 @@ void FlatSourceDomain::finalize_discovered_source_regions()
 
     // Map all new source regions to tallies
     convert_source_regions_to_tallies(start_sr_id);
+  }
+
+  // If any source region's tally mapping was deferred pending tally mesh
+  // tracing, make another pass over all source regions. Regions with
+  // complete mappings are skipped cheaply.
+  if (tally_map_deferrals_) {
+    tally_map_deferrals_ = false;
+    convert_source_regions_to_tallies(0);
   }
 
   discovered_source_regions_.clear();

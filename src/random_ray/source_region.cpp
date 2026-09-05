@@ -21,8 +21,9 @@ SourceRegionHandle::SourceRegionHandle(SourceRegion& sr)
     position_(&sr.position_), centroid_(&sr.centroid_),
     centroid_iteration_(&sr.centroid_iteration_), centroid_t_(&sr.centroid_t_),
     mom_matrix_(&sr.mom_matrix_), mom_matrix_t_(&sr.mom_matrix_t_),
-    volume_task_(&sr.volume_task_), mesh_(&sr.mesh_),
-    parent_sr_(&sr.parent_sr_), scalar_flux_old_(sr.scalar_flux_old_.data()),
+    volume_task_(&sr.volume_task_), tally_mesh_pieces_(&sr.tally_mesh_pieces_),
+    mesh_(&sr.mesh_), parent_sr_(&sr.parent_sr_),
+    scalar_flux_old_(sr.scalar_flux_old_.data()),
     scalar_flux_new_(sr.scalar_flux_new_.data()), source_(sr.source_.data()),
     external_source_(sr.external_source_.data()),
     scalar_flux_final_(sr.scalar_flux_final_.data()),
@@ -75,6 +76,7 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
   density_mult_.push_back(sr.density_mult_);
   is_small_.push_back(sr.is_small_);
   n_hits_.push_back(sr.n_hits_);
+  tally_map_deferred_.push_back(sr.tally_map_deferred_);
   lock_.push_back(sr.lock_);
   volume_.push_back(sr.volume_);
   volume_t_.push_back(sr.volume_t_);
@@ -85,6 +87,7 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
   external_source_present_.push_back(sr.external_source_present_);
   position_.push_back(sr.position_);
   volume_task_.push_back(sr.volume_task_);
+  tally_mesh_pieces_.push_back(sr.tally_mesh_pieces_);
   mesh_.push_back(sr.mesh_);
   parent_sr_.push_back(sr.parent_sr_);
 
@@ -130,6 +133,7 @@ void SourceRegionContainer::assign(
   density_mult_.clear();
   is_small_.clear();
   n_hits_.clear();
+  tally_map_deferred_.clear();
   lock_.clear();
   volume_.clear();
   volume_t_.clear();
@@ -165,6 +169,7 @@ void SourceRegionContainer::assign(
 
   tally_task_.clear();
   volume_task_.clear();
+  tally_mesh_pieces_.clear();
 
   // Fill with copies of source_region
   for (int i = 0; i < n_source_regions; ++i) {
@@ -200,6 +205,7 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   handle.external_source_present_ = &external_source_present(sr);
   handle.position_ = &position(sr);
   handle.volume_task_ = &volume_task(sr);
+  handle.tally_mesh_pieces_ = &tally_mesh_pieces(sr);
   handle.mesh_ = &mesh(sr);
   handle.parent_sr_ = &parent_sr(sr);
   handle.scalar_flux_old_ = &scalar_flux_old(sr, 0);
