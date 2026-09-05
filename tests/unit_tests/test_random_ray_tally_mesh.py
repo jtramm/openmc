@@ -393,6 +393,34 @@ def test_three_meshes_at_once(tmp_path):
         assert abs(out[name].sum() - total) / total < 1e-9
 
 
+def test_adjoint_uniform(tmp_path):
+    """Adjoint mode with a subdividing mesh.
+
+    The adjoint workflow runs a forward solve and then an adjoint solve on
+    the same domain. Accumulated volumes and moments are regenerated for
+    the adjoint phase, while the tally mapping and the piece volume
+    fraction estimates carry forward, since both describe static geometry
+    shared by the two phases. On the uniform medium the forward flux is
+    uniform, so the derived adjoint source and adjoint flux are uniform
+    too, and the subdividing mesh's adjoint tally must be uniform and
+    conserving.
+    """
+    model, cell = uniform_model(tmp_path)
+    model.settings.random_ray['adjoint'] = True
+    model.tallies = openmc.Tallies([
+        mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3'),
+    ])
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies.append(ref)
+
+    out = run_and_read(model, tmp_path, ['m3', 'cellref'])
+    assert_uniform(out['m3'], 0.02)
+    total = out['cellref'][0]
+    assert abs(out['m3'].sum() - total) / total < 1e-9
+
+
 def test_determinism(tmp_path):
     """Repeat runs must be bitwise identical on one thread and agree to
     accumulation-order rounding with threading, matching the solver's
