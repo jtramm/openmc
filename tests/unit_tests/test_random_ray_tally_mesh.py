@@ -8,11 +8,13 @@ score apportioning.
 """
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 import openmc
+import openmc.lib
 import openmc.mgxs
 
 L = 10.0
@@ -591,6 +593,169 @@ def test_interior_mesh_piece(tmp_path):
     frac = out['inner'][0] / out['cellref'][0]
     expected = 1.6**3 / L**3
     assert abs(frac - expected) / expected < 0.05
+
+
+@pytest.mark.skipif(not openmc.lib._dagmc_enabled(),
+                    reason="DAGMC (and its MOAB mesh support) not enabled.")
+def test_unstructured_mesh_subdivide(tmp_path):
+    """An unstructured (MOAB) tally mesh subdividing source regions.
+
+    The 12,000 tetrahedron test mesh spans a 20 cm cube of the uniform
+    medium with 5 cm source regions, so every region overlaps many
+    elements and no element conforms to a region. Every element must
+    score in proportion to its volume, computed here directly from the
+    mesh file, and the mesh must conserve against a cell tally.
+    """
+    h5m = str(Path(__file__).parent.parent / 'regression_tests'
+              / 'external_moab' / 'test_mesh_tets.h5m')
+    import h5py
+    with h5py.File(h5m) as h:
+        coords = h['tstt/nodes/coordinates'][()]
+        conn = h['tstt/elements/Tet4/connectivity'][()].astype(np.int64)
+        start = int(h['tstt/nodes/coordinates'].attrs.get('start_id', 1))
+    v = coords[conn - start]
+    tet_vols = np.abs(np.einsum('ij,ij->i',
+        np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]),
+        v[:, 3] - v[:, 0])) / 6.0
+
+    openmc.reset_auto_ids()
+    model = openmc.Model()
+    build_mgxs(str(tmp_path / 'mgxs.h5'), False)
+    m = openmc.Material(name='mat')
+    m.set_density('macro', 1.0)
+    m.add_macroscopic(openmc.Macroscopic('mat'))
+    model.materials = openmc.Materials([m])
+    model.materials.cross_sections = str(tmp_path / 'mgxs.h5')
+    box = openmc.model.RectangularParallelepiped(
+        -10, 10, -10, 10, -10, 10, boundary_type='reflective')
+    cell = openmc.Cell(fill=m, region=-box)
+    model.geometry = openmc.Geometry([cell])
+    s = model.settings
+    s.energy_mode = 'multi-group'
+    s.particles = 1500
+    s.inactive = 30
+    s.batches = 130
+    s.seed = 1
+    s.run_mode = 'fixed source'
+    s.source = openmc.IndependentSource(
+        space=openmc.stats.Box((-10,) * 3, (10,) * 3),
+        energy=openmc.stats.Discrete([1.0e6], [1.0]),
+        constraints={'domains': [cell]})
+    srmesh = openmc.RegularMesh()
+    srmesh.lower_left = (-10,) * 3
+    srmesh.upper_right = (10,) * 3
+    srmesh.dimension = (4, 4, 4)
+    s.random_ray = {
+        'distance_inactive': 40.0,
+        'distance_active': 400.0,
+        'ray_source': openmc.IndependentSource(
+            space=openmc.stats.Box((-10,) * 3, (10,) * 3)),
+        'source_shape': 'flat',
+        'source_region_meshes': [(srmesh, [model.geometry.root_universe])],
+    }
+    t = openmc.Tally(name='tets')
+    t.filters = [openmc.MeshFilter(
+        openmc.UnstructuredMesh(h5m, library='moab'))]
+    t.scores = ['flux']
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies = openmc.Tallies([t, ref])
+
+    out = run_and_read(model, tmp_path, ['tets', 'cellref'])
+    density = out['tets'] / tet_vols
+    rel = density / density.mean() - 1.0
+    assert np.abs(rel).max() < 0.10
+    assert np.sqrt((rel**2).mean()) < 0.025
+    total = out['cellref'][0]
+    assert abs(out['tets'].sum() - total) / total < 1e-9
+
+
+@pytest.mark.skipif(not openmc.lib._dagmc_enabled(),
+                    reason="DAGMC not enabled.")
+def test_dagmc_cell_subdivide(tmp_path):
+    """A regular tally mesh subdividing DAGMC cells.
+
+    The DAGMC test model (nested cylinders in a shell) runs in multigroup
+    random ray with a 7x7x7 tally mesh whose planes cut the curved DAGMC
+    cells. A one-bin mesh over the same extent cannot subdivide anything,
+    so the subdivided tally must conserve against it exactly.
+    """
+    import shutil
+    shutil.copyfile(
+        str(Path(__file__).parent / 'dagmc' / 'dagmc.h5m'),
+        str(tmp_path / 'dagmc.h5m'))
+    E = 25.0
+
+    openmc.reset_auto_ids()
+    model = openmc.Model()
+    groups = openmc.mgxs.EnergyGroups(group_edges=[1e-5, 20.0e6])
+    lib = openmc.MGXSLibrary(groups)
+    for name, st, c in (('fuelxs', 0.5, 0.4), ('waterxs', 1.0, 0.8)):
+        d = openmc.XSdata(name, groups)
+        d.order = 0
+        d.set_total([st])
+        d.set_absorption([st * (1 - c)])
+        d.set_scatter_matrix(np.array([[[st * c]]]))
+        lib.add_xsdatas([d])
+    lib.export_to_hdf5(str(tmp_path / 'mgxs.h5'))
+
+    fuel = openmc.Material(name='no-void fuel')
+    fuel.set_density('macro', 1.0)
+    fuel.add_macroscopic(openmc.Macroscopic('fuelxs'))
+    fuel.id = 40
+    water = openmc.Material(name='water')
+    water.set_density('macro', 1.0)
+    water.add_macroscopic(openmc.Macroscopic('waterxs'))
+    water.id = 41
+    model.materials = openmc.Materials([fuel, water])
+    model.materials.cross_sections = str(tmp_path / 'mgxs.h5')
+
+    dag = openmc.DAGMCUniverse(str(tmp_path / 'dagmc.h5m'))
+    model.geometry = openmc.Geometry(dag)
+
+    s = model.settings
+    s.energy_mode = 'multi-group'
+    s.particles = 800
+    s.inactive = 30
+    s.batches = 110
+    s.seed = 1
+    s.run_mode = 'fixed source'
+    s.source = openmc.IndependentSource(
+        space=openmc.stats.Box((-E,) * 3, (E,) * 3),
+        energy=openmc.stats.Discrete([1.0e6], [1.0]),
+        constraints={'domains': [fuel]})
+    s.random_ray = {
+        'distance_inactive': 100.0,
+        'distance_active': 500.0,
+        'ray_source': openmc.IndependentSource(
+            space=openmc.stats.Box((-E,) * 3, (E,) * 3)),
+        'source_shape': 'flat',
+    }
+
+    def rmesh(dim):
+        mm = openmc.RegularMesh()
+        mm.lower_left = (-E,) * 3
+        mm.upper_right = (E,) * 3
+        mm.dimension = dim
+        return mm
+
+    t7 = openmc.Tally(name='m7')
+    t7.filters = [openmc.MeshFilter(rmesh((7, 7, 7)))]
+    t7.scores = ['flux']
+    t1 = openmc.Tally(name='m1')
+    t1.filters = [openmc.MeshFilter(rmesh((1, 1, 1)))]
+    t1.scores = ['flux']
+    model.tallies = openmc.Tallies([t7, t1])
+
+    out = run_and_read(model, tmp_path, ['m7', 'm1'])
+    m7 = out['m7']
+    total = out['m1'][0]
+    assert np.isfinite(m7).all()
+    assert (m7 >= 0).all()
+    assert abs(m7.sum() - total) / total < 1e-9
+    grid = m7.reshape(7, 7, 7)
+    assert grid[3, 3, 3] > 10 * grid[0, 0, 0]
 
 
 def test_determinism(tmp_path):
