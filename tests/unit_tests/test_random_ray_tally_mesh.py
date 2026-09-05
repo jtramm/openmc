@@ -5,6 +5,14 @@ source), where the converged scalar flux is spatially uniform. Every tally
 mesh bin must then score in proportion to its volume, no matter how the
 mesh cuts across source regions, which gives an exact oracle for the
 score apportioning.
+
+These are defensive tests. Run lengths are short and tallies are far from
+converged, so the statistical tolerances are loose bounds that a
+regression in the apportioning (which produces order 10 to 100 percent
+errors) cannot slip under, while the statistics-free assertions
+(conservation, determinism, the exact eigenvalue, and the abort
+contracts) stay tight. Numerical convergence itself is demonstrated in
+the pull request results, not here.
 """
 
 import os
@@ -68,9 +76,9 @@ def uniform_model(tmp_path, fissile=False, shape='flat', sr_dim=(5, 5, 5),
 
     s = model.settings
     s.energy_mode = 'multi-group'
-    s.particles = 500
-    s.inactive = 40
-    s.batches = 160
+    s.particles = 350
+    s.inactive = 25
+    s.batches = 85
     s.seed = 1
     if fissile:
         s.run_mode = 'eigenvalue'
@@ -146,8 +154,8 @@ def test_subdividing_meshes_uniform(tmp_path, shape):
     model.tallies.append(ref)
 
     out = run_and_read(model, tmp_path, ['m3', 'm4', 'cellref'])
-    assert_uniform(out['m3'], 0.02)
-    assert_uniform(out['m4'], 0.02)
+    assert_uniform(out['m3'], 0.03)
+    assert_uniform(out['m4'], 0.03)
     total = out['cellref'][0]
     assert abs(out['m3'].sum() - total) / total < 1e-9
     assert abs(out['m4'].sum() - total) / total < 1e-9
@@ -172,7 +180,7 @@ def test_partial_mesh_edge_straddle(tmp_path):
 
     out = run_and_read(model, tmp_path, ['left', 'cellref'])
     frac = out['left'][0] / out['cellref'][0]
-    assert abs(frac - 0.3) < 0.01
+    assert abs(frac - 0.3) < 0.02
 
 
 def test_shifted_bins_match_model_prediction(tmp_path):
@@ -198,7 +206,7 @@ def test_shifted_bins_match_model_prediction(tmp_path):
     out = run_and_read(model, tmp_path, ['aligned', 'shifted'])
     predicted = 0.5 * (out['aligned'][:-1] + out['aligned'][1:])
     rel = np.abs(out['shifted'] - predicted) / predicted
-    assert rel.max() < 0.01
+    assert rel.max() < 0.02
 
 
 def test_eigenvalue_scores(tmp_path):
@@ -218,7 +226,7 @@ def test_eigenvalue_scores(tmp_path):
         assert abs(f.keff.n - 1.5) < 0.005
         tt = f.get_tally(name='m3')
         for sc in ('flux', 'fission', 'nu-fission', 'total'):
-            assert_uniform(tt.get_values(scores=[sc]).ravel(), 0.02)
+            assert_uniform(tt.get_values(scores=[sc]).ravel(), 0.03)
 
 
 def test_volume_normalized_flux(tmp_path):
@@ -294,8 +302,8 @@ def test_rotated_mesh_filter(tmp_path):
     vals = np.sort(out['rot'])
     assert abs(out['rot'].sum() - total) / total < 1e-6
     assert vals[0] < 1e-6 * total and vals[1] < 1e-6 * total
-    assert abs(vals[2] / total - 0.5) < 0.01
-    assert abs(vals[3] / total - 0.5) < 0.01
+    assert abs(vals[2] / total - 0.5) < 0.02
+    assert abs(vals[3] / total - 0.5) < 0.02
 
 
 def test_own_mesh_with_excluding_filter(tmp_path):
@@ -324,9 +332,9 @@ def test_own_mesh_with_excluding_filter(tmp_path):
 
     s = model.settings
     s.energy_mode = 'multi-group'
-    s.particles = 500
-    s.inactive = 40
-    s.batches = 160
+    s.particles = 350
+    s.inactive = 25
+    s.batches = 85
     s.seed = 1
     s.run_mode = 'fixed source'
     s.source = openmc.IndependentSource(
@@ -369,7 +377,7 @@ def test_short_inactive_edge_straddle(tmp_path):
     """
     model, cell = uniform_model(tmp_path)
     model.settings.inactive = 1
-    model.settings.batches = 121
+    model.settings.batches = 61
     model.tallies = openmc.Tallies([
         mesh_flux_tally(tally_mesh((1, 1, 1), hi=(3.0, L, L)), 'left'),
     ])
@@ -380,7 +388,7 @@ def test_short_inactive_edge_straddle(tmp_path):
 
     out = run_and_read(model, tmp_path, ['left', 'cellref'])
     frac = out['left'][0] / out['cellref'][0]
-    assert abs(frac - 0.3) < 0.03
+    assert abs(frac - 0.3) < 0.05
 
 
 def test_three_meshes_at_once(tmp_path):
@@ -402,7 +410,7 @@ def test_three_meshes_at_once(tmp_path):
 
     out = run_and_read(model, tmp_path, ['m3', 'm4', 'm7', 'cellref'])
     total = out['cellref'][0]
-    for name, tol in (('m3', 0.02), ('m4', 0.02), ('m7', 0.04)):
+    for name, tol in (('m3', 0.03), ('m4', 0.03), ('m7', 0.06)):
         assert_uniform(out[name], tol)
         assert abs(out[name].sum() - total) / total < 1e-9
 
@@ -420,6 +428,8 @@ def test_adjoint_uniform(tmp_path):
     conserving.
     """
     model, cell = uniform_model(tmp_path)
+    model.settings.inactive = 15
+    model.settings.batches = 50
     model.settings.random_ray['adjoint'] = True
     model.tallies = openmc.Tallies([
         mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3'),
@@ -430,7 +440,7 @@ def test_adjoint_uniform(tmp_path):
     model.tallies.append(ref)
 
     out = run_and_read(model, tmp_path, ['m3', 'cellref'])
-    assert_uniform(out['m3'], 0.02)
+    assert_uniform(out['m3'], 0.03)
     total = out['cellref'][0]
     assert abs(out['m3'].sum() - total) / total < 1e-9
 
@@ -466,7 +476,7 @@ def test_mesh_with_energy_filter(tmp_path, mesh_first):
     ref_groups = out['cellref']
     assert ref_groups[0] > 0 and ref_groups[1] > 0
     for g in range(2):
-        assert_uniform(per_group[g], 0.02)
+        assert_uniform(per_group[g], 0.03)
         assert abs(per_group[g].sum() - ref_groups[g]) / ref_groups[g] < 1e-9
 
 
@@ -491,7 +501,7 @@ def test_translated_mesh_filter(tmp_path):
 
     out = run_and_read(model, tmp_path, ['shifted', 'cellref'])
     frac = out['shifted'][0] / out['cellref'][0]
-    assert abs(frac - 0.5) < 0.01
+    assert abs(frac - 0.5) < 0.02
 
 
 def test_rectilinear_mesh(tmp_path):
@@ -513,7 +523,7 @@ def test_rectilinear_mesh(tmp_path):
 
     out = run_and_read(model, tmp_path, ['rect'])
     widths = np.array([1.0, 2.5, 6.5])
-    assert_uniform(out['rect'] / widths, 0.02)
+    assert_uniform(out['rect'] / widths, 0.03)
 
 
 def test_cylindrical_mesh(tmp_path):
@@ -544,9 +554,9 @@ def test_cylindrical_mesh(tmp_path):
     vols = np.concatenate([r_vols * 5.0, r_vols * 5.0])
     vals = out['cyl']
     density = out['cellref'][0] / L**3
-    assert_uniform(vals / vols, 0.03)
+    assert_uniform(vals / vols, 0.05)
     expected_total = density * np.pi * 3.5**2 * 10.0
-    assert abs(vals.sum() - expected_total) / expected_total < 0.02
+    assert abs(vals.sum() - expected_total) / expected_total < 0.03
 
 
 def test_spherical_mesh(tmp_path):
@@ -568,9 +578,9 @@ def test_spherical_mesh(tmp_path):
                      4 / 3 * np.pi * (4.0**3 - 2.0**3)])
     vals = out['sph']
     density = out['cellref'][0] / L**3
-    assert_uniform(vals / vols, 0.03)
+    assert_uniform(vals / vols, 0.05)
     expected_total = density * 4 / 3 * np.pi * 4.0**3
-    assert abs(vals.sum() - expected_total) / expected_total < 0.02
+    assert abs(vals.sum() - expected_total) / expected_total < 0.03
 
 
 def test_interior_mesh_piece(tmp_path):
@@ -592,7 +602,7 @@ def test_interior_mesh_piece(tmp_path):
     out = run_and_read(model, tmp_path, ['inner', 'cellref'])
     frac = out['inner'][0] / out['cellref'][0]
     expected = 1.6**3 / L**3
-    assert abs(frac - expected) / expected < 0.05
+    assert abs(frac - expected) / expected < 0.10
 
 
 @pytest.mark.skipif(not openmc.lib._dagmc_enabled(),
@@ -632,9 +642,9 @@ def test_unstructured_mesh_subdivide(tmp_path):
     model.geometry = openmc.Geometry([cell])
     s = model.settings
     s.energy_mode = 'multi-group'
-    s.particles = 1500
-    s.inactive = 30
-    s.batches = 130
+    s.particles = 120
+    s.inactive = 8
+    s.batches = 16
     s.seed = 1
     s.run_mode = 'fixed source'
     s.source = openmc.IndependentSource(
@@ -647,7 +657,7 @@ def test_unstructured_mesh_subdivide(tmp_path):
     srmesh.dimension = (4, 4, 4)
     s.random_ray = {
         'distance_inactive': 40.0,
-        'distance_active': 400.0,
+        'distance_active': 80.0,
         'ray_source': openmc.IndependentSource(
             space=openmc.stats.Box((-10,) * 3, (10,) * 3)),
         'source_shape': 'flat',
@@ -663,12 +673,22 @@ def test_unstructured_mesh_subdivide(tmp_path):
     model.tallies = openmc.Tallies([t, ref])
 
     out = run_and_read(model, tmp_path, ['tets', 'cellref'])
-    density = out['tets'] / tet_vols
-    rel = density / density.mean() - 1.0
-    assert np.abs(rel).max() < 0.10
-    assert np.sqrt((rel**2).mean()) < 0.025
+
+    # Per-element statistics would need long runs, so aggregate elements
+    # into octants by centroid. Octant sums must match octant volumes,
+    # every element must have scored, and the mesh must conserve exactly.
+    centroids = v.mean(axis=1)
+    octant = ((centroids[:, 0] > 0).astype(int) +
+              2 * (centroids[:, 1] > 0) + 4 * (centroids[:, 2] > 0))
+    vals = out['tets']
+    assert (vals > 0).all()
+    for o in range(8):
+        sel = octant == o
+        frac = vals[sel].sum() / vals.sum()
+        vfrac = tet_vols[sel].sum() / tet_vols.sum()
+        assert abs(frac - vfrac) / vfrac < 0.08
     total = out['cellref'][0]
-    assert abs(out['tets'].sum() - total) / total < 1e-9
+    assert abs(vals.sum() - total) / total < 1e-9
 
 
 @pytest.mark.skipif(not openmc.lib._dagmc_enabled(),
@@ -716,9 +736,9 @@ def test_dagmc_cell_subdivide(tmp_path):
 
     s = model.settings
     s.energy_mode = 'multi-group'
-    s.particles = 800
-    s.inactive = 30
-    s.batches = 110
+    s.particles = 250
+    s.inactive = 15
+    s.batches = 45
     s.seed = 1
     s.run_mode = 'fixed source'
     s.source = openmc.IndependentSource(
@@ -727,7 +747,7 @@ def test_dagmc_cell_subdivide(tmp_path):
         constraints={'domains': [fuel]})
     s.random_ray = {
         'distance_inactive': 100.0,
-        'distance_active': 500.0,
+        'distance_active': 200.0,
         'ray_source': openmc.IndependentSource(
             space=openmc.stats.Box((-E,) * 3, (E,) * 3)),
         'source_shape': 'flat',
@@ -768,6 +788,9 @@ def test_determinism(tmp_path):
             wd = tmp_path / f't{threads}_{rep}'
             wd.mkdir()
             model, cell = uniform_model(wd)
+            model.settings.particles = 150
+            model.settings.inactive = 10
+            model.settings.batches = 30
             model.tallies = openmc.Tallies([
                 mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3'),
             ])

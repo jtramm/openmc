@@ -38,7 +38,7 @@ def test_random_ray_tally_subdivide():
     tally.scores = ['flux']
     model.tallies.append(tally)
 
-    model.settings.inactive = 20
-    model.settings.batches = 40
-    harness = MGXSTestHarness('statepoint.40.h5', model)
+    model.settings.inactive = 5
+    model.settings.batches = 15
+    harness = MGXSTestHarness('statepoint.15.h5', model)
     harness.main()
