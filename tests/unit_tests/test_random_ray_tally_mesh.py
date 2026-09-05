@@ -349,9 +349,9 @@ def test_own_mesh_with_excluding_filter(tmp_path):
 def test_short_inactive_edge_straddle(tmp_path):
     """The partial-coverage edge case with almost no inactive batches.
 
-    Piece estimates normally develop during the inactive phase. With one
-    inactive batch, the minimum full-rate tracing window must still keep
-    edge-straddling regions from being dropped or grossly misweighted.
+    With one inactive batch, the piece estimates start from nearly nothing
+    and mature during the active phase. Edge-straddling regions must not be
+    dropped or grossly misweighted while they do.
     """
     model, cell = uniform_model(tmp_path)
     model.settings.inactive = 1

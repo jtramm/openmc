@@ -414,16 +414,11 @@ void RandomRay::attenuate_flux_inner(
 
   // Trace this segment against the tally meshes so that tally scores can
   // be apportioned when a tally mesh subdivides a source region. Every
-  // active segment is traced while the piece estimates develop, for the
-  // inactive batches clamped to a minimum and maximum window, after which
-  // only a sample of each ray's segments is traced.
+  // active segment contributes, so the piece volume fraction estimates
+  // improve continuously over the whole simulation, in the same manner as
+  // the region volume and spatial moment estimates.
   if (is_active && !domain_->tally_mesh_slots_.empty()) {
-    int full_rate_batches = std::clamp(settings::n_inactive,
-      TALLY_MESH_MIN_TRACE_BATCHES, TALLY_MESH_MAX_TRACE_BATCHES);
-    if (simulation::current_batch <= full_rate_batches ||
-        (tally_mesh_segment_counter_++ % TALLY_MESH_TRACE_INTERVAL) == 0) {
-      accumulate_tally_mesh_pieces(srh, distance, r);
-    }
+    accumulate_tally_mesh_pieces(srh, distance, r);
   }
 }
 
@@ -872,9 +867,6 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   // Reset particle event counter
   n_event() = 0;
-
-  // Reset the tally mesh trace sampling counter
-  tally_mesh_segment_counter_ = 0;
 
   is_active_ = (distance_inactive_ <= 0.0);
 

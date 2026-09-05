@@ -68,12 +68,10 @@ private:
   vector<int> mesh_bins_;
   vector<double> mesh_fractional_lengths_;
 
-  // Scratch space and per-ray segment counter for tracing segments against
-  // tally meshes, used to apportion tally scores when a tally mesh
-  // subdivides a source region.
+  // Scratch space for tracing segments against tally meshes, used to
+  // apportion tally scores when a tally mesh subdivides a source region.
   vector<vector<int>> tally_mesh_bins_;
   vector<vector<double>> tally_mesh_lengths_;
-  int64_t tally_mesh_segment_counter_ {0};
 
   int negroups_;
   int ntemperature_;

@@ -65,21 +65,6 @@ constexpr int MAX_SAMPLE {100000};
 // source region in the random ray solver
 constexpr double MIN_HITS_PER_BATCH {1.5};
 
-// When tally mesh filters are present in a random ray solve, ray segments
-// are traced against each tally mesh to measure the track length each
-// source region deposits in each mesh bin, which provides the weights for
-// apportioning a region's tally scores when a tally mesh subdivides it.
-// Tracing every segment is only needed while the estimates develop, so
-// full-rate tracing runs for the inactive batches, clamped between a
-// minimum (so runs with few inactive batches cannot start with degenerate
-// estimates) and a maximum (the volume fraction ratios converge within
-// tens of batches, so longer inactive phases gain nothing from full-rate
-// tracing). Afterwards only every Nth segment of each ray is traced, so
-// the estimates keep converging at low cost.
-constexpr int TALLY_MESH_TRACE_INTERVAL {16};
-constexpr int TALLY_MESH_MIN_TRACE_BATCHES {10};
-constexpr int TALLY_MESH_MAX_TRACE_BATCHES {25};
-
 // A source region is treated as subdivided by a tally mesh only when the
 // traced track length observed outside its largest mesh bin exceeds this
 // fraction of the total traced track length. Regions that conform to the

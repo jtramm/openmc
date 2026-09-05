@@ -840,12 +840,10 @@ traced point inside the mesh, and its scores are weighted by the fraction of
 its volume the mesh covers.
 
 Regions that conform to a tally mesh are detected by the same tracing and
-score through the original single-bin path unchanged. Tracing every segment
-is only needed while the volume fraction estimates develop, so every active
-segment is traced for an initial window of batches (the inactive batch
-count, clamped between 10 and 25, since the volume fraction ratios converge
-within tens of batches) and a fixed sample of each ray's segments is traced
-thereafter, so the estimates keep converging at low cost. The apportioned scores represent the
+score through the original single-bin path unchanged. Every active segment
+is traced, so the volume fraction estimates improve continuously over the
+whole simulation, in the same manner as the region volume and spatial
+moment estimates. The apportioned scores represent the
 region's flux distributed uniformly over its volume, so tally meshes finer
 than the source regions resolve the solver's piecewise source approximation
 rather than additional physical detail.
