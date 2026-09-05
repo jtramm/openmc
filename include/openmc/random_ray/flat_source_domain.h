@@ -145,6 +145,10 @@ public:
   // tally mesh tracing, requiring another mapping pass next batch
   bool tally_map_deferrals_ {false};
 
+  // Bookkeeping for regions that exhausted their mapping attempts
+  bool tally_map_gave_up_ {false};
+  bool tally_map_giveup_warned_ {false};
+
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms
 

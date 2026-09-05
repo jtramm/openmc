@@ -571,6 +571,28 @@ def test_spherical_mesh(tmp_path):
     assert abs(vals.sum() - expected_total) / expected_total < 0.02
 
 
+def test_interior_mesh_piece(tmp_path):
+    """A tally mesh lying strictly inside a single source region.
+
+    Every segment through the mesh enters and exits it mid-segment, the
+    hardest case for anchoring the region's mapping to a point inside the
+    mesh. The bin must report the mesh's exact share of the domain, and
+    must not be silently dropped or endlessly deferred.
+    """
+    model, cell = uniform_model(tmp_path)
+    inner = tally_mesh((1, 1, 1), lo=(4.2, 4.2, 4.2), hi=(5.8, 5.8, 5.8))
+    model.tallies = openmc.Tallies([mesh_flux_tally(inner, 'inner')])
+    ref = openmc.Tally(name='cellref')
+    ref.filters = [openmc.CellFilter(cell)]
+    ref.scores = ['flux']
+    model.tallies.append(ref)
+
+    out = run_and_read(model, tmp_path, ['inner', 'cellref'])
+    frac = out['inner'][0] / out['cellref'][0]
+    expected = 1.6**3 / L**3
+    assert abs(frac - expected) / expected < 0.05
+
+
 def test_determinism(tmp_path):
     """Repeat runs must be bitwise identical on one thread and agree to
     accumulation-order rounding with threading, matching the solver's

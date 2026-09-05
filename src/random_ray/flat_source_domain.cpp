@@ -573,8 +573,20 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
     bool found = exhaustive_find_cell(p);
 
     // Tracks whether any tally's mapping for this source region had to be
-    // deferred pending mesh tracing (see the mesh filter fallback below)
+    // deferred pending mesh tracing (see the mesh filter fallback below).
+    // A region retries once per batch up to TALLY_MAP_DEFERRAL_LIMIT
+    // attempts, then gives up with a warning, so no configuration can
+    // retry forever. A given-up region's unscored overlap is necessarily
+    // a sliver that no traced segment could anchor.
     bool any_deferral = false;
+    auto defer = [&]() {
+      if (source_regions_.tally_map_deferred(sr) < TALLY_MAP_DEFERRAL_LIMIT) {
+        all_source_regions_mapped = false;
+        any_deferral = true;
+      } else {
+        tally_map_gave_up_ = true;
+      }
+    };
 
     // Loop over energy groups (so as to support energy filters)
     for (int g = 0; g < negroups_; g++) {
@@ -706,8 +718,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
             !tally_slot_skipped(own_mesh, mesh_info.slot)) {
           const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
           if (piece_slots.empty() || piece_slots[mesh_info.slot].total == 0.0) {
-            all_source_regions_mapped = false;
-            any_deferral = true;
+            defer();
           } else if (piece_slots[mesh_info.slot].has_inside_pos) {
             Particle p_inside;
             p_inside.r() = piece_slots[mesh_info.slot].inside_pos;
@@ -722,8 +733,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
           } else if (!piece_slots[mesh_info.slot].bins.empty()) {
             // In-mesh track length exists but no verified inside point
             // has been recorded yet, so try again next batch.
-            all_source_regions_mapped = false;
-            any_deferral = true;
+            defer();
           }
         } else if (mesh_info.slot == TallyTask::MULTI_MESH) {
           // A tally with multiple mesh filters cannot be rebuilt from a
@@ -765,8 +775,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
                           "supported for tallies with a single mesh filter.",
                 model::tallies[i_tally]->id()));
           } else if (untraced) {
-            all_source_regions_mapped = false;
-            any_deferral = true;
+            defer();
           }
         }
       }
@@ -775,10 +784,19 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
         match.bins_present_ = false;
     }
 
-    source_regions_.tally_map_deferred(sr) = any_deferral ? 1 : 0;
+    source_regions_.tally_map_deferred(sr) =
+      any_deferral ? source_regions_.tally_map_deferred(sr) + 1 : 0;
     if (any_deferral) {
       tally_map_deferrals_ = true;
     }
+  }
+
+  if (tally_map_gave_up_ && !tally_map_giveup_warned_) {
+    tally_map_giveup_warned_ = true;
+    warning("One or more source regions could not complete their tally mesh "
+            "mapping after repeated attempts. The unmapped overlap of such a "
+            "region with a tally mesh is a sliver that no traced segment could "
+            "anchor, and it will not contribute to that tally.");
   }
   openmc::simulation::time_tallies.stop();
 

@@ -480,25 +480,30 @@ void RandomRay::accumulate_tally_mesh_pieces(
     pieces.total += distance;
 
     // Record a point inside the mesh for this region if one has not been
-    // recorded yet. A segment that starts inside the mesh has its first
-    // crossed bin spanning the start of the segment, so the midpoint of
-    // that span lies inside the mesh. A segment that enters the mesh
-    // partway does not report where the mesh begins, so the candidate
-    // point is verified against the mesh, in the filter's transformed
-    // frame, before being recorded, and recording waits for a suitable
-    // segment otherwise. The point itself is stored in the lab frame,
-    // since it seeds a particle whose filters apply their own transforms.
+    // recorded yet. The crossed-bin lengths do not say where along the
+    // segment the mesh begins, so several candidate points are tried and
+    // verified against the mesh in the filter's transformed frame. The
+    // start-side candidate covers segments that start inside the mesh,
+    // the segment midpoint covers segments that pass through a piece
+    // interior to the region, and the end-side candidate covers segments
+    // that end inside the mesh. Recording waits for a suitable segment
+    // otherwise. The point itself is stored in the lab frame, since it
+    // seeds a particle whose filters apply their own transforms.
     if (!pieces.has_inside_pos && tally_mesh_bins_[s].size() > 0) {
-      Position candidate =
-        r + (0.5 * tally_mesh_lengths_[s][0] * distance) * u();
-      Position check = candidate - slots[s].translation;
-      if (!slots[s].rotation.empty()) {
-        check = check.rotate(slots[s].rotation);
-      }
       Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
-      if (mesh->get_bin(check) == tally_mesh_bins_[s][0]) {
-        pieces.inside_pos = candidate;
-        pieces.has_inside_pos = 1;
+      double front = 0.5 * tally_mesh_lengths_[s].front();
+      double back = 1.0 - 0.5 * tally_mesh_lengths_[s].back();
+      for (double frac : {front, 0.5, back}) {
+        Position candidate = r + (frac * distance) * u();
+        Position check = candidate - slots[s].translation;
+        if (!slots[s].rotation.empty()) {
+          check = check.rotate(slots[s].rotation);
+        }
+        if (mesh->get_bin(check) >= 0) {
+          pieces.inside_pos = candidate;
+          pieces.has_inside_pos = 1;
+          break;
+        }
       }
     }
   }
