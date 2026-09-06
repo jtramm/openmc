@@ -485,8 +485,13 @@ void RandomRay::accumulate_tally_mesh_pieces(
     // task for it, since absence of evidence cannot distinguish a region
     // outside the mesh from one whose overlap simply had not been sampled
     // yet. That conclusion is now stale, so the region's mapping is
-    // re-armed for another pass at the end of this batch.
-    if (!had_bins && !pieces.bins.empty() && srh.tally_map_deferred() == 0) {
+    // re-armed for another pass at the end of this batch. A region frozen
+    // after exhausting its retry budget is reopened too, since the budget
+    // was burned by a different mesh's unanchorable sliver, and this event
+    // fires at most once per mesh, so the reopened budget stays bounded.
+    if (!had_bins && !pieces.bins.empty() &&
+        (srh.tally_map_deferred() == 0 ||
+          srh.tally_map_deferred() >= TALLY_MAP_DEFERRAL_LIMIT)) {
       srh.tally_map_deferred() = 1;
       domain_->tally_map_deferrals_ = true;
     }

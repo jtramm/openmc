@@ -431,8 +431,8 @@ void FlatSourceDomain::compute_k_eff()
 // when a source region mesh is overlaid.
 
 // Scans the tally set for mesh filters and builds one "slot" per distinct
-// (mesh, translation) pair. Ray segments are traced against each slot's
-// mesh during transport to measure the track length each source region
+// (mesh, translation, rotation) triple. Ray segments are traced against each
+// slot's mesh during transport to measure the track length each source region
 // deposits in each mesh bin, which provides the weights for apportioning a
 // region's tally scores when a tally mesh subdivides it. Also records, per
 // tally, the slot and filter stride its tasks need for apportioned scoring.
@@ -542,10 +542,12 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
     }
 
     // A region that exhausted its mapping attempts is frozen with a
-    // warning. It is never reprocessed, so its counter can never reset
-    // and grant a fresh budget, making the bounded-attempts guarantee
-    // exact. Its unscored overlap is necessarily a sliver that no traced
-    // segment could anchor.
+    // warning, so its counter cannot creep back below the limit and
+    // grant a fresh budget. The one reopening is the tracing loop's
+    // re-arm when first in-mesh evidence appears for a mesh that had
+    // none, which fires at most once per mesh, so the total attempt
+    // budget stays bounded. A region frozen for good has forfeited only
+    // an overlap sliver that no traced segment could anchor.
     if (source_regions_.tally_map_deferred(sr) >= TALLY_MAP_DEFERRAL_LIMIT) {
       tally_map_gave_up_ = true;
       continue;
@@ -562,8 +564,9 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 
     // Tracks whether any tally's mapping for this source region had to be
     // deferred pending mesh tracing (see the mesh filter fallback below).
-    // A region retries once per batch, up to TALLY_MAP_DEFERRAL_LIMIT
-    // attempts, before being frozen by the check above.
+    // A region retries once per mapping pass, up to
+    // TALLY_MAP_DEFERRAL_LIMIT attempts, before being frozen by the
+    // check above.
     bool any_deferral = false;
     auto defer = [&]() {
       all_source_regions_mapped = false;
