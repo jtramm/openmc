@@ -252,6 +252,16 @@ def build_variant(variant):
     elif variant == 'adjoint':
         model.settings.random_ray['adjoint'] = True
         tallies = [mesh_flux_tally(tally_mesh((3, 3, 3)), 'm3')]
+    elif variant == 'starved':
+        # Complementary partial meshes at 8 rays per batch, so straddling
+        # regions routinely have their overlap with one of the meshes
+        # still untraced when first mapped. Pins the tracing-side re-arm
+        # that completes those mappings once in-mesh evidence appears,
+        # instead of leaving the overlap permanently unscored.
+        model.settings.particles = 8
+        tallies = [
+            mesh_flux_tally(tally_mesh((1, 1, 1), hi=(L, 2.5, L)), 'lowy'),
+            mesh_flux_tally(tally_mesh((1, 1, 1), lo=(0, 2.5, 0)), 'highy')]
     model.tallies = openmc.Tallies(tallies + [cell_ref_tally(cells)])
     return model
 
@@ -259,7 +269,8 @@ def build_variant(variant):
 VARIANTS = ['hetero', 'two_mesh', 'linear', 'three_mesh', 'edge', 'interior',
             'shifted', 'eigenvalue', 'volnorm', 'rotated', 'translated',
             'rectilinear', 'cylindrical', 'spherical', 'energy_mesh_first',
-            'energy_energy_first', 'own_mesh_cellfilter', 'adjoint']
+            'energy_energy_first', 'own_mesh_cellfilter', 'adjoint',
+            'starved']
 
 
 @pytest.mark.parametrize("variant", VARIANTS)

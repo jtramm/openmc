@@ -22,8 +22,8 @@ SourceRegionHandle::SourceRegionHandle(SourceRegion& sr)
     centroid_iteration_(&sr.centroid_iteration_), centroid_t_(&sr.centroid_t_),
     mom_matrix_(&sr.mom_matrix_), mom_matrix_t_(&sr.mom_matrix_t_),
     volume_task_(&sr.volume_task_), tally_mesh_pieces_(&sr.tally_mesh_pieces_),
-    mesh_(&sr.mesh_), parent_sr_(&sr.parent_sr_),
-    scalar_flux_old_(sr.scalar_flux_old_.data()),
+    tally_map_deferred_(&sr.tally_map_deferred_), mesh_(&sr.mesh_),
+    parent_sr_(&sr.parent_sr_), scalar_flux_old_(sr.scalar_flux_old_.data()),
     scalar_flux_new_(sr.scalar_flux_new_.data()), source_(sr.source_.data()),
     external_source_(sr.external_source_.data()),
     scalar_flux_final_(sr.scalar_flux_final_.data()),
@@ -206,6 +206,7 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   handle.position_ = &position(sr);
   handle.volume_task_ = &volume_task(sr);
   handle.tally_mesh_pieces_ = &tally_mesh_pieces(sr);
+  handle.tally_map_deferred_ = &tally_map_deferred(sr);
   handle.mesh_ = &mesh(sr);
   handle.parent_sr_ = &parent_sr(sr);
   handle.scalar_flux_old_ = &scalar_flux_old(sr, 0);

@@ -684,20 +684,24 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
         // tally has a mesh filter, the region may straddle the edge of the
         // mesh with its midpoint outside. If tracing has recorded a point
         // inside the mesh, the mapping is rebuilt from that point instead.
-        // If the region has not been traced against the mesh yet, the
+        // If tracing has seen in-mesh track but no usable point yet, the
         // mapping stays incomplete so it is attempted again next batch.
-        // If tracing has proven the region lies wholly outside the mesh,
-        // or the mesh is the region's own subdividing mesh (whose interior
-        // is guaranteed to contain the recorded position, so the failure
-        // came from another filter), no task is needed and the mapping is
-        // complete.
+        // If no traced segment has entered the mesh, either the region
+        // lies wholly outside it or its overlap has not been sampled yet.
+        // Absence of evidence cannot distinguish the two, so no task is
+        // built for now and the tracing loop re-arms the mapping the
+        // moment a segment first lands inside the mesh, rather than this
+        // pass burning retry attempts on what may simply be an untraced
+        // mesh. When the mesh is the region's own subdividing mesh (whose
+        // interior is guaranteed to contain the recorded position, so the
+        // failure came from another filter), no task is needed and the
+        // mapping is complete.
         const int own_mesh = source_regions_.mesh(sr);
         if (mesh_info.slot >= 0 &&
             !tally_slot_skipped(own_mesh, mesh_info.slot)) {
-          const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
-          if (piece_slots.empty() || piece_slots[mesh_info.slot].total == 0.0) {
-            defer();
-          } else if (piece_slots[mesh_info.slot].has_inside_pos) {
+          auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
+          if (!piece_slots.empty() &&
+              piece_slots[mesh_info.slot].has_inside_pos) {
             Particle p_inside;
             p_inside.r() = piece_slots[mesh_info.slot].inside_pos;
             p_inside.r_last() = p_inside.r();
@@ -706,9 +710,27 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
             p_inside.g_last() = p.g_last();
             p_inside.E() = p.E();
             p_inside.E_last() = p.E_last();
-            exhaustive_find_cell(p_inside);
-            build_tasks(p_inside);
-          } else if (!piece_slots[mesh_info.slot].bins.empty()) {
+            bool in_geometry = exhaustive_find_cell(p_inside);
+            // Floating point placement can land the recorded point across
+            // a nearby boundary, resolving a neighboring source region
+            // whose filter bins (a cell filter, say) would misdirect this
+            // region's scores. The point is used only if it resolves back
+            // to this region. Otherwise it is discarded so that tracing
+            // can record a fresh one, and the mapping is retried.
+            bool verified = false;
+            if (in_geometry) {
+              auto it =
+                source_region_map_.find(lookup_source_region_key(p_inside));
+              verified = it != source_region_map_.end() && it->second == sr;
+            }
+            if (verified) {
+              build_tasks(p_inside);
+            } else {
+              piece_slots[mesh_info.slot].has_inside_pos = 0;
+              defer();
+            }
+          } else if (!piece_slots.empty() &&
+                     !piece_slots[mesh_info.slot].bins.empty()) {
             // In-mesh track length exists but no verified inside point
             // has been recorded yet, so try again next batch.
             defer();

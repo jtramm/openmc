@@ -221,6 +221,9 @@ public:
   // lazily on first accumulation.
   vector<TallyMeshPieces>* tally_mesh_pieces_;
 
+  // Tally mapping incomplete pending tracing
+  int* tally_map_deferred_;
+
   // Mesh that subdivides this source region
   int* mesh_;
   int64_t* parent_sr_;
@@ -326,6 +329,9 @@ public:
   {
     return *tally_mesh_pieces_;
   }
+
+  int& tally_map_deferred() { return *tally_map_deferred_; }
+  const int tally_map_deferred() const { return *tally_map_deferred_; }
 
   double& scalar_flux_old(int g) { return scalar_flux_old_[g]; }
   const double scalar_flux_old(int g) const { return scalar_flux_old_[g]; }

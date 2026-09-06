@@ -474,10 +474,22 @@ void RandomRay::accumulate_tally_mesh_pieces(
       continue;
     }
     TallyMeshPieces& pieces = piece_slots[s];
+    bool had_bins = !pieces.bins.empty();
     for (int b = 0; b < tally_mesh_bins_[s].size(); b++) {
       pieces.add(tally_mesh_bins_[s][b], tally_mesh_lengths_[s][b] * distance);
     }
     pieces.total += distance;
+
+    // First in-mesh evidence for this region and mesh. A mapping pass that
+    // ran before any traced segment had entered the mesh resolved with no
+    // task for it, since absence of evidence cannot distinguish a region
+    // outside the mesh from one whose overlap simply had not been sampled
+    // yet. That conclusion is now stale, so the region's mapping is
+    // re-armed for another pass at the end of this batch.
+    if (!had_bins && !pieces.bins.empty() && srh.tally_map_deferred() == 0) {
+      srh.tally_map_deferred() = 1;
+      domain_->tally_map_deferrals_ = true;
+    }
 
     // Record a point inside the mesh for this region if one has not been
     // recorded yet. The crossed-bin lengths do not say where along the
