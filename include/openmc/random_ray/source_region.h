@@ -56,16 +56,13 @@ struct TallyTask {
   int score_type;
 
   // Values for the mesh_slot field. A value >= 0 indexes the domain's list
-  // of tally mesh slots and indicates that this task's tally has a single
-  // mesh filter, allowing the task's score to be apportioned among mesh
-  // bins if the source region is subdivided by that mesh. NO_MESH means the
-  // tally has no mesh filter. MULTI_MESH means the tally has more than one
-  // mesh filter, which is only supported while no scoring source region is
-  // subdivided by any of them.
+  // of tally mesh slots, allowing the task's score to be apportioned among
+  // mesh bins if the source region is subdivided by that mesh. NO_MESH
+  // means the tally has no mesh filter. Tallies with more than one mesh
+  // filter are rejected at initialization in random ray mode.
   static constexpr int NO_MESH {-1};
-  static constexpr int MULTI_MESH {-2};
 
-  // Tally mesh slot of the tally's mesh filter (or NO_MESH/MULTI_MESH)
+  // Tally mesh slot of the tally's mesh filter (or NO_MESH)
   int mesh_slot {NO_MESH};
   // Stride of the mesh filter within the tally's flattened filter index
   int64_t mesh_stride {0};

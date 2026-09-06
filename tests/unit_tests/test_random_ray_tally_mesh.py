@@ -3,11 +3,11 @@ regions.
 
 The behavioral coverage for this feature lives in the
 `random_ray_tally_subdivide` regression battery, which pins each
-configuration against stored reference results. The abort contract for
+configuration against stored reference results. The rejection of
 tallies with multiple mesh filters is asserted here instead, since that
-configuration terminates by design and so cannot have reference
-results, while a silent regression of the abort would produce silently
-wrong tallies that nothing else could detect.
+configuration terminates at initialization by design and so cannot have
+reference results, while a silent regression of the rejection would
+produce silently wrong tallies that nothing else could detect.
 """
 
 import numpy as np
@@ -80,20 +80,15 @@ def tally_mesh(dim, lo=(0, 0, 0), hi=(L, L, L)):
     return mm
 
 
-@pytest.mark.parametrize('second_mesh', ['subdividing', 'edge'])
-def test_multiple_mesh_filters_fatal(tmp_path, second_mesh):
-    """A tally with two mesh filters must abort with a clear error, both
-    when a mesh subdivides source regions outright and when one mesh's
-    edge cuts regions whose recorded midpoints fall outside it, rather
-    than misattributing or silently dropping scores."""
+def test_multiple_mesh_filters_fatal(tmp_path):
+    """A tally with two mesh filters must be rejected at initialization
+    in random ray mode, since apportioning its pair-binned scores would
+    need the joint refinement of the meshes. Two tallies with one mesh
+    filter each are the supported equivalent."""
     model = uniform_model(tmp_path)
-    if second_mesh == 'subdividing':
-        other = tally_mesh((4, 4, 4))
-    else:
-        other = tally_mesh((1, 1, 1), hi=(3.0, L, L))
     t = openmc.Tally(name='twomesh')
     t.filters = [openmc.MeshFilter(tally_mesh((3, 3, 3))),
-                 openmc.MeshFilter(other)]
+                 openmc.MeshFilter(tally_mesh((4, 4, 4)))]
     t.scores = ['flux']
     model.tallies = openmc.Tallies([t])
     with pytest.raises(RuntimeError, match='multiple mesh filters'):

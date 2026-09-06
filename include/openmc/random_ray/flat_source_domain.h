@@ -103,9 +103,6 @@ public:
            s.translation == Position {0.0, 0.0, 0.0} && s.rotation.empty();
   }
 
-  // Per tally, the slots of its mesh filters (empty if none)
-  vector<vector<int>> tally_slots_;
-
   // Per tally, the mesh apportioning values tasks of that tally carry
   struct TallyMeshInfo {
     int slot {TallyTask::NO_MESH};

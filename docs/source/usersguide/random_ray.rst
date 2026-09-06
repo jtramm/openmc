@@ -515,8 +515,9 @@ than the source regions reveals the solver's piecewise source approximation
 rather than additional physical detail. If sub-source-region tally resolution
 is needed, the source regions should be refined as well, for instance by
 applying the tally mesh in ``source_region_meshes``. One restriction remains,
-in that a tally with more than one mesh filter is only supported when neither
-mesh subdivides a source region.
+in that a tally with more than one mesh filter is not supported and is
+rejected at initialization. Use separate tallies, one mesh filter each,
+which behave identically.
 
 Supported scores:
     - flux

@@ -436,10 +436,11 @@ void FlatSourceDomain::compute_k_eff()
 // deposits in each mesh bin, which provides the weights for apportioning a
 // region's tally scores when a tally mesh subdivides it. Also records, per
 // tally, the slot and filter stride its tasks need for apportioned scoring.
+// A tally with more than one mesh filter is rejected here, since correct
+// apportioning would need the joint refinement of its meshes.
 void FlatSourceDomain::init_tally_mesh_slots()
 {
   tally_mesh_slots_.clear();
-  tally_slots_.assign(model::tallies.size(), {});
   tally_mesh_info_.assign(model::tallies.size(), {});
 
   for (int i_tally = 0; i_tally < model::tallies.size(); i_tally++) {
@@ -450,6 +451,15 @@ void FlatSourceDomain::init_tally_mesh_slots()
         continue;
       }
       auto* mf = static_cast<MeshFilter*>(f);
+
+      if (tally_mesh_info_[i_tally].slot != TallyTask::NO_MESH) {
+        fatal_error(
+          fmt::format("Tally {} has multiple mesh filters, which is not "
+                      "supported in random ray mode. Split it into separate "
+                      "tallies, one mesh filter each, which is fully "
+                      "supported.",
+            tally.id()));
+      }
 
       // Find or create the slot for this (mesh, translation, rotation)
       int slot = C_NONE;
@@ -466,21 +476,11 @@ void FlatSourceDomain::init_tally_mesh_slots()
         tally_mesh_slots_.push_back(
           {mf->mesh(), mf->translation(), mf->rotation()});
       }
-      tally_slots_[i_tally].push_back(slot);
-
-      // Tasks for a tally with a single mesh filter carry that filter's
-      // slot and stride so their scores can be apportioned among mesh
-      // bins. Tallies with multiple mesh filters are marked as such, since
-      // apportioning would require the joint refinement of their meshes.
-      if (tally_slots_[i_tally].size() == 1) {
-        tally_mesh_info_[i_tally].slot = slot;
-        tally_mesh_info_[i_tally].stride = tally.strides(j);
-        tally_mesh_info_[i_tally].n_bins = f->n_bins();
-      } else {
-        tally_mesh_info_[i_tally].slot = TallyTask::MULTI_MESH;
-        tally_mesh_info_[i_tally].stride = 0;
-        tally_mesh_info_[i_tally].n_bins = 0;
-      }
+      // Tasks carry the filter's slot and stride so their scores can be
+      // apportioned among mesh bins
+      tally_mesh_info_[i_tally].slot = slot;
+      tally_mesh_info_[i_tally].stride = tally.strides(j);
+      tally_mesh_info_[i_tally].n_bins = f->n_bins();
     }
   }
 }
@@ -516,21 +516,6 @@ const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
   }
   const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
   if (piece_slots.empty()) {
-    return nullptr;
-  }
-  if (task.mesh_slot == TallyTask::MULTI_MESH) {
-    for (int s : tally_slots_[task.tally_idx]) {
-      if (tally_mesh_pieces_subdivided(piece_slots[s])) {
-        fatal_error(
-          fmt::format("Tally {} has multiple mesh filters, and one of its "
-                      "meshes subdivides a source region. Scoring a source "
-                      "region subdivided by a tally mesh is only supported "
-                      "for tallies with a single mesh filter. Splitting "
-                      "this tally into separate tallies, one mesh filter "
-                      "each, is fully supported.",
-            model::tallies[task.tally_idx]->id()));
-      }
-    }
     return nullptr;
   }
   const TallyMeshPieces& pieces = piece_slots[task.mesh_slot];
@@ -735,50 +720,6 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
           } else if (!piece_slots[mesh_info.slot].bins.empty()) {
             // In-mesh track length exists but no verified inside point
             // has been recorded yet, so try again next batch.
-            defer();
-          }
-        } else if (mesh_info.slot == TallyTask::MULTI_MESH) {
-          // A tally with multiple mesh filters cannot be rebuilt from a
-          // single inside point. If any of its meshes shows the region
-          // straddling a mesh boundary, apportioned or partial scoring
-          // would be required, which is unsupported, so abort loudly
-          // rather than silently dropping the region's contribution. If
-          // the region has simply not been traced yet, try again next
-          // batch. Otherwise the region lies outside the tally's meshes
-          // or was excluded by another filter, and no task is needed.
-          const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
-          bool untraced = false;
-          bool straddles = false;
-          for (int s : tally_slots_[i_tally]) {
-            if (tally_slot_skipped(own_mesh, s)) {
-              continue;
-            }
-            if (piece_slots.empty() || piece_slots[s].total == 0.0) {
-              untraced = true;
-              continue;
-            }
-            const TallyMeshPieces& pc = piece_slots[s];
-            double inside = 0.0;
-            for (double length : pc.lengths) {
-              inside += length;
-            }
-            bool partial =
-              (pc.total - inside) > TALLY_MESH_SUBDIVIDE_TOLERANCE * pc.total;
-            if (tally_mesh_pieces_subdivided(pc) ||
-                (partial && !pc.bins.empty())) {
-              straddles = true;
-            }
-          }
-          if (straddles) {
-            fatal_error(
-              fmt::format("Tally {} has multiple mesh filters, and one of "
-                          "its meshes subdivides a source region. Scoring a "
-                          "source region subdivided by a tally mesh is only "
-                          "supported for tallies with a single mesh filter. "
-                          "Splitting this tally into separate tallies, one "
-                          "mesh filter each, is fully supported.",
-                model::tallies[i_tally]->id()));
-          } else if (untraced) {
             defer();
           }
         }
