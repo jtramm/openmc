@@ -513,13 +513,13 @@ const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
   if (!tally_mesh_pieces_subdivided(pieces)) {
     return nullptr;
   }
-  // A region can be transiently classified as subdivided before any of its
-  // traced track length has landed inside the mesh, leaving no bins to
-  // apportion over. Score whole through the original bin rather than
-  // dropping the region's contribution.
-  if (pieces.bins.empty()) {
-    return nullptr;
-  }
+  // The bin list may still be empty here, when all of the region's traced
+  // track so far lies outside the mesh. Scoring then apportions over no
+  // bins and contributes nothing, which is the limit of the track length
+  // weights themselves. Scoring whole instead would contradict the traced
+  // evidence, and could double count a straddling region whose task for a
+  // neighboring mesh scores whole through the conformal path in the same
+  // batch.
   return &pieces;
 }
 
@@ -541,6 +541,16 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
       continue;
     }
 
+    // A region that exhausted its mapping attempts is frozen with a
+    // warning. It is never reprocessed, so its counter can never reset
+    // and grant a fresh budget, making the bounded-attempts guarantee
+    // exact. Its unscored overlap is necessarily a sliver that no traced
+    // segment could anchor.
+    if (source_regions_.tally_map_deferred(sr) >= TALLY_MAP_DEFERRAL_LIMIT) {
+      tally_map_gave_up_ = true;
+      continue;
+    }
+
     // A particle located at the recorded midpoint of a ray
     // crossing through this source region is used to estabilish
     // the spatial location of the source region
@@ -552,18 +562,12 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 
     // Tracks whether any tally's mapping for this source region had to be
     // deferred pending mesh tracing (see the mesh filter fallback below).
-    // A region retries once per batch up to TALLY_MAP_DEFERRAL_LIMIT
-    // attempts, then gives up with a warning, so no configuration can
-    // retry forever. A given-up region's unscored overlap is necessarily
-    // a sliver that no traced segment could anchor.
+    // A region retries once per batch, up to TALLY_MAP_DEFERRAL_LIMIT
+    // attempts, before being frozen by the check above.
     bool any_deferral = false;
     auto defer = [&]() {
-      if (source_regions_.tally_map_deferred(sr) < TALLY_MAP_DEFERRAL_LIMIT) {
-        all_source_regions_mapped = false;
-        any_deferral = true;
-      } else {
-        tally_map_gave_up_ = true;
-      }
+      all_source_regions_mapped = false;
+      any_deferral = true;
     };
 
     // Loop over energy groups (so as to support energy filters)

@@ -262,6 +262,20 @@ def build_variant(variant):
         tallies = [
             mesh_flux_tally(tally_mesh((1, 1, 1), hi=(L, 2.5, L)), 'lowy'),
             mesh_flux_tally(tally_mesh((1, 1, 1), lo=(0, 2.5, 0)), 'highy')]
+    elif variant == 'starved_transient':
+        # The same complementary meshes with no inactive batches, so
+        # scoring begins while some straddling regions still lack traced
+        # evidence for one of the meshes. Pins that such a region scores
+        # nothing for the evidence-less mesh, the limit of the track
+        # length weights, rather than scoring whole into both meshes at
+        # once and double counting.
+        model.settings.particles = 4
+        model.settings.inactive = 0
+        model.settings.batches = 6
+        model.settings.seed = 3
+        tallies = [
+            mesh_flux_tally(tally_mesh((1, 1, 1), hi=(L, 2.5, L)), 'lowy'),
+            mesh_flux_tally(tally_mesh((1, 1, 1), lo=(0, 2.5, 0)), 'highy')]
     model.tallies = openmc.Tallies(tallies + [cell_ref_tally(cells)])
     return model
 
@@ -270,7 +284,7 @@ VARIANTS = ['hetero', 'two_mesh', 'linear', 'three_mesh', 'edge', 'interior',
             'shifted', 'eigenvalue', 'volnorm', 'rotated', 'translated',
             'rectilinear', 'cylindrical', 'spherical', 'energy_mesh_first',
             'energy_energy_first', 'own_mesh_cellfilter', 'adjoint',
-            'starved']
+            'starved', 'starved_transient']
 
 
 @pytest.mark.parametrize("variant", VARIANTS)
