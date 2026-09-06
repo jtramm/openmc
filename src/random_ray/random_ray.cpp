@@ -480,48 +480,14 @@ void RandomRay::accumulate_tally_mesh_pieces(
     }
     pieces.total += distance;
 
-    // First in-mesh evidence for this region and mesh. A mapping pass that
-    // ran before any traced segment had entered the mesh resolved with no
-    // task for it, since absence of evidence cannot distinguish a region
-    // outside the mesh from one whose overlap simply had not been sampled
-    // yet. That conclusion is now stale, so the region's mapping is
-    // re-armed for another pass at the end of this batch. A region frozen
-    // after exhausting its retry budget is reopened too, since the budget
-    // was burned by a different mesh's unanchorable sliver, and this event
-    // fires at most once per mesh, so the reopened budget stays bounded.
-    if (!had_bins && !pieces.bins.empty() &&
-        (srh.tally_map_deferred() == 0 ||
-          srh.tally_map_deferred() >= TALLY_MAP_DEFERRAL_LIMIT)) {
-      srh.tally_map_deferred() = 1;
-      domain_->tally_map_deferrals_ = true;
-    }
-
-    // Record a point inside the mesh for this region if one has not been
-    // recorded yet. The crossed-bin lengths do not say where along the
-    // segment the mesh begins, so several candidate points are tried and
-    // verified against the mesh in the filter's transformed frame. The
-    // start-side candidate covers segments that start inside the mesh,
-    // the segment midpoint covers segments that pass through a piece
-    // interior to the region, and the end-side candidate covers segments
-    // that end inside the mesh. Recording waits for a suitable segment
-    // otherwise. The point itself is stored in the lab frame, since it
-    // seeds a particle whose filters apply their own transforms.
-    if (!pieces.has_inside_pos && tally_mesh_bins_[s].size() > 0) {
-      Mesh* mesh = model::meshes[slots[s].mesh_idx].get();
-      double front = 0.5 * tally_mesh_lengths_[s].front();
-      double back = 1.0 - 0.5 * tally_mesh_lengths_[s].back();
-      for (double frac : {front, 0.5, back}) {
-        Position candidate = r + (frac * distance) * u();
-        Position check = candidate - slots[s].translation;
-        if (!slots[s].rotation.empty()) {
-          check = check.rotate(slots[s].rotation);
-        }
-        if (mesh->get_bin(check) >= 0) {
-          pieces.inside_pos = candidate;
-          pieces.has_inside_pos = 1;
-          break;
-        }
-      }
+    // First in-mesh evidence for this region and mesh. Mesh tally tasks
+    // are seeded from traced evidence, so flag the region for a mapping
+    // pass at the end of this batch to build the tasks this evidence
+    // enables. The bin list never empties again, so this fires at most
+    // once per region and mesh.
+    if (!had_bins && !pieces.bins.empty()) {
+      srh.tally_map_pending() = 1;
+      domain_->tally_map_pending_ = true;
     }
   }
   srh.unlock();

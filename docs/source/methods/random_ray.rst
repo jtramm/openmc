@@ -834,10 +834,12 @@ length each source region deposits in each mesh element. The track length
 fractions are ray-based estimates of the volume fractions of the pieces the
 mesh cuts the region into. At tally time, a subdivided region's scores are
 apportioned among the elements it overlaps in proportion to those fractions,
-which conserves the region's total contribution exactly. A region whose
-recorded position falls outside a partially covering mesh is remapped from a
-traced point inside the mesh, and its scores are weighted by the fraction of
-its volume the mesh covers.
+which conserves the region's total contribution exactly. A region's
+membership in each tally mesh is decided by the same traced evidence, so a
+region straddling the edge of a partially covering mesh scores through the
+mesh from the moment a traced segment first lands inside it, weighted by
+the fraction of its volume the mesh covers, no matter where its recorded
+position happens to lie.
 
 Regions that conform to a tally mesh are detected by the same tracing and
 score through the original single-bin path unchanged. Every active segment

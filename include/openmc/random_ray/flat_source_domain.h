@@ -138,13 +138,10 @@ public:
   double k_eff_ {1.0};              // Eigenvalue
   bool mapped_all_tallies_ {false}; // If all source regions have been visited
 
-  // True when some source region's tally mapping was deferred pending
-  // tally mesh tracing, requiring another mapping pass next batch
-  bool tally_map_deferrals_ {false};
-
-  // Bookkeeping for regions that exhausted their mapping attempts
-  bool tally_map_gave_up_ {false};
-  bool tally_map_giveup_warned_ {false};
+  // True when tracing recorded first in-mesh evidence for some source
+  // region this batch, requiring a mapping pass to build the mesh tally
+  // tasks that evidence enables
+  bool tally_map_pending_ {false};
 
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms

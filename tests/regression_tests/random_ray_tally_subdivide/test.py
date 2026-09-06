@@ -175,7 +175,7 @@ def build_variant(variant):
 
     if variant == 'own_mesh_cellfilter':
         # Tally on the source region mesh itself, restricted by a cell
-        # filter excluding half the domain (the deferred-mapping case)
+        # filter excluding half the domain (the point-seeded own-mesh case)
         model, cells, srmesh = uniform_model(two_cells=True)
         t = openmc.Tally(name='half')
         t.filters = [openmc.MeshFilter(srmesh), openmc.CellFilter(cells[0])]
@@ -255,9 +255,9 @@ def build_variant(variant):
     elif variant == 'starved':
         # Complementary partial meshes at 8 rays per batch, so straddling
         # regions routinely have their overlap with one of the meshes
-        # still untraced when first mapped. Pins the tracing-side re-arm
-        # that completes those mappings once in-mesh evidence appears,
-        # instead of leaving the overlap permanently unscored.
+        # still unsampled early in the run. Pins that a region's tasks for
+        # a mesh are created once its first in-mesh evidence appears,
+        # instead of the overlap being left permanently unscored.
         model.settings.particles = 8
         tallies = [
             mesh_flux_tally(tally_mesh((1, 1, 1), hi=(L, 2.5, L)), 'lowy'),

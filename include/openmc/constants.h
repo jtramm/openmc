@@ -72,12 +72,6 @@ constexpr double MIN_HITS_PER_BATCH {1.5};
 // absorbing floating point slivers from the mesh ray tracing.
 constexpr double TALLY_MESH_SUBDIVIDE_TOLERANCE {1e-6};
 
-// A source region whose tally mapping stays incomplete (for example, a
-// mesh edge overlapping only an unanchorable sliver of the region) retries
-// its mapping once per batch up to this many times before giving up with a
-// warning, so no configuration can retry forever.
-constexpr int TALLY_MAP_DEFERRAL_LIMIT {1000};
-
 // The minimum flux value to be considered non-zero when computing adjoint
 // sources. Positive values below this cutoff will be treated as zero, so as to
 // prevent extremely large adjoint source terms from being generated.

@@ -513,13 +513,10 @@ const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
   if (!tally_mesh_pieces_subdivided(pieces)) {
     return nullptr;
   }
-  // The bin list may still be empty here, when all of the region's traced
-  // track so far lies outside the mesh. Scoring then apportions over no
-  // bins and contributes nothing, which is the limit of the track length
-  // weights themselves. Scoring whole instead would contradict the traced
-  // evidence, and could double count a straddling region whose task for a
-  // neighboring mesh scores whole through the conformal path in the same
-  // batch.
+  // A task for a traced mesh is only ever created once in-mesh evidence
+  // exists, so the bin list here is never empty. Were it somehow empty,
+  // apportioning over no bins would contribute nothing, the limit of the
+  // track length weights, rather than misdirect any score.
   return &pieces;
 }
 
@@ -541,18 +538,6 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
       continue;
     }
 
-    // A region that exhausted its mapping attempts is frozen with a
-    // warning, so its counter cannot creep back below the limit and
-    // grant a fresh budget. The one reopening is the tracing loop's
-    // re-arm when first in-mesh evidence appears for a mesh that had
-    // none, which fires at most once per mesh, so the total attempt
-    // budget stays bounded. A region frozen for good has forfeited only
-    // an overlap sliver that no traced segment could anchor.
-    if (source_regions_.tally_map_deferred(sr) >= TALLY_MAP_DEFERRAL_LIMIT) {
-      tally_map_gave_up_ = true;
-      continue;
-    }
-
     // A particle located at the recorded midpoint of a ray
     // crossing through this source region is used to estabilish
     // the spatial location of the source region
@@ -561,17 +546,6 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
     p.r_last() = source_regions_.position(sr);
     p.u() = {1.0, 0.0, 0.0};
     bool found = exhaustive_find_cell(p);
-
-    // Tracks whether any tally's mapping for this source region had to be
-    // deferred pending mesh tracing (see the mesh filter fallback below).
-    // A region retries once per mapping pass, up to
-    // TALLY_MAP_DEFERRAL_LIMIT attempts, before being frozen by the
-    // check above.
-    bool any_deferral = false;
-    auto defer = [&]() {
-      all_source_regions_mapped = false;
-      any_deferral = true;
-    };
 
     // Loop over energy groups (so as to support energy filters)
     for (int g = 0; g < negroups_; g++) {
@@ -584,10 +558,11 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 
       int64_t source_element = sr * negroups_ + g;
 
-      // If this task has already been populated and no tally's mapping
-      // was deferred pending mesh tracing, we don't need to do it again.
+      // If this element's tasks have already been populated and no mesh
+      // tally is awaiting a pass for newly traced evidence, we don't need
+      // to do it again.
       if (source_regions_.tally_task(sr, g).size() > 0 &&
-          !source_regions_.tally_map_deferred(sr)) {
+          !source_regions_.tally_map_pending(sr)) {
         continue;
       }
 
@@ -613,16 +588,52 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 
         const TallyMeshInfo& mesh_info = tally_mesh_info_[i_tally];
 
-        // Builds this tally's tasks from a particle's filter combinations.
-        // Returns false if the particle matched no combination.
+        // The mesh dimension of a tally's mapping is seeded from traced
+        // evidence rather than from the recorded position. A region can
+        // straddle a mesh edge with its recorded position outside the
+        // mesh, so a point cannot decide mesh membership, while the
+        // traced bin list is the very evidence that will weight the
+        // scores. Until a segment first lands inside the mesh, no task
+        // is built for the tally, and the tracing loop flags the region
+        // for another pass the moment that first evidence appears, so
+        // task creation happens at most once per region and mesh and
+        // nothing retries. The seed is the bin holding the most traced
+        // track, so a region that proves conformal scores whole through
+        // its dominant bin. The region's own subdividing mesh is the
+        // exception in both directions: it is never traced, and the
+        // recorded position is guaranteed to lie inside it, so its seed
+        // comes from a point lookup instead.
+        const int own_mesh = source_regions_.mesh(sr);
+        bool trace_seeded =
+          mesh_info.slot >= 0 && !tally_slot_skipped(own_mesh, mesh_info.slot);
+        int seed_bin = C_NONE;
+        if (trace_seeded) {
+          const auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
+          if (piece_slots.empty() || piece_slots[mesh_info.slot].bins.empty()) {
+            continue;
+          }
+          const TallyMeshPieces& pieces = piece_slots[mesh_info.slot];
+          double best = -1.0;
+          for (int b = 0; b < pieces.bins.size(); b++) {
+            if (pieces.lengths[b] > best) {
+              best = pieces.lengths[b];
+              seed_bin = pieces.bins[b];
+            }
+          }
+        }
+
+        // Builds this tally's tasks from the particle's filter
+        // combinations, with the mesh filter's match seeded by hand.
         auto build_tasks = [&](Particle& part) {
           // The mapping particle carries a zero-length track, which the
-          // tracklength binning path of a mesh filter does not support for
-          // every mesh type (an unstructured mesh's ray fire finds nothing
-          // over zero distance). The mapping is a point query, so seed each
-          // mesh filter's match from a direct point lookup in the filter's
-          // own transformed frame, which also anchors apportioned scoring
-          // consistently for all mesh types.
+          // tracklength binning path of a mesh filter does not support
+          // for every mesh type (an unstructured mesh's ray fire finds
+          // nothing over zero distance), so each mesh filter's match is
+          // seeded directly: with the traced seed bin, or for the
+          // region's own mesh with a point lookup in the filter's own
+          // transformed frame. The per-piece scoring bins are later
+          // derived from the task by stride arithmetic, so the one seed
+          // anchors apportioned scoring consistently for all mesh types.
           for (int j = 0; j < tally.filters().size(); j++) {
             int i_filt = tally.filters(j);
             Filter* f = model::tally_filters[i_filt].get();
@@ -630,14 +641,17 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
               continue;
             }
             auto* mf = static_cast<MeshFilter*>(f);
-            Position rp = part.r() - mf->translation();
-            if (!mf->rotation().empty()) {
-              rp = rp.rotate(mf->rotation());
+            int bin = seed_bin;
+            if (!trace_seeded) {
+              Position rp = part.r() - mf->translation();
+              if (!mf->rotation().empty()) {
+                rp = rp.rotate(mf->rotation());
+              }
+              bin = model::meshes[mf->mesh()]->get_bin(rp);
             }
             auto& match = part.filter_matches()[i_filt];
             match.bins_.clear();
             match.weights_.clear();
-            int bin = model::meshes[mf->mesh()]->get_bin(rp);
             if (bin >= 0) {
               match.bins_.push_back(bin);
               match.weights_.push_back(1.0);
@@ -648,7 +662,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
           auto filter_iter = FilterBinIter(tally, part);
           auto end = FilterBinIter(tally, true, &part.filter_matches());
           if (filter_iter == end)
-            return false;
+            return;
 
           // Loop over filter bins.
           for (; filter_iter != end; ++filter_iter) {
@@ -680,89 +694,18 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
               source_regions_.volume_task(sr).insert(task);
             }
           }
-          return true;
         };
 
-        if (build_tasks(p)) {
-          continue;
-        }
-
-        // No filter combination matched at the recorded midpoint. When the
-        // tally has a mesh filter, the region may straddle the edge of the
-        // mesh with its midpoint outside. If tracing has recorded a point
-        // inside the mesh, the mapping is rebuilt from that point instead.
-        // If tracing has seen in-mesh track but no usable point yet, the
-        // mapping stays incomplete so it is attempted again next batch.
-        // If no traced segment has entered the mesh, either the region
-        // lies wholly outside it or its overlap has not been sampled yet.
-        // Absence of evidence cannot distinguish the two, so no task is
-        // built for now and the tracing loop re-arms the mapping the
-        // moment a segment first lands inside the mesh, rather than this
-        // pass burning retry attempts on what may simply be an untraced
-        // mesh. When the mesh is the region's own subdividing mesh (whose
-        // interior is guaranteed to contain the recorded position, so the
-        // failure came from another filter), no task is needed and the
-        // mapping is complete.
-        const int own_mesh = source_regions_.mesh(sr);
-        if (mesh_info.slot >= 0 &&
-            !tally_slot_skipped(own_mesh, mesh_info.slot)) {
-          auto& piece_slots = source_regions_.tally_mesh_pieces(sr);
-          if (!piece_slots.empty() &&
-              piece_slots[mesh_info.slot].has_inside_pos) {
-            Particle p_inside;
-            p_inside.r() = piece_slots[mesh_info.slot].inside_pos;
-            p_inside.r_last() = p_inside.r();
-            p_inside.u() = {1.0, 0.0, 0.0};
-            p_inside.g() = p.g();
-            p_inside.g_last() = p.g_last();
-            p_inside.E() = p.E();
-            p_inside.E_last() = p.E_last();
-            bool in_geometry = exhaustive_find_cell(p_inside);
-            // Floating point placement can land the recorded point across
-            // a nearby boundary, resolving a neighboring source region
-            // whose filter bins (a cell filter, say) would misdirect this
-            // region's scores. The point is used only if it resolves back
-            // to this region. Otherwise it is discarded so that tracing
-            // can record a fresh one, and the mapping is retried.
-            bool verified = false;
-            if (in_geometry) {
-              auto it =
-                source_region_map_.find(lookup_source_region_key(p_inside));
-              verified = it != source_region_map_.end() && it->second == sr;
-            }
-            if (verified) {
-              build_tasks(p_inside);
-            } else {
-              piece_slots[mesh_info.slot].has_inside_pos = 0;
-              defer();
-            }
-          } else if (!piece_slots.empty() &&
-                     !piece_slots[mesh_info.slot].bins.empty()) {
-            // In-mesh track length exists but no verified inside point
-            // has been recorded yet, so try again next batch.
-            defer();
-          }
-        }
+        build_tasks(p);
       }
       // Reset all the filter matches for the next tally event.
       for (auto& match : p.filter_matches())
         match.bins_present_ = false;
     }
 
-    source_regions_.tally_map_deferred(sr) =
-      any_deferral ? source_regions_.tally_map_deferred(sr) + 1 : 0;
-    if (any_deferral) {
-      tally_map_deferrals_ = true;
-    }
+    source_regions_.tally_map_pending(sr) = 0;
   }
 
-  if (tally_map_gave_up_ && !tally_map_giveup_warned_) {
-    tally_map_giveup_warned_ = true;
-    warning("One or more source regions could not complete their tally mesh "
-            "mapping after repeated attempts. The unmapped overlap of such a "
-            "region with a tally mesh is a sliver that no traced segment could "
-            "anchor, and it will not contribute to that tally.");
-  }
   openmc::simulation::time_tallies.stop();
 
   mapped_all_tallies_ = all_source_regions_mapped;
@@ -2026,11 +1969,11 @@ void FlatSourceDomain::finalize_discovered_source_regions()
     convert_source_regions_to_tallies(start_sr_id);
   }
 
-  // If any source region's tally mapping was deferred pending tally mesh
-  // tracing, make another pass over all source regions. Regions with
-  // complete mappings are skipped cheaply.
-  if (tally_map_deferrals_) {
-    tally_map_deferrals_ = false;
+  // If tracing recorded first in-mesh evidence for any source region this
+  // batch, make another mapping pass to build the mesh tally tasks that
+  // evidence enables. Regions with complete mappings are skipped cheaply.
+  if (tally_map_pending_) {
+    tally_map_pending_ = false;
     convert_source_regions_to_tallies(0);
   }
 

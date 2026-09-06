@@ -22,7 +22,7 @@ SourceRegionHandle::SourceRegionHandle(SourceRegion& sr)
     centroid_iteration_(&sr.centroid_iteration_), centroid_t_(&sr.centroid_t_),
     mom_matrix_(&sr.mom_matrix_), mom_matrix_t_(&sr.mom_matrix_t_),
     volume_task_(&sr.volume_task_), tally_mesh_pieces_(&sr.tally_mesh_pieces_),
-    tally_map_deferred_(&sr.tally_map_deferred_), mesh_(&sr.mesh_),
+    tally_map_pending_(&sr.tally_map_pending_), mesh_(&sr.mesh_),
     parent_sr_(&sr.parent_sr_), scalar_flux_old_(sr.scalar_flux_old_.data()),
     scalar_flux_new_(sr.scalar_flux_new_.data()), source_(sr.source_.data()),
     external_source_(sr.external_source_.data()),
@@ -76,7 +76,7 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
   density_mult_.push_back(sr.density_mult_);
   is_small_.push_back(sr.is_small_);
   n_hits_.push_back(sr.n_hits_);
-  tally_map_deferred_.push_back(sr.tally_map_deferred_);
+  tally_map_pending_.push_back(sr.tally_map_pending_);
   lock_.push_back(sr.lock_);
   volume_.push_back(sr.volume_);
   volume_t_.push_back(sr.volume_t_);
@@ -133,7 +133,7 @@ void SourceRegionContainer::assign(
   density_mult_.clear();
   is_small_.clear();
   n_hits_.clear();
-  tally_map_deferred_.clear();
+  tally_map_pending_.clear();
   lock_.clear();
   volume_.clear();
   volume_t_.clear();
@@ -206,7 +206,7 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   handle.position_ = &position(sr);
   handle.volume_task_ = &volume_task(sr);
   handle.tally_mesh_pieces_ = &tally_mesh_pieces(sr);
-  handle.tally_map_deferred_ = &tally_map_deferred(sr);
+  handle.tally_map_pending_ = &tally_map_pending(sr);
   handle.mesh_ = &mesh(sr);
   handle.parent_sr_ = &parent_sr(sr);
   handle.scalar_flux_old_ = &scalar_flux_old(sr, 0);

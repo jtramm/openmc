@@ -66,7 +66,7 @@ struct TallyTask {
   int mesh_slot {NO_MESH};
   // Stride of the mesh filter within the tally's flattened filter index
   int64_t mesh_stride {0};
-  // Mesh bin of the recorded position the task's filter_idx was built from
+  // Mesh bin the task's filter_idx was built from
   int mesh_bin_mid {0};
 
   TallyTask(int tally_idx, int64_t filter_idx, int score_idx, int score_type)
@@ -106,13 +106,6 @@ struct TallyMeshPieces {
   vector<int> bins;       //!< Mesh bins observed within this source region
   vector<double> lengths; //!< Accumulated track length within each bin
   double total {0.0};     //!< Total track length of all traced segments
-
-  // A recorded point inside the mesh within this source region. When a
-  // region straddles the edge of a tally mesh, its recorded midpoint may
-  // lie outside the mesh, in which case this fallback position lets the
-  // tally mapping still be built for the mesh's tallies.
-  Position inside_pos {0.0, 0.0, 0.0};
-  int has_inside_pos {0};
 
   void add(int bin, double length)
   {
@@ -222,7 +215,7 @@ public:
   vector<TallyMeshPieces>* tally_mesh_pieces_;
 
   // Tally mapping incomplete pending tracing
-  int* tally_map_deferred_;
+  int* tally_map_pending_;
 
   // Mesh that subdivides this source region
   int* mesh_;
@@ -330,8 +323,8 @@ public:
     return *tally_mesh_pieces_;
   }
 
-  int& tally_map_deferred() { return *tally_map_deferred_; }
-  const int tally_map_deferred() const { return *tally_map_deferred_; }
+  int& tally_map_pending() { return *tally_map_pending_; }
+  const int tally_map_pending() const { return *tally_map_pending_; }
 
   double& scalar_flux_old(int g) { return scalar_flux_old_[g]; }
   const double scalar_flux_old(int g) const { return scalar_flux_old_[g]; }
@@ -403,8 +396,8 @@ public:
     0};              //!< Is an external source present in this region?
   int is_small_ {0}; //!< Is it "small", receiving < 1.5 hits per iteration?
   int n_hits_ {0};   //!< Number of total hits (ray crossings)
-  int tally_map_deferred_ {0}; //!< Tally mapping incomplete pending tracing
-                               // Mesh that subdivides this source region
+  int tally_map_pending_ {0}; //!< Mapping pass needed for new mesh evidence
+                              // Mesh that subdivides this source region
   int mesh_ {C_NONE}; //!< Index in openmc::model::meshes array that subdivides
                       //!< this source region
   int64_t parent_sr_ {C_NONE}; //!< Index of a parent source region
@@ -485,10 +478,10 @@ public:
   int& n_hits(int64_t sr) { return n_hits_[sr]; }
   const int n_hits(int64_t sr) const { return n_hits_[sr]; }
 
-  int& tally_map_deferred(int64_t sr) { return tally_map_deferred_[sr]; }
-  const int tally_map_deferred(int64_t sr) const
+  int& tally_map_pending(int64_t sr) { return tally_map_pending_[sr]; }
+  const int tally_map_pending(int64_t sr) const
   {
-    return tally_map_deferred_[sr];
+    return tally_map_pending_[sr];
   }
 
   OpenMPMutex& lock(int64_t sr) { return lock_[sr]; }
@@ -729,7 +722,7 @@ private:
   vector<double> density_mult_;
   vector<int> is_small_;
   vector<int> n_hits_;
-  vector<int> tally_map_deferred_;
+  vector<int> tally_map_pending_;
   vector<int> mesh_;
   vector<int64_t> parent_sr_;
   vector<OpenMPMutex> lock_;
