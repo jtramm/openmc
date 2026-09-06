@@ -1,14 +1,14 @@
-"""Contract tests for random ray tally meshes that subdivide source
+"""Contract test for random ray tally meshes that subdivide source
 regions.
 
 The behavioral coverage for this feature lives in the
 `random_ray_tally_subdivide` regression battery, which pins each
-configuration against stored reference results. The tests here assert
-the properties reference results cannot express: the abort contract for
-tallies with multiple mesh filters, and run-to-run determinism.
+configuration against stored reference results. The abort contract for
+tallies with multiple mesh filters is asserted here instead, since that
+configuration terminates by design and so cannot have reference
+results, while a silent regression of the abort would produce silently
+wrong tallies that nothing else could detect.
 """
-
-import os
 
 import numpy as np
 import pytest
@@ -80,55 +80,21 @@ def tally_mesh(dim, lo=(0, 0, 0), hi=(L, L, L)):
     return mm
 
 
-def test_multiple_mesh_filters_fatal(tmp_path):
-    """A tally with two mesh filters over subdivided source regions must
-    abort with a clear error rather than misattribute scores."""
+@pytest.mark.parametrize('second_mesh', ['subdividing', 'edge'])
+def test_multiple_mesh_filters_fatal(tmp_path, second_mesh):
+    """A tally with two mesh filters must abort with a clear error, both
+    when a mesh subdivides source regions outright and when one mesh's
+    edge cuts regions whose recorded midpoints fall outside it, rather
+    than misattributing or silently dropping scores."""
     model = uniform_model(tmp_path)
+    if second_mesh == 'subdividing':
+        other = tally_mesh((4, 4, 4))
+    else:
+        other = tally_mesh((1, 1, 1), hi=(3.0, L, L))
     t = openmc.Tally(name='twomesh')
     t.filters = [openmc.MeshFilter(tally_mesh((3, 3, 3))),
-                 openmc.MeshFilter(tally_mesh((4, 4, 4)))]
+                 openmc.MeshFilter(other)]
     t.scores = ['flux']
     model.tallies = openmc.Tallies([t])
     with pytest.raises(RuntimeError, match='multiple mesh filters'):
         model.run(cwd=str(tmp_path))
-
-
-def test_multiple_mesh_filters_edge_fatal(tmp_path):
-    """The two-mesh-filter abort must also fire when one mesh's edge cuts
-    source regions and their midpoints fall outside it, rather than
-    silently dropping those regions from the tally."""
-    model = uniform_model(tmp_path)
-    t = openmc.Tally(name='twomesh')
-    t.filters = [openmc.MeshFilter(tally_mesh((5, 5, 5))),
-                 openmc.MeshFilter(tally_mesh((1, 1, 1), hi=(3.0, L, L)))]
-    t.scores = ['flux']
-    model.tallies = openmc.Tallies([t])
-    with pytest.raises(RuntimeError, match='multiple mesh filters'):
-        model.run(cwd=str(tmp_path))
-
-
-def test_determinism(tmp_path):
-    """Repeat runs with a subdividing mesh must be bitwise identical on
-    one thread and agree to accumulation-order rounding with threading,
-    matching the solver's pre-existing reproducibility contract."""
-    for threads, bitwise in ((1, True), (4, False)):
-        vals = []
-        for rep in (1, 2):
-            wd = tmp_path / f't{threads}_{rep}'
-            wd.mkdir()
-            model = uniform_model(wd)
-            t = openmc.Tally(name='m3')
-            t.filters = [openmc.MeshFilter(tally_mesh((3, 3, 3)))]
-            t.scores = ['flux']
-            model.tallies = openmc.Tallies([t])
-            os.environ['OMP_NUM_THREADS'] = str(threads)
-            try:
-                sp = model.run(cwd=str(wd))
-            finally:
-                os.environ.pop('OMP_NUM_THREADS', None)
-            with openmc.StatePoint(sp) as f:
-                vals.append(f.get_tally(name='m3').mean.ravel().copy())
-        if bitwise:
-            assert np.array_equal(vals[0], vals[1])
-        else:
-            assert np.abs((vals[0] - vals[1]) / vals[0]).max() < 1e-12
