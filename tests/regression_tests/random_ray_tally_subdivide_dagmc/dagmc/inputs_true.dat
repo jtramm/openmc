@@ -1,0 +1,75 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model>
+  <materials>
+    <cross_sections>mgxs.h5</cross_sections>
+    <material id="40" name="no-void fuel">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="fuelxs"/>
+    </material>
+    <material id="41" name="water">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="waterxs"/>
+    </material>
+  </materials>
+  <geometry>
+    <dagmc_universe id="1" filename="dagmc.h5m"/>
+  </geometry>
+  <settings>
+    <run_mode>fixed source</run_mode>
+    <particles>250</particles>
+    <batches>15</batches>
+    <inactive>5</inactive>
+    <source type="independent" strength="1.0" particle="neutron">
+      <space type="box">
+        <parameters>-25.0 -25.0 -25.0 25.0 25.0 25.0</parameters>
+      </space>
+      <energy type="discrete">
+        <parameters>1000000.0 1.0</parameters>
+      </energy>
+      <constraints>
+        <domain_type>material</domain_type>
+        <domain_ids>40</domain_ids>
+      </constraints>
+    </source>
+    <energy_mode>multi-group</energy_mode>
+    <seed>1</seed>
+    <random_ray>
+      <distance_inactive>100.0</distance_inactive>
+      <distance_active>200.0</distance_active>
+      <ray_source>
+        <source type="independent" strength="1.0" particle="neutron">
+          <space type="box">
+            <parameters>-25.0 -25.0 -25.0 25.0 25.0 25.0</parameters>
+          </space>
+        </source>
+      </ray_source>
+      <source_shape>flat</source_shape>
+    </random_ray>
+  </settings>
+  <tallies>
+    <mesh id="1">
+      <dimension>7 7 7</dimension>
+      <lower_left>-25.0 -25.0 -25.0</lower_left>
+      <upper_right>25.0 25.0 25.0</upper_right>
+    </mesh>
+    <mesh id="2">
+      <dimension>1 1 1</dimension>
+      <lower_left>-25.0 -25.0 -25.0</lower_left>
+      <upper_right>25.0 25.0 25.0</upper_right>
+    </mesh>
+    <filter id="1" type="mesh">
+      <bins>1</bins>
+    </filter>
+    <filter id="2" type="mesh">
+      <bins>2</bins>
+    </filter>
+    <tally id="1" name="m7">
+      <filters>1</filters>
+      <scores>flux</scores>
+    </tally>
+    <tally id="2" name="m1">
+      <filters>2</filters>
+      <scores>flux</scores>
+    </tally>
+  </tallies>
+</model>

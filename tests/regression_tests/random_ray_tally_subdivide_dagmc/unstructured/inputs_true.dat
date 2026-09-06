@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model>
+  <materials>
+    <cross_sections>mgxs.h5</cross_sections>
+    <material id="1" name="mat">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="mat"/>
+    </material>
+  </materials>
+  <geometry>
+    <cell id="1" material="1" region="-2 1 -4 3 -6 5" universe="1"/>
+    <surface id="1" type="x-plane" boundary="reflective" coeffs="-10"/>
+    <surface id="2" type="x-plane" boundary="reflective" coeffs="10"/>
+    <surface id="3" type="y-plane" boundary="reflective" coeffs="-10"/>
+    <surface id="4" type="y-plane" boundary="reflective" coeffs="10"/>
+    <surface id="5" type="z-plane" boundary="reflective" coeffs="-10"/>
+    <surface id="6" type="z-plane" boundary="reflective" coeffs="10"/>
+  </geometry>
+  <settings>
+    <run_mode>fixed source</run_mode>
+    <particles>120</particles>
+    <batches>15</batches>
+    <inactive>5</inactive>
+    <source type="independent" strength="1.0" particle="neutron">
+      <space type="box">
+        <parameters>-10 -10 -10 10 10 10</parameters>
+      </space>
+      <energy type="discrete">
+        <parameters>1000000.0 1.0</parameters>
+      </energy>
+      <constraints>
+        <domain_type>cell</domain_type>
+        <domain_ids>1</domain_ids>
+      </constraints>
+    </source>
+    <energy_mode>multi-group</energy_mode>
+    <seed>1</seed>
+    <random_ray>
+      <distance_inactive>40.0</distance_inactive>
+      <distance_active>80.0</distance_active>
+      <ray_source>
+        <source type="independent" strength="1.0" particle="neutron">
+          <space type="box">
+            <parameters>-10 -10 -10 10 10 10</parameters>
+          </space>
+        </source>
+      </ray_source>
+      <source_shape>flat</source_shape>
+      <source_region_meshes>
+        <mesh id="1">
+          <domain id="1" type="universe"/>
+        </mesh>
+      </source_region_meshes>
+    </random_ray>
+    <mesh id="1">
+      <dimension>4 4 4</dimension>
+      <lower_left>-10 -10 -10</lower_left>
+      <upper_right>10 10 10</upper_right>
+    </mesh>
+  </settings>
+  <tallies>
+    <mesh id="2" type="unstructured" library="moab">
+      <filename>tets.h5m</filename>
+    </mesh>
+    <filter id="1" type="mesh">
+      <bins>2</bins>
+    </filter>
+    <filter id="2" type="cell">
+      <bins>1</bins>
+    </filter>
+    <tally id="1" name="tets">
+      <filters>1</filters>
+      <scores>flux</scores>
+    </tally>
+    <tally id="2" name="cellref">
+      <filters>2</filters>
+      <scores>flux</scores>
+    </tally>
+  </tallies>
+</model>
