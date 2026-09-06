@@ -525,7 +525,9 @@ const TallyMeshPieces* FlatSourceDomain::tally_task_pieces(
           fmt::format("Tally {} has multiple mesh filters, and one of its "
                       "meshes subdivides a source region. Scoring a source "
                       "region subdivided by a tally mesh is only supported "
-                      "for tallies with a single mesh filter.",
+                      "for tallies with a single mesh filter. Splitting "
+                      "this tally into separate tallies, one mesh filter "
+                      "each, is fully supported.",
             model::tallies[task.tally_idx]->id()));
       }
     }
@@ -772,7 +774,9 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
               fmt::format("Tally {} has multiple mesh filters, and one of "
                           "its meshes subdivides a source region. Scoring a "
                           "source region subdivided by a tally mesh is only "
-                          "supported for tallies with a single mesh filter.",
+                          "supported for tallies with a single mesh filter. "
+                          "Splitting this tally into separate tallies, one "
+                          "mesh filter each, is fully supported.",
                 model::tallies[i_tally]->id()));
           } else if (untraced) {
             defer();
