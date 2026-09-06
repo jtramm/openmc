@@ -51,16 +51,19 @@ void validate_random_ray_inputs()
     }
 
     // Validate filter types
+    int n_mesh_filters = 0;
     for (auto f : tally->filters()) {
       auto& filter = *model::tally_filters[f];
 
       switch (filter.type()) {
+      case FilterType::MESH:
+        n_mesh_filters++;
+        break;
       case FilterType::CELL:
       case FilterType::CELL_INSTANCE:
       case FilterType::DISTRIBCELL:
       case FilterType::ENERGY:
       case FilterType::MATERIAL:
-      case FilterType::MESH:
       case FilterType::UNIVERSE:
       case FilterType::PARTICLE:
         break;
@@ -69,6 +72,17 @@ void validate_random_ray_inputs()
                     "distribcell, energy, material, mesh, and universe filters "
                     "are supported in random ray mode.");
       }
+    }
+
+    // A tally's scores are apportioned among the bins of its mesh filter
+    // when the mesh subdivides a source region, which requires the tally
+    // to have at most one mesh filter.
+    if (n_mesh_filters > 1) {
+      fatal_error(
+        fmt::format("Tally {} has multiple mesh filters, which is not "
+                    "supported in random ray mode. Split it into separate "
+                    "tallies, one mesh filter each, which is fully supported.",
+          tally->id()));
     }
   }
 

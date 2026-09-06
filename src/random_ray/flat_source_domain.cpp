@@ -436,8 +436,8 @@ void FlatSourceDomain::compute_k_eff()
 // deposits in each mesh bin, which provides the weights for apportioning a
 // region's tally scores when a tally mesh subdivides it. Also records, per
 // tally, the slot and filter stride its tasks need for apportioned scoring.
-// A tally with more than one mesh filter is rejected here, since correct
-// apportioning would need the joint refinement of its meshes.
+// Tallies with more than one mesh filter are rejected during random ray
+// input validation, so each tally has at most one slot.
 void FlatSourceDomain::init_tally_mesh_slots()
 {
   tally_mesh_slots_.clear();
@@ -451,15 +451,6 @@ void FlatSourceDomain::init_tally_mesh_slots()
         continue;
       }
       auto* mf = static_cast<MeshFilter*>(f);
-
-      if (tally_mesh_info_[i_tally].slot != TallyTask::NO_MESH) {
-        fatal_error(
-          fmt::format("Tally {} has multiple mesh filters, which is not "
-                      "supported in random ray mode. Split it into separate "
-                      "tallies, one mesh filter each, which is fully "
-                      "supported.",
-            tally.id()));
-      }
 
       // Find or create the slot for this (mesh, translation, rotation)
       int slot = C_NONE;
