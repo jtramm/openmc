@@ -1161,7 +1161,8 @@ following methods are currently available in OpenMC:
        ``flat`` source shape.
      - * Low variance
        * Unlikely to result in negative fluxes
-       * Removes the leading-order bias of the naive estimator
+       * Removes the part of the naive estimator's bias that is proportional
+         to the transport term
      - * Only available with the ``flat`` source shape
        * Requires one additional tally per source region and energy group
 
