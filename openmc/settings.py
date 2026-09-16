@@ -203,7 +203,9 @@ class Settings:
         :volume_estimator:
             Choice of volume estimator for the random ray solver. Options are
             'naive', 'simulation_averaged', 'hybrid', 'adaptive',
-            'strict_adaptive', or 'auto'. The default is 'auto', which
+            'strict_adaptive', 'attenuation_weighted', or 'auto'. The
+            'attenuation_weighted' estimator is only available with the
+            'flat' source shape. The default is 'auto', which
             selects 'adaptive' for standard solves and 'strict_adaptive' for
             solves whose results feed variance reduction (weight window
             generation and adjoint workflows).
@@ -1436,7 +1438,7 @@ class Settings:
                 cv.check_value('volume estimator', value,
                                ('naive', 'simulation_averaged',
                                 'hybrid', 'adaptive', 'strict_adaptive',
-                                'auto'))
+                                'attenuation_weighted', 'auto'))
             elif key == 'source_shape':
                 cv.check_value('source shape', value,
                                ('flat', 'linear', 'linear_xy'))

@@ -186,6 +186,7 @@ public:
   float* source_;
   float* external_source_;
   double* scalar_flux_final_;
+  double* attenuation_new_;
 
   MomentArray* source_gradients_;
   MomentArray* flux_moments_old_;
@@ -290,6 +291,9 @@ public:
 
   double& scalar_flux_final(int g) { return scalar_flux_final_[g]; }
   const double scalar_flux_final(int g) const { return scalar_flux_final_[g]; }
+
+  double& attenuation_new(int g) { return attenuation_new_[g]; }
+  const double attenuation_new(int g) const { return attenuation_new_[g]; }
 
   float& source(int g) { return source_[g]; }
   const float source(int g) const { return source_[g]; }
@@ -405,6 +409,10 @@ public:
   vector<double> scalar_flux_final_; //!< The scalar flux accumulated over all
                                      //!< active iterations (used for plotting,
                                      //!< or computing adjoint sources)
+  vector<double> attenuation_new_; //!< The attenuation weights (1 - exp(-tau))
+                                   //!< summed over this iteration's ray
+                                   //!< segments (attenuation weighted volume
+                                   //!< estimator only)
 
   vector<MomentArray> source_gradients_; //!< The linear source gradients
   vector<MomentArray>
@@ -427,9 +435,11 @@ public:
   //----------------------------------------------------------------------------
   // Constructors
   SourceRegionContainer(int negroups, bool is_linear, bool is_adaptive,
-    bool is_strict_adaptive, bool track_extents)
+    bool is_strict_adaptive, bool track_extents,
+    bool is_attenuation_weighted = false)
     : negroups_(negroups), is_linear_(is_linear), is_adaptive_(is_adaptive),
-      is_strict_adaptive_(is_strict_adaptive), track_extents_(track_extents)
+      is_strict_adaptive_(is_strict_adaptive), track_extents_(track_extents),
+      is_attenuation_weighted_(is_attenuation_weighted)
   {}
   SourceRegionContainer() = default;
 
@@ -631,6 +641,31 @@ public:
   double& scalar_flux_t(int64_t se) { return scalar_flux_t_[se]; }
   const double scalar_flux_t(int64_t se) const { return scalar_flux_t_[se]; }
 
+  double& attenuation_new(int64_t sr, int g)
+  {
+    return attenuation_new_[index(sr, g)];
+  }
+  const double attenuation_new(int64_t sr, int g) const
+  {
+    return attenuation_new_[index(sr, g)];
+  }
+  double& attenuation_new(int64_t se) { return attenuation_new_[se]; }
+  const double attenuation_new(int64_t se) const
+  {
+    return attenuation_new_[se];
+  }
+
+  double& attenuation_t(int64_t sr, int g)
+  {
+    return attenuation_t_[index(sr, g)];
+  }
+  const double attenuation_t(int64_t sr, int g) const
+  {
+    return attenuation_t_[index(sr, g)];
+  }
+  double& attenuation_t(int64_t se) { return attenuation_t_[se]; }
+  const double attenuation_t(int64_t se) const { return attenuation_t_[se]; }
+
   float& source(int64_t sr, int g) { return source_[index(sr, g)]; }
   const float source(int64_t sr, int g) const { return source_[index(sr, g)]; }
   float& source(int64_t se) { return source_[se]; }
@@ -703,6 +738,9 @@ private:
   // Whether the sampled bounding boxes are stored (linear source with the
   // source gradient limiter enabled)
   bool track_extents_ {false};
+  // Whether the per-group attenuation weight tallies are stored (attenuation
+  // weighted volume estimator only)
+  bool is_attenuation_weighted_ {false};
 
   // SoA storage for scalar fields (one item per source region)
   vector<int> material_;
@@ -751,6 +789,13 @@ private:
   // solve. Allocated only for the adaptive volume estimator, which makes its
   // demotion decisions from it.
   vector<double> scalar_flux_t_;
+  // Sums of the attenuation weights 1 - exp(-tau) over the ray segments
+  // crossing each region, per energy group: this batch's sum and the running
+  // sum over every batch of the solve. Allocated only for the attenuation
+  // weighted volume estimator, which forms its per-group effective volume
+  // from them.
+  vector<double> attenuation_new_;
+  vector<double> attenuation_t_;
   vector<float> source_;
   vector<float> external_source_;
 

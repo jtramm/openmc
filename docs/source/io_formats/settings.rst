@@ -627,7 +627,9 @@ found in the :ref:`random ray user guide <random_ray>`.
   :volume_estimator:
     Specifies choice of volume estimator for the random ray solver. Options
     are 'naive', 'simulation_averaged', 'hybrid', 'adaptive',
-    'strict_adaptive', or 'auto'. The default is 'auto', which selects
+    'strict_adaptive', 'attenuation_weighted', or 'auto'. The
+    'attenuation_weighted' estimator is only available with the 'flat'
+    source shape. The default is 'auto', which selects
     'adaptive' for standard solves and 'strict_adaptive' for solves whose
     results feed variance reduction (weight window generation and adjoint
     workflows).

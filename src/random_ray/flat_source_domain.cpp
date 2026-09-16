@@ -62,9 +62,12 @@ FlatSourceDomain::FlatSourceDomain() : negroups_(data::mg.num_energy_groups_)
   bool is_adaptive = is_adaptive_family(resolved_volume_estimator_);
   bool is_strict_adaptive =
     resolved_volume_estimator_ == RandomRayVolumeEstimator::STRICT_ADAPTIVE;
+  bool is_attenuation_weighted = resolved_volume_estimator_ ==
+                                 RandomRayVolumeEstimator::ATTENUATION_WEIGHTED;
   // The sampled bounding boxes exist only for the source gradient limiter
-  source_regions_ = SourceRegionContainer(negroups_, is_linear, is_adaptive,
-    is_strict_adaptive, is_linear && source_gradient_limiter_);
+  source_regions_ =
+    SourceRegionContainer(negroups_, is_linear, is_adaptive, is_strict_adaptive,
+      is_linear && source_gradient_limiter_, is_attenuation_weighted);
 
   // Initialize tally volumes
   if (volume_normalized_flux_tallies_) {
@@ -99,6 +102,14 @@ void FlatSourceDomain::batch_reset()
 #pragma omp parallel for
   for (int64_t se = 0; se < n_source_elements(); se++) {
     source_regions_.scalar_flux_new(se) = 0.0;
+  }
+
+  if (resolved_volume_estimator_ ==
+      RandomRayVolumeEstimator::ATTENUATION_WEIGHTED) {
+#pragma omp parallel for
+    for (int64_t se = 0; se < n_source_elements(); se++) {
+      source_regions_.attenuation_new(se) = 0.0;
+    }
   }
 }
 
@@ -341,6 +352,17 @@ void FlatSourceDomain::normalize_scalar_flux_and_volumes(
       source_regions_.volume_sq_t(sr) / source_regions_.volume_t(sr);
     source_regions_.volume(sr) =
       source_regions_.volume_t(sr) * volume_normalization_factor;
+  }
+
+  // Accumulate this iteration's attenuation weight tallies into the running
+  // sums, then normalize the iteration's tallies like the naive volumes
+  if (resolved_volume_estimator_ ==
+      RandomRayVolumeEstimator::ATTENUATION_WEIGHTED) {
+#pragma omp parallel for
+    for (int64_t se = 0; se < n_source_elements(); se++) {
+      source_regions_.attenuation_t(se) += source_regions_.attenuation_new(se);
+      source_regions_.attenuation_new(se) *= normalization_factor;
+    }
   }
 }
 
@@ -619,10 +641,18 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
       use_naive_volume = small || strong_source || converged_neg;
       use_old_flux_on_miss = use_naive_volume;
       break;
+    case RandomRayVolumeEstimator::ATTENUATION_WEIGHTED:
+      // A per-batch ratio estimator like the naive one, sharing its miss
+      // treatment; its per-group effective volume is formed below
+      use_naive_volume = true;
+      break;
     default:
       fatal_error("Invalid volume estimator type");
     }
     double volume = use_naive_volume ? volume_iteration : volume_simulation_avg;
+    const bool attenuation_weighted =
+      resolved_volume_estimator_ ==
+      RandomRayVolumeEstimator::ATTENUATION_WEIGHTED;
 
     // On the final iteration, classify the demoted (naive-volume) regions by
     // cause for the end-of-simulation report. The causes are mutually
@@ -652,7 +682,24 @@ int64_t FlatSourceDomain::add_source_to_scalar_flux()
         // Hit this iteration: the flat source from the previous iteration plus
         // this iteration's transport contribution, normalized by the chosen
         // volume, then stabilized.
-        set_flux_to_flux_plus_source(sr, volume, use_naive_volume, g);
+        double volume_g = volume;
+        if (attenuation_weighted) {
+          // The attenuation weighted estimator divides this batch's sum of
+          // delta psi by this batch's sum of attenuation weights 1 - exp(-tau)
+          // rather than by its sum of ray lengths, then rescales by the ratio
+          // of the two sums accumulated over every batch of the solve. This
+          // is equivalent to using the effective volume below in place of
+          // the batch volume. Void regions and regions with no accumulated
+          // attenuation (never crossed by a ray with a nonzero optical
+          // thickness) fall back on the naive batch volume.
+          double attenuation_batch = source_regions_.attenuation_new(sr, g);
+          double attenuation_total = source_regions_.attenuation_t(sr, g);
+          if (attenuation_batch > 0.0 && attenuation_total > 0.0) {
+            volume_g = attenuation_batch * source_regions_.volume_t(sr) /
+                       attenuation_total;
+          }
+        }
+        set_flux_to_flux_plus_source(sr, volume_g, use_naive_volume, g);
         double raw = source_regions_.scalar_flux_new(sr, g);
         double phi = stabilized_flux(sr, g, raw);
         // The strict adaptive estimator applies a per-batch fixup to

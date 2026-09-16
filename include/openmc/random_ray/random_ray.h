@@ -62,6 +62,11 @@ private:
   // Private data members
   vector<float> delta_psi_;
   vector<MomentArray> delta_moments_;
+  // Per-group attenuation weights 1 - exp(-tau) of the current segment,
+  // tallied into the source region by the attenuation weighted volume
+  // estimator (allocated only for that estimator)
+  vector<float> attenuation_;
+  bool attenuation_weighted_ {false};
   vector<int> mesh_bins_;
   vector<double> mesh_fractional_lengths_;
 

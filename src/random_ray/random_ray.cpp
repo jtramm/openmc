@@ -250,6 +250,11 @@ RandomRay::RandomRay()
       source_shape_ == RandomRaySourceShape::LINEAR_XY) {
     delta_moments_.resize(negroups_);
   }
+  attenuation_weighted_ = FlatSourceDomain::resolved_volume_estimator_ ==
+                          RandomRayVolumeEstimator::ATTENUATION_WEIGHTED;
+  if (attenuation_weighted_) {
+    attenuation_.resize(negroups_);
+  }
 }
 
 RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
@@ -446,6 +451,9 @@ void RandomRay::attenuate_flux_flat_source(
     float new_delta_psi = (angular_flux_[g] - srh.source(g)) * exponential;
     delta_psi_[g] = new_delta_psi;
     angular_flux_[g] -= new_delta_psi;
+    if (attenuation_weighted_) {
+      attenuation_[g] = exponential;
+    }
   }
 
   // If ray is in the active phase (not in dead zone), make contributions to
@@ -459,6 +467,14 @@ void RandomRay::attenuate_flux_flat_source(
     // this iteration
     for (int g = 0; g < negroups_; g++) {
       srh.scalar_flux_new(g) += delta_psi_[g];
+    }
+
+    // Accumulate the segment's attenuation weights, the denominators of the
+    // attenuation weighted volume estimator
+    if (attenuation_weighted_) {
+      for (int g = 0; g < negroups_; g++) {
+        srh.attenuation_new(g) += attenuation_[g];
+      }
     }
 
     // Accomulate volume (ray distance) into this iteration's estimate

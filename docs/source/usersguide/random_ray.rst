@@ -1152,6 +1152,18 @@ following methods are currently available in OpenMC:
        * Improves the quality of generated weight windows
      - * The one-sided fixup introduces a small conservative bias, so it is
          not recommended where unbiased results are the priority
+   * - ``attenuation_weighted``
+     - A per-batch ratio estimator like ``naive``, but each energy group's
+       transport contribution is divided by the batch's sum of segment
+       attenuation weights (:math:`1 - e^{-\tau}`) rather than by its sum of
+       ray lengths, with the ratio of the two sums accumulated over the
+       simulation restoring the volume scale. Only available with the
+       ``flat`` source shape.
+     - * Low variance
+       * Unlikely to result in negative fluxes
+       * Removes the leading-order bias of the naive estimator
+     - * Only available with the ``flat`` source shape
+       * Requires one additional tally per source region and energy group
 
 By default, the ``volume_estimator`` field is set to ``auto``, which selects
 ``strict_adaptive`` for solves whose results feed variance reduction (weight

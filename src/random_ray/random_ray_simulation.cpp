@@ -272,6 +272,16 @@ void validate_random_ray_inputs()
   }
 #endif
 
+  // The attenuation weighted volume estimator is only implemented for the
+  // flat source shape.
+  ///////////////////////////////////////////////////////////////////
+  if (FlatSourceDomain::volume_estimator_ ==
+        RandomRayVolumeEstimator::ATTENUATION_WEIGHTED &&
+      RandomRay::source_shape_ != RandomRaySourceShape::FLAT) {
+    fatal_error("The attenuation weighted volume estimator only supports the "
+                "flat source shape.");
+  }
+
   // Warn about instability resulting from linear sources in small regions
   // when generating weight windows with FW-CADIS and an overlaid mesh.
   ///////////////////////////////////////////////////////////////////
@@ -626,6 +636,9 @@ void RandomRaySimulation::print_results_random_ray(
       break;
     case RandomRayVolumeEstimator::STRICT_ADAPTIVE:
       estimator = "Strict Adaptive";
+      break;
+    case RandomRayVolumeEstimator::ATTENUATION_WEIGHTED:
+      estimator = "Attenuation Weighted";
       break;
     default:
       fatal_error("Invalid volume estimator type");

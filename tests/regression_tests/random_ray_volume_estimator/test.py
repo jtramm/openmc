@@ -27,7 +27,8 @@ class MGXSTestHarness(TolerantPyAPITestHarness):
                                        "simulation_averaged",
                                        "naive",
                                        "adaptive",
-                                       "strict_adaptive"
+                                       "strict_adaptive",
+                                       "attenuation_weighted"
                                        ])
 def test_random_ray_volume_estimator(estimator):
     with change_directory(estimator):

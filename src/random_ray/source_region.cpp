@@ -27,6 +27,7 @@ SourceRegionHandle::SourceRegionHandle(SourceRegion& sr)
     scalar_flux_new_(sr.scalar_flux_new_.data()), source_(sr.source_.data()),
     external_source_(sr.external_source_.data()),
     scalar_flux_final_(sr.scalar_flux_final_.data()),
+    attenuation_new_(sr.attenuation_new_.data()),
     source_gradients_(sr.source_gradients_.data()),
     flux_moments_old_(sr.flux_moments_old_.data()),
     flux_moments_new_(sr.flux_moments_new_.data()),
@@ -52,6 +53,7 @@ SourceRegion::SourceRegion(int negroups, bool is_linear)
   scalar_flux_new_.assign(negroups, 0.0);
   source_.assign(negroups, 0.0);
   scalar_flux_final_.assign(negroups, 0.0);
+  attenuation_new_.assign(negroups, 0.0);
 
   tally_task_.resize(negroups);
   if (is_linear) {
@@ -117,6 +119,10 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
     if (is_adaptive_) {
       scalar_flux_t_.push_back(0.0);
     }
+    if (is_attenuation_weighted_) {
+      attenuation_new_.push_back(sr.attenuation_new_[g]);
+      attenuation_t_.push_back(0.0);
+    }
     source_.push_back(sr.source_[g]);
     if (settings::run_mode == RunMode::FIXED_SOURCE) {
       external_source_.push_back(sr.external_source_[g]);
@@ -173,6 +179,8 @@ void SourceRegionContainer::assign(
   scalar_flux_new_.clear();
   scalar_flux_final_.clear();
   scalar_flux_t_.clear();
+  attenuation_new_.clear();
+  attenuation_t_.clear();
   source_.clear();
   external_source_.clear();
 
@@ -234,6 +242,8 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
     handle.external_source_ = nullptr;
   }
   handle.scalar_flux_final_ = &scalar_flux_final(sr, 0);
+  handle.attenuation_new_ =
+    is_attenuation_weighted_ ? &attenuation_new(sr, 0) : nullptr;
   handle.tally_task_ = &tally_task(sr, 0);
 
   if (handle.is_linear_) {
@@ -284,6 +294,9 @@ void SourceRegionContainer::adjoint_reset()
   }
   std::fill(scalar_flux_new_.begin(), scalar_flux_new_.end(), 0.0);
   std::fill(scalar_flux_t_.begin(), scalar_flux_t_.end(), 0.0);
+  // The attenuation weight tallies are re-accumulated alongside the volumes
+  std::fill(attenuation_new_.begin(), attenuation_new_.end(), 0.0);
+  std::fill(attenuation_t_.begin(), attenuation_t_.end(), 0.0);
   std::fill(source_.begin(), source_.end(), 0.0f);
   std::fill(external_source_.begin(), external_source_.end(), 0.0f);
   std::fill(source_gradients_.begin(), source_gradients_.end(),
