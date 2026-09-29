@@ -45,6 +45,10 @@ struct RayExchangeData {
   int n_transfers;
   int surface;
   bool is_active;
+  // Whether the ray was handed off where it was sampled, before it was given
+  // a starting angular flux. The rank that receives it sets the flux from the
+  // source of the region the ray starts in.
+  bool is_newborn;
   uint64_t ray_id;
   int n_event; // Number of events (surface crossings) the ray has undergone
 
@@ -90,6 +94,12 @@ public:
   //!   which the ray stops
   void hand_off(RandomRay& ray, int destination, double offset, double partial);
 
+  //! Stop a newly sampled ray, which has no angular flux yet, and pack it for
+  //! the rank that owns its starting position. Threadsafe.
+  //! \param ray The ray, which is terminated on this rank
+  //! \param destination The rank that owns the starting position of the ray
+  void hand_off_at_birth(RandomRay& ray, int destination);
+
   //! Send the packed rays to their ranks and receive the rays that enter the
   //! subdomain of this rank, which replace the rays held by the bank.
   void exchange(FlatSourceDomain* domain);
@@ -106,6 +116,8 @@ public:
 private:
   //----------------------------------------------------------------------------
   // Private methods
+  void pack(RandomRay& ray, int destination, double offset, double partial,
+    bool is_newborn);
   void merge_thread_buffers();
   void communicate_counts();
   void communicate_rays();

@@ -30,6 +30,17 @@ RayBank::RayBank(DecompositionMap& map) : map_(map)
 void RayBank::hand_off(
   RandomRay& ray, int destination, double offset, double partial)
 {
+  pack(ray, destination, offset, partial, false);
+}
+
+void RayBank::hand_off_at_birth(RandomRay& ray, int destination)
+{
+  pack(ray, destination, 0.0, 0.0, true);
+}
+
+void RayBank::pack(RandomRay& ray, int destination, double offset,
+  double partial, bool is_newborn)
+{
   if (destination == mpi::rank) {
     // Buffering a ray back to its own rank would send it straight back
     // unchanged on the next round and loop forever. Fail loudly instead.
@@ -61,6 +72,7 @@ void RayBank::hand_off(
   data.n_transfers = ++ray.n_transfers_;
   data.surface = ray.surface();
   data.is_active = ray.is_active_;
+  data.is_newborn = is_newborn;
   data.ray_id = ray.id();
   data.n_event = ray.n_event();
 
@@ -244,8 +256,7 @@ void RayBank::communicate_rays()
     // Filter out rays that are sampled elsewhere
     bool has_transported_rays = false;
     for (int i = 0; i < num_rays; i++) {
-      if (buffer.ray_data[i].distance_travelled > 0.0 ||
-          buffer.ray_data[i].is_active) {
+      if (!buffer.ray_data[i].is_newborn) {
         has_transported_rays = true;
         break;
       }
@@ -379,15 +390,9 @@ void RayBank::restore(RandomRay& ray, FlatSourceDomain* domain,
   if (ray.cell_born() == C_NONE)
     ray.cell_born() = ray.lowest_coord().cell();
 
-  // Set ray's angular flux to value before subdomain change
-  if (ray.distance_travelled_ > 0.0 || ray.is_active_) {
-    for (int g = 0; g < negroups_; g++) {
-      ray.angular_flux_[g] = angular_flux[g];
-    }
-  }
-  // Initialize ray's starting angular flux to starting location's isotropic
-  // source
-  else {
+  if (data.is_newborn) {
+    // Initialize ray's starting angular flux to starting location's isotropic
+    // source
     SourceRegionKey sr_key = domain->lookup_source_region_key(ray);
     SourceRegionHandle srh =
       domain->get_subdivided_source_region_handle(sr_key, ray.r(), ray.u());
@@ -396,6 +401,11 @@ void RayBank::restore(RandomRay& ray, FlatSourceDomain* domain,
       for (int g = 0; g < negroups_; g++) {
         ray.angular_flux_[g] = srh.source(g);
       }
+    }
+  } else {
+    // Set ray's angular flux to value before subdomain change
+    for (int g = 0; g < negroups_; g++) {
+      ray.angular_flux_[g] = angular_flux[g];
     }
   }
 }

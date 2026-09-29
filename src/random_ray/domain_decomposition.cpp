@@ -177,8 +177,7 @@ bool DomainDecomposition::hand_off_at_birth(
     return false;
 
   // The rank that owns the starting position sets the starting angular flux
-  std::fill(ray.angular_flux_.begin(), ray.angular_flux_.end(), 0.0f);
-  bank_->hand_off(ray, owner, 0.0, 0.0);
+  bank_->hand_off_at_birth(ray, owner);
   return true;
 #else
   return false;
