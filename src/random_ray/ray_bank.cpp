@@ -17,7 +17,7 @@
 namespace openmc {
 
 // Constructor
-RayBank::RayBank()
+RayBank::RayBank(DecompositionMap& map) : map_(map)
 {
   negroups_ = data::mg.num_energy_groups_;
   num_messages_receiving_.resize(mpi::n_procs, 0);
@@ -238,7 +238,7 @@ void RayBank::communicate_rays()
       }
     }
     if (has_transported_rays) {
-      mpi::decomp_map.my_neighbors_.insert(receiving_rank);
+      map_.my_neighbors_.insert(receiving_rank);
     }
 
     // Send all 4 data arrays - already packed, no intermediate copying!

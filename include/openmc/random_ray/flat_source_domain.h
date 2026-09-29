@@ -4,6 +4,7 @@
 #include "openmc/constants.h"
 #include "openmc/openmp_interface.h"
 #include "openmc/position.h"
+#include "openmc/random_ray/domain_decomposition.h"
 #include "openmc/random_ray/parallel_map.h"
 #include "openmc/random_ray/source_region.h"
 #include "openmc/source.h"
@@ -76,7 +77,6 @@ public:
   void compute_k_eff();
   virtual void normalize_scalar_flux_and_volumes(
     double total_active_distance_per_iteration);
-  bool is_geometry_3D();
 
   int64_t add_source_to_scalar_flux();
   virtual void batch_reset();
@@ -234,6 +234,10 @@ public:
   // and random ray if used naively. This flag enables a stabilization
   // technique.
   bool is_transport_stabilization_needed_ {false};
+
+  // The MPI domain decomposition of the problem. Its methods do nothing when
+  // the problem is not decomposed.
+  DomainDecomposition decomposition_;
 
 protected:
   //----------------------------------------------------------------------------

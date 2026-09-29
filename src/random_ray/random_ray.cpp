@@ -240,7 +240,6 @@ double RandomRay::distance_inactive_;
 double RandomRay::distance_active_;
 unique_ptr<Source> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
-RandomRayGeomDim RandomRay::geom_dim_ {RandomRayGeomDim::THREE_DIM};
 RandomRaySampleMethod RandomRay::sample_method_ {RandomRaySampleMethod::PRNG};
 
 RandomRay::RandomRay()
@@ -307,7 +306,8 @@ void RandomRay::event_advance_ray()
       // Threads routinely transport rays through the same base source region,
       // so this counter is shared and must be updated atomically
 #pragma omp atomic
-      mpi::decomp_map.num_base_source_region_RT_[sr] += c.n_surfaces();
+      domain_->decomposition_.map().num_base_source_region_RT_[sr] +=
+        c.n_surfaces();
     }
   }
 #endif
@@ -413,7 +413,7 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
       if (mpi::n_procs > 1 && simulation::current_batch <= ITER_LOAD_BALANCE) {
         // Shared across threads; see the note in event_advance_ray()
 #pragma omp atomic
-        mpi::decomp_map.num_mesh_bin_RT_[sr] += 1;
+        domain_->decomposition_.map().num_mesh_bin_RT_[sr] += 1;
       }
 #endif
 
@@ -479,8 +479,9 @@ void RandomRay::attenuate_flux_inner(
   if (mpi::n_procs > 1) {
     // Check which rank owns the source region at the current position
     Position midpoint = r + u() * (distance / 2.0);
-    int owner = mpi::decomp_map.find_owner(SourceRegionKey(sr, mesh_bin),
-      midpoint, domain_->discovered_source_regions_);
+    int owner =
+      domain_->decomposition_.map().find_owner(SourceRegionKey(sr, mesh_bin),
+        midpoint, domain_->discovered_source_regions_);
 
     // If current rank is not the owner return and mark as not local.
     if (owner != mpi::rank) {
@@ -1050,7 +1051,7 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 #ifdef OPENMC_MPI
   if (mpi::n_procs > 1) {
     // Check if ray sampling site belongs to subdomain
-    owner_rank_ = mpi::decomp_map.find_owner(
+    owner_rank_ = domain_->decomposition_.map().find_owner(
       sr_key, r(), domain_->discovered_source_regions_);
 
     if (owner_rank_ != mpi::rank) {

@@ -393,7 +393,6 @@ enum class RandomRayVolumeEstimator {
   AUTO
 };
 enum class RandomRaySourceShape { FLAT, LINEAR, LINEAR_XY };
-enum class RandomRayGeomDim { TWO_DIM, THREE_DIM };
 enum class RandomRaySampleMethod { PRNG, HALTON, S2 };
 enum class RandomRaySolve { FORWARD, FORWARD_FOR_ADJOINT, ADJOINT };
 

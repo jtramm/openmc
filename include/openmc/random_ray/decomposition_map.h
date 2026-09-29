@@ -10,17 +10,13 @@
 
 namespace openmc {
 
-class DecompositionMap;
-
-namespace mpi {
-extern DecompositionMap decomp_map;
-} // namespace mpi
+class DomainDecomposition;
 
 class DecompositionMap {
 public:
   //----------------------------------------------------------------------------
   // Constructors
-  DecompositionMap();
+  explicit DecompositionMap(DomainDecomposition* decomp) : decomp_(decomp) {}
 
   //----------------------------------------------------------------------------
   // Methods
@@ -28,6 +24,8 @@ public:
   // Methods to find rank centres that divide spatial domain up into equal
   // Voronoi volumes
   void initialize();
+  void partition(FlatSourceDomain& domain);
+  bool is_geometry_3d(FlatSourceDomain& domain) const;
   void generate_rank_centers();
   void calculate_grid_points(int grid_points_total);
   void initialize_voronoi_centers();
@@ -98,6 +96,10 @@ public:
 private:
   //----------------------------------------------------------------------------
   // Private data members
+
+  // The domain decomposition this map belongs to
+  DomainDecomposition* decomp_ {nullptr};
+
   SpatialBox* spatial_box_ = nullptr;
 
   // Voronoi cell calculation
@@ -120,6 +122,7 @@ private:
   double optimization_history_factor_ = 1.0;
 
   // Miscellaneous
+  bool is_3d_ {true}; // Whether the geometry varies along z
   uint64_t n_base_sr_;
   int negroups_;
   double max_domain_length_;

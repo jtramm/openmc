@@ -2,10 +2,12 @@
 
 #include "openmc/cell.h"
 #include "openmc/constants.h"
+#include "openmc/geometry.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
 #include "openmc/output.h"
 #include "openmc/random_lcg.h"
+#include "openmc/random_ray/domain_decomposition.h"
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/random_ray.h"
 #include "openmc/simulation.h"
@@ -16,13 +18,6 @@
 #ifdef OPENMC_MPI
 
 namespace openmc {
-
-namespace mpi {
-DecompositionMap decomp_map;
-}
-
-// Constructor
-DecompositionMap::DecompositionMap() {}
 
 void DecompositionMap::initialize()
 {
@@ -70,6 +65,70 @@ void DecompositionMap::initialize()
   num_mesh_bin_RT_.resize(n_base_sr_, 0);
   ray_tracing_cost_.resize(n_base_sr_);
   volume_base_sr_.resize(n_base_sr_, 0.0);
+}
+
+// Divides the domain among the ranks: one Voronoi cell per rank
+void DecompositionMap::partition(FlatSourceDomain& domain)
+{
+  // Probe the geometry to find out whether it varies along z, as the Voronoi
+  // centers of a 2D problem are laid out in a plane
+  is_3d_ = is_geometry_3d(domain);
+
+  generate_rank_centers();
+}
+
+bool DecompositionMap::is_geometry_3d(FlatSourceDomain& domain) const
+{
+  // The box of the ray source bounds the domain
+  SpatialBox* sb = spatial_box_;
+
+  double x_length = sb->upper_right().x - sb->lower_left().x;
+  double y_length = sb->upper_right().y - sb->lower_left().y;
+  double z_length = sb->upper_right().z - sb->lower_left().z;
+
+  int num_xy_points = 100;
+  int num_z_points = 100;
+  uint64_t seed = openmc_get_seed();
+
+  for (int i = 0; i < num_xy_points; i++) {
+    Position sample;
+    sample.x = sb->lower_left().x + x_length * prn(&seed);
+    sample.y = sb->lower_left().y + y_length * prn(&seed);
+
+    SourceRegionKey sr_key_prev {-1, -1};
+    bool check_key = false;
+
+    for (int j = 0; j < num_z_points; j++) {
+      sample.z = sb->lower_left().z + z_length * prn(&seed);
+
+      Particle p;
+      p.r() = sample;
+      p.r_last() = sample;
+      p.E() = 1.0;
+      p.E_last() = 1.0;
+      p.u() = {0.0, 0.0, 1.0};
+
+      bool found = exhaustive_find_cell(p);
+      if (!found) {
+        continue;
+      }
+
+      SourceRegionKey sr_key = domain.lookup_source_region_key(p);
+
+      // Check if sr_key has changed in z-direction
+      if (check_key &&
+          (sr_key.base_source_region_id != sr_key_prev.base_source_region_id ||
+            sr_key.mesh_bin != sr_key_prev.mesh_bin)) {
+        return true;
+      }
+
+      // Set check_key to true after first sr_key has been loaded
+      sr_key_prev = sr_key;
+      check_key = true;
+    }
+  }
+
+  return false;
 }
 
 void DecompositionMap::generate_rank_centers()
@@ -177,7 +236,7 @@ void DecompositionMap::calculate_grid_points(int grid_points_total)
   }
 
   // If problem is 2D, exclude z direction
-  if (RandomRay::geom_dim_ == RandomRayGeomDim::TWO_DIM) {
+  if (!is_3d_) {
     excluded_dimension = 2;
     grid_points_per_dimension[2] = 1;
   }
@@ -294,7 +353,7 @@ void DecompositionMap::initialize_voronoi_centers()
     double x = prn(&seed);
     double y = prn(&seed);
     double z = 0.0;
-    if (RandomRay::geom_dim_ == RandomRayGeomDim::THREE_DIM) {
+    if (is_3d_) {
       z = prn(&seed);
     } else {
       z = 0.5; // Mid-plane in z direction
@@ -393,7 +452,7 @@ bool DecompositionMap::any_discovered_source_regions(
     discovered_source_regions)
 {
 
-  simulation::time_decomposition_handling.start();
+  decomp_->time_handling_.start();
 
   int flag = 0;
   if (discovered_source_regions.begin() != discovered_source_regions.end()) {
@@ -402,7 +461,7 @@ bool DecompositionMap::any_discovered_source_regions(
 
   MPI_Allreduce(MPI_IN_PLACE, &flag, 1, MPI_INT, MPI_MAX, mpi::intracomm);
 
-  simulation::time_decomposition_handling.stop();
+  decomp_->time_handling_.stop();
 
   return flag > 0;
 }
@@ -731,7 +790,7 @@ int DecompositionMap::find_closest_rank(Position r, bool test_all_ranks)
     }
   } else {
     // Only the recorded neighbors, plus this rank itself
-    for (int rank : mpi::decomp_map.my_neighbors_) {
+    for (int rank : my_neighbors_) {
       test_rank(rank);
     }
     test_rank(mpi::rank);

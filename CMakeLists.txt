@@ -379,6 +379,7 @@ list(APPEND libopenmc_SOURCES
   src/random_dist.cpp
   src/random_lcg.cpp
   src/random_ray/decomposition_map.cpp
+  src/random_ray/domain_decomposition.cpp
   src/random_ray/ray_bank.cpp
   src/random_ray/random_ray_simulation.cpp
   src/random_ray/random_ray.cpp

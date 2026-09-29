@@ -809,17 +809,8 @@ void FlatSourceDomain::compute_k_eff()
     p[sr] = sr_fission_source_new;
   }
 
-  // Sum up fission rates across all ranks
-#ifdef OPENMC_MPI
-  if (mpi::n_procs > 1) {
-    simulation::time_decomposition_handling.start();
-    MPI_Allreduce(
-      MPI_IN_PLACE, &fission_rate_old, 1, MPI_DOUBLE, MPI_SUM, mpi::intracomm);
-    MPI_Allreduce(
-      MPI_IN_PLACE, &fission_rate_new, 1, MPI_DOUBLE, MPI_SUM, mpi::intracomm);
-    simulation::time_decomposition_handling.stop();
-  }
-#endif
+  decomposition_.sum(fission_rate_old);
+  decomposition_.sum(fission_rate_new);
 
   double k_eff_new = k_eff_ * (fission_rate_new / fission_rate_old);
 
@@ -838,17 +829,7 @@ void FlatSourceDomain::compute_k_eff()
     }
   }
 
-#ifdef OPENMC_MPI
-  if (mpi::n_procs > 1) {
-    simulation::time_decomposition_handling.start();
-    if (mpi::master) {
-      MPI_Reduce(MPI_IN_PLACE, &H, 1, MPI_DOUBLE, MPI_SUM, 0, mpi::intracomm);
-    } else {
-      MPI_Reduce(&H, nullptr, 1, MPI_DOUBLE, MPI_SUM, 0, mpi::intracomm);
-    }
-    simulation::time_decomposition_handling.stop();
-  }
-#endif
+  decomposition_.sum(H);
 
   // Adds entropy value to shared entropy vector in openmc namespace.
   simulation::entropy.push_back(H);
@@ -1053,12 +1034,7 @@ double FlatSourceDomain::compute_fixed_source_normalization_factor() const
     }
   }
 
-#ifdef OPENMC_MPI
-  if (mpi::n_procs > 1) {
-    MPI_Allreduce(MPI_IN_PLACE, &simulation_external_source_strength, 1,
-      MPI_DOUBLE, MPI_SUM, mpi::intracomm);
-  }
-#endif
+  decomposition_.sum(simulation_external_source_strength);
 
   // Step 2 is to determine the total user-specified external source strength
   double user_external_source_strength = 0.0;
@@ -1200,15 +1176,9 @@ void FlatSourceDomain::random_ray_tally()
   // see what index that score corresponds to. If that score is a flux score,
   // then we divide it by volume.
   if (volume_normalized_flux_tallies_) {
-#ifdef OPENMC_MPI
-    if (mpi::n_procs > 1) {
-      for (auto& volumes : tally_volumes_) {
-        MPI_Allreduce(MPI_IN_PLACE, volumes.data(),
-          static_cast<int>(volumes.size()), MPI_DOUBLE, MPI_SUM,
-          mpi::intracomm);
-      }
+    for (auto& volumes : tally_volumes_) {
+      decomposition_.sum(volumes.data(), volumes.size());
     }
-#endif
     for (int i = 0; i < model::tallies.size(); i++) {
       Tally& tally {*model::tallies[i]};
 #pragma omp parallel for
@@ -1603,8 +1573,8 @@ void FlatSourceDomain::output_to_vtk_decomp() const
           // Assumed master rank = 0
           int assigned_rank = 0;
           // Which rank is responsible
-          auto it = mpi::decomp_map.subdomain_map_.find(sr_key);
-          if (it != mpi::decomp_map.subdomain_map_.end()) {
+          auto it = decomposition_.map().subdomain_map_.find(sr_key);
+          if (it != decomposition_.map().subdomain_map_.end()) {
             assigned_rank = it->second;
           }
           if (assigned_rank == mpi::rank) {
@@ -1810,7 +1780,8 @@ void FlatSourceDomain::output_to_vtk_decomp() const
 
     // Plot measured load based on transport sweep timers
     for (int voxel_id : my_voxel_ids) {
-      float value = mpi::decomp_map.measured_rank_load_fractions_[mpi::rank];
+      float value =
+        decomposition_.map().measured_rank_load_fractions_[mpi::rank];
       vector_out_float[voxel_id] = value;
     }
 
@@ -2189,17 +2160,8 @@ void FlatSourceDomain::set_fw_adjoint_sources()
     }
   }
 
-#ifdef OPENMC_MPI
-  // The cutoff below is a fraction of the maximum flux anywhere in the
-  // problem, so under domain decomposition the maximum has to be taken over
-  // all subdomains. A per-rank maximum would give every rank but one a lower
-  // threshold, screening out fewer regions and reintroducing exactly the
-  // enormous adjoint sources this cutoff exists to suppress.
-  if (mpi::n_procs > 1) {
-    MPI_Allreduce(
-      MPI_IN_PLACE, &max_flux, 1, MPI_DOUBLE, MPI_MAX, mpi::intracomm);
-  }
-#endif
+  // The cutoff below is a fraction of the maximum flux anywhere in the problem
+  decomposition_.max(max_flux);
 
   // Then, compute the adjoint source for each source region
 #pragma omp parallel for
@@ -2732,68 +2694,6 @@ int64_t FlatSourceDomain::lookup_mesh_bin(int64_t sr, Position r) const
     mesh_bin = model::meshes[mesh_idx]->get_bin(r);
   }
   return mesh_bin;
-}
-
-bool FlatSourceDomain::is_geometry_3D()
-{
-  // Get spatial box of ray_source_
-  auto* independent_source =
-    dynamic_cast<IndependentSource*>(RandomRay::ray_source_.get());
-  SpatialBox* sb = independent_source
-                     ? dynamic_cast<SpatialBox*>(independent_source->space())
-                     : nullptr;
-  if (!sb) {
-    fatal_error("Random ray requires the ray source to be an independent "
-                "source with a box spatial distribution.");
-  }
-
-  double x_length = sb->upper_right().x - sb->lower_left().x;
-  double y_length = sb->upper_right().y - sb->lower_left().y;
-  double z_length = sb->upper_right().z - sb->lower_left().z;
-
-  int num_xy_points = 100;
-  int num_z_points = 100;
-  uint64_t seed = openmc_get_seed();
-
-  for (int i = 0; i < num_xy_points; i++) {
-    Position sample;
-    sample.x = sb->lower_left().x + x_length * prn(&seed);
-    sample.y = sb->lower_left().y + y_length * prn(&seed);
-
-    SourceRegionKey sr_key_prev {-1, -1};
-    bool check_key = false;
-
-    for (int j = 0; j < num_z_points; j++) {
-      sample.z = sb->lower_left().z + z_length * prn(&seed);
-
-      Particle p;
-      p.r() = sample;
-      p.r_last() = sample;
-      p.E() = 1.0;
-      p.E_last() = 1.0;
-      p.u() = {0.0, 0.0, 1.0};
-
-      bool found = exhaustive_find_cell(p);
-      if (!found) {
-        continue;
-      }
-
-      SourceRegionKey sr_key = lookup_source_region_key(p);
-
-      // Check if sr_key has changed in z-direction
-      if (check_key &&
-          (sr_key.base_source_region_id != sr_key_prev.base_source_region_id ||
-            sr_key.mesh_bin != sr_key_prev.mesh_bin)) {
-        return true;
-      }
-
-      // Set check_key to true after first sr_key has been loaded
-      sr_key_prev = sr_key;
-      check_key = true;
-    }
-  }
-
-  return false;
 }
 
 } // namespace openmc

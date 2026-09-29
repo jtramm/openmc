@@ -11,11 +11,13 @@
 
 namespace openmc {
 
+class DecompositionMap;
+
 class RayBank {
 public:
   //----------------------------------------------------------------------------
   // Constructors
-  RayBank();
+  explicit RayBank(DecompositionMap& map);
 
   //----------------------------------------------------------------------------
   // Methods
@@ -34,6 +36,7 @@ public:
 private:
   //----------------------------------------------------------------------------
   // Private data members
+  DecompositionMap& map_;
   int total_receiving_rays_;
   int negroups_;
 

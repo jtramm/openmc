@@ -135,7 +135,6 @@ public:
   static double distance_active_;            // Active ray length
   static unique_ptr<Source> ray_source_;     // Starting source for ray sampling
   static RandomRaySourceShape source_shape_; // Flag for linear source
-  static RandomRayGeomDim geom_dim_;         // Flag for 2D vs 3D geometry
   static RandomRaySampleMethod sample_method_; // Flag for sampling method
 
   //----------------------------------------------------------------------------
