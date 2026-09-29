@@ -79,7 +79,8 @@ private:
   double distance_travelled_ {0};
   bool is_active_ {false};
   bool is_alive_ {true};
-  int n_transfers_ {0}; // Number of times the ray was handed to an MPI rank
+  int n_transfers_ {0}; // Number of times in a row the ray was handed to an
+                        // MPI rank without crossing a source region
 }; // class RandomRay
 
 } // namespace openmc

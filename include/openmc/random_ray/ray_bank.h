@@ -24,10 +24,13 @@ class FlatSourceDomain;
 // variable-length vectors.
 constexpr int MAX_N_HANDLES {5};
 
-// Maximum number of times a random ray may be handed to another MPI rank
-// before it is terminated. Bounds a ray ping-ponging across a subdomain
-// boundary, which would otherwise hang every rank in the job.
-constexpr int MAX_RAY_TRANSFERS {10000};
+// Maximum number of times in a row that a random ray may be handed to another
+// MPI rank without crossing a source region in between, before it is
+// terminated. Bounds a ray ping-ponging between ranks that disagree about the
+// owner of a source region, which would otherwise hang every rank in the job.
+// A ray that advances between its hand-offs is not limited, however many
+// subdomains it crosses.
+constexpr int MAX_RAY_TRANSFERS {100};
 
 //! The fixed-size part of the state of a ray that is handed to another MPI
 //! rank. The angular flux and the coordinate levels of the ray, whose sizes
@@ -40,9 +43,10 @@ struct RayExchangeData {
   // reach `position`. Applied on the receiving rank via move_distance(), which
   // uses each coordinate level's own direction.
   double advance_distance;
-  // Number of times this ray has been handed to another rank. A ray is handed
-  // off before it registers a geometry event, so max_particle_events cannot
-  // bound a forwarding loop.
+  // Number of times in a row this ray has been handed to another rank without
+  // crossing a source region in between. A ray is handed off before it
+  // registers a geometry event, so max_particle_events cannot bound a
+  // forwarding loop.
   int n_transfers;
   int surface;
   bool is_active;
@@ -105,6 +109,10 @@ public:
   //! \param ray The ray, which is terminated on this rank
   //! \param destination The rank that owns the starting position of the ray
   void hand_off_at_birth(RandomRay& ray, int destination);
+
+  //! Record that a ray crosses a source region on this rank, which ends a
+  //! sequence of hand-offs
+  void record_crossing(RandomRay& ray) const { ray.n_transfers_ = 0; }
 
   //! Send the packed rays to their ranks and receive the rays that enter the
   //! subdomain of this rank, which replace the rays held by the bank.

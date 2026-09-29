@@ -211,8 +211,10 @@ bool DomainDecomposition::hand_off(RandomRay& ray,
   Position midpoint = r + ray.u() * (distance / 2.0);
   int owner =
     map_->find_owner(sr_key, midpoint, domain_->discovered_source_regions_);
-  if (owner == mpi::rank)
+  if (owner == mpi::rank) {
+    bank_->record_crossing(ray);
     return false;
+  }
 
   bank_->hand_off(ray, owner, offset, partial);
   return true;

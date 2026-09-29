@@ -325,9 +325,10 @@ void RayBank::restore(RandomRay& ray, FlatSourceDomain* domain,
   // rather than letting it hang every rank in the job.
   if (ray.n_transfers_ > MAX_RAY_TRANSFERS) {
     warning("Ray " + std::to_string(data.ray_id) +
-            " was transferred between "
-            "MPI ranks " +
-            std::to_string(ray.n_transfers_) + " times, terminating ray.");
+            " was transferred between MPI ranks " +
+            std::to_string(ray.n_transfers_) +
+            " times in a row without crossing a source region, terminating "
+            "ray.");
     ray.wgt() = 0.0;
     return;
   }
