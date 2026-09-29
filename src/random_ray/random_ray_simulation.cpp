@@ -511,6 +511,14 @@ void RandomRaySimulation::output_simulation_results()
   decomposition.sum(total_geometric_intersections_);
   decomposition.sum(n_source_regions);
   decomposition.sum(n_external_source_regions);
+  decomposition.sum(domain_->n_final_naive_);
+  decomposition.sum(domain_->n_final_latch_);
+  decomposition.sum(domain_->n_final_strong_);
+  decomposition.sum(domain_->n_final_sign_);
+  decomposition.sum(domain_->n_final_small_);
+  decomposition.sum(domain_->n_final_chronic_);
+  decomposition.sum(domain_->n_final_rescued_);
+  decomposition.sum(domain_->n_final_floored_);
   decomposition.finalize_statistics(simulation::time_transport.elapsed());
 
   // Print random ray results
@@ -631,7 +639,7 @@ void RandomRaySimulation::print_results_random_ray(
     }
     fmt::print(" Volume Estimator Type             = {}\n", estimator);
     if (domain_->final_stats_valid_) {
-      double inv = 100.0 / domain_->n_source_regions();
+      double inv = 100.0 / n_source_regions;
       // Single summary at default verbosity: every source region that
       // received the naive volume treatment in the final batch, for any
       // reason (the demote-only decisions made from the accumulated flux
