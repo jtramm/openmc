@@ -49,6 +49,10 @@ public:
   //----------------------------------------------------------------------------
   // Methods
 
+  //! Check that the settings of the run are compatible with a decomposed
+  //! problem. Called before the solver is set up.
+  static void validate_inputs();
+
   //! Whether the problem is decomposed over more than one MPI rank
   bool active() const { return active_; }
 

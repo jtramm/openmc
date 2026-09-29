@@ -274,6 +274,11 @@ void validate_random_ray_inputs()
       "quality FW-CADIS weight windows. We recommend you use flat source "
       "mode when generating weight windows with an overlaid mesh tally.");
   }
+
+  // Validate settings that matter when the problem is decomposed over MPI
+  // ranks
+  ///////////////////////////////////////////////////////////////////
+  DomainDecomposition::validate_inputs();
 }
 
 void openmc_finalize_random_ray()

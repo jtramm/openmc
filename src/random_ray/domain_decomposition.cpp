@@ -39,6 +39,21 @@ DomainDecomposition::DomainDecomposition(FlatSourceDomain* domain)
 
 DomainDecomposition::~DomainDecomposition() = default;
 
+void DomainDecomposition::validate_inputs()
+{
+#ifdef OPENMC_MPI
+  if (mpi::n_procs == 1)
+    return;
+
+  // Each rank scores the tallies of its own subdomain only, so a tally is
+  // only complete once it has been summed over the ranks
+  if (!settings::reduce_tallies) {
+    fatal_error("The no_reduce setting is not supported in random ray mode "
+                "when running on more than one MPI rank.");
+  }
+#endif
+}
+
 void DomainDecomposition::begin_solve()
 {
   if (!active_)
