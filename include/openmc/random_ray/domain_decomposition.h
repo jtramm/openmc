@@ -37,8 +37,14 @@ class DomainDecomposition {
 public:
   //----------------------------------------------------------------------------
   // Constructors and destructor
-  DomainDecomposition();
+
+  //! \param domain The source regions of this rank
+  explicit DomainDecomposition(FlatSourceDomain* domain);
   ~DomainDecomposition();
+
+  // The decomposition refers back to the domain that owns it
+  DomainDecomposition(const DomainDecomposition&) = delete;
+  DomainDecomposition& operator=(const DomainDecomposition&) = delete;
 
   //----------------------------------------------------------------------------
   // Methods
@@ -52,13 +58,47 @@ public:
 
   //! Transport sweep over all random rays of a batch, in which a ray that
   //! leaves the subdomain of this rank is handed to the rank it enters.
-  //! \param domain The source regions of this rank
   //! \return The number of geometric intersections made on this rank
-  uint64_t transport_sweep(FlatSourceDomain& domain);
+  uint64_t transport_sweep();
 
   //! Move source regions between ranks to even out the work of the ranks.
   //! Does nothing past the first few batches of a solve.
-  void balance_load(FlatSourceDomain& domain);
+  void balance_load();
+
+  //----------------------------------------------------------------------------
+  // Hooks of the ray transport
+
+  //! Hand a newly sampled ray to the rank that owns its starting position.
+  //! \param ray The ray
+  //! \param sr_key The source region the ray starts in
+  //! \return Whether the ray was handed off, in which case it is terminated
+  //!   on this rank
+  bool hand_off_at_birth(RandomRay& ray, const SourceRegionKey& sr_key);
+
+  //! Hand a ray to the rank that owns the source region it is about to
+  //! cross, if that is not this rank.
+  //! \param ray The ray
+  //! \param sr_key The source region the ray is about to cross
+  //! \param r Position at which the ray enters the source region
+  //! \param distance Length of the crossing
+  //! \param offset Distance from the position of the ray to the start of
+  //!   the geometric segment the crossing is part of
+  //! \param partial Distance from the start of that segment to \p r
+  //! \return Whether the ray was handed off, in which case it is terminated
+  //!   on this rank
+  bool hand_off(RandomRay& ray, const SourceRegionKey& sr_key, Position r,
+    double distance, double offset, double partial);
+
+  //! Whether a crossing is too short to be attributed to a source region
+  //! reliably when the problem is decomposed, and is to be skipped
+  bool skip_crossing(double distance) const;
+
+  //! Record the ray tracing work of a geometric segment, from which the load
+  //! of each rank is estimated
+  //! \param ray The ray
+  //! \param sr The base source region the segment lies in
+  //! \param n_mesh_bins The number of mesh bins the segment crosses
+  void tally_ray_trace(const RandomRay& ray, int64_t sr, int n_mesh_bins);
 
   //----------------------------------------------------------------------------
   // Reductions over MPI ranks. Each replaces the value on every rank by the
@@ -102,7 +142,6 @@ public:
 
   // Timers of the decomposition tasks
   Timer time_ray_comms_;              //!< Exchange of rays between ranks
-  Timer time_ray_buffering_;          //!< Buffering of rays leaving a subdomain
   Timer time_handling_;               //!< All decomposition tasks of the sweep
   Timer time_load_balance_;           //!< Load balancing
   Timer time_partition_;              //!< Generation of the initial partition
@@ -117,7 +156,10 @@ private:
   // Private data members
   bool active_ {false};
   bool partitioned_ {false}; //!< Has the domain been divided among the ranks?
+  bool balancing_ {false};   //!< Is the load still being balanced?
+  FlatSourceDomain* domain_; //!< The source regions of this rank
   unique_ptr<DecompositionMap> map_;
+  unique_ptr<RayBank> bank_;
 
   // Statistics gathered by finalize_statistics()
   uint64_t avg_communication_rounds_ {0};

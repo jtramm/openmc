@@ -237,7 +237,7 @@ public:
 
   // The MPI domain decomposition of the problem. Its methods do nothing when
   // the problem is not decomposed.
-  DomainDecomposition decomposition_;
+  DomainDecomposition decomposition_ {this};
 
 protected:
   //----------------------------------------------------------------------------

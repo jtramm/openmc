@@ -7,85 +7,7 @@
 #include "openmc/random_ray/moment_matrix.h"
 #include "openmc/source.h"
 
-#ifdef OPENMC_DAGMC_ENABLED
-#include "DagMC.hpp"
-#endif
-
 namespace openmc {
-
-// Container for MPI exchange
-struct RayBufferContainer {
-  Position position;
-  Direction direction;
-  double distance_travelled;
-  // Distance the ray still has to advance from the buffered geometry state to
-  // reach `position`. Applied on the receiving rank via move_distance(), which
-  // uses each coordinate level's own direction.
-  double advance_distance;
-  // Number of times this ray has been handed to another rank. The ownership
-  // early-return in attenuate_flux_inner() happens before n_event() is
-  // incremented, so max_particle_events cannot bound a forwarding loop.
-  int n_transfers;
-  vector<float> angular_flux;
-  int surface;
-  bool is_active;
-  uint64_t ray_id;
-  int n_event; // Number of events (surface crossings) the ray has undergone
-
-  // GeometryState scalar fields
-  int n_coord;
-  int cell_instance;
-  int n_coord_last;
-  int material;
-  int material_last;
-  double sqrtkT;
-  double sqrtkT_last;
-
-  // GeometryState vector fields (sized to model::n_coord_levels at runtime)
-  // LocalCoord is POD, so we can send it as contiguous bytes
-  vector<LocalCoord> coord;
-
-  // cell_last_ array
-  vector<int> cell_last;
-
-#ifdef OPENMC_DAGMC_ENABLED
-  // DAGMC fields - fixed-size array to avoid variable-length vector
-  Direction last_dir;
-  moab::EntityHandle handles[MAX_N_HANDLES];
-  int n_handles; // Actual number of valid handles (may be less than
-                 // MAX_N_HANDLES)
-#endif
-};
-
-// Container for MPI exchange
-struct RayExchangeData {
-  Position position;
-  Direction direction;
-  double distance_travelled;
-  double advance_distance;
-  int n_transfers;
-  int surface;
-  bool is_active;
-  uint64_t ray_id;
-  int n_event; // Number of events (surface crossings) the ray has undergone
-
-  // GeometryState scalar fields
-  int n_coord;
-  int cell_instance;
-  int n_coord_last;
-  int material;
-  int material_last;
-  double sqrtkT;
-  double sqrtkT_last;
-
-#ifdef OPENMC_DAGMC_ENABLED
-  // DAGMC fields - fixed-size array to avoid variable-length vector
-  Direction last_dir;
-  moab::EntityHandle handles[MAX_N_HANDLES];
-  int n_handles; // Actual number of valid handles (may be less than
-                 // MAX_N_HANDLES)
-#endif
-};
 
 // Forward declare
 class FlatSourceDomain;
@@ -119,15 +41,10 @@ public:
     SourceRegionHandle& srh, double distance, bool is_active, Position r);
 
   void initialize_ray(uint64_t ray_id, FlatSourceDomain* domain);
-  void restart_ray(FlatSourceDomain* domain, RayExchangeData& data,
-    float* angular_flux, LocalCoord* coord, int* cell_last_data);
   uint64_t transport_history_based_single_ray();
   SourceSite sample_prng();
   SourceSite sample_halton();
   SourceSite sample_s2();
-
-  bool has_left_subdomain();
-  void pack_ray_for_buffer(double distance_buffer, double advance_distance);
 
   //----------------------------------------------------------------------------
   // Static data members
@@ -140,13 +57,14 @@ public:
   //----------------------------------------------------------------------------
   // Public data members
   vector<float> angular_flux_;
-  RayBufferContainer exchange_data_;
 
   bool ray_trace_only_ {false}; // If true, only perform geometry operations
-  int owner_rank_ {C_NONE};     // Rank that owns this ray based on its position
-  int n_transfers_ {0};         // Subdomain handoffs this ray has undergone
 
 private:
+  // The ray bank packs a ray that leaves the subdomain of an MPI rank, and
+  // restores it on the rank that continues it
+  friend class RayBank;
+
   //----------------------------------------------------------------------------
   // Private data members
   vector<float> delta_psi_;
@@ -161,7 +79,7 @@ private:
   double distance_travelled_ {0};
   bool is_active_ {false};
   bool is_alive_ {true};
-  bool is_local_ {true};
+  int n_transfers_ {0}; // Number of times the ray was handed to an MPI rank
 }; // class RandomRay
 
 } // namespace openmc

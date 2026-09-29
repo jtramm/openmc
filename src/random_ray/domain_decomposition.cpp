@@ -7,6 +7,8 @@
 
 #include <fmt/core.h>
 
+#include "openmc/cell.h"
+#include "openmc/constants.h"
 #include "openmc/error.h"
 #include "openmc/message_passing.h"
 #include "openmc/output.h"
@@ -23,12 +25,14 @@ namespace openmc {
 // DomainDecomposition implementation
 //==============================================================================
 
-DomainDecomposition::DomainDecomposition()
+DomainDecomposition::DomainDecomposition(FlatSourceDomain* domain)
+  : domain_(domain)
 {
 #ifdef OPENMC_MPI
   active_ = mpi::n_procs > 1;
   if (active_) {
     map_ = make_unique<DecompositionMap>(this);
+    bank_ = make_unique<RayBank>(*map_);
   }
 #endif
 }
@@ -43,7 +47,6 @@ void DomainDecomposition::begin_solve()
 #ifdef OPENMC_MPI
   // The timers and counters report on one solve at a time
   time_ray_comms_.reset();
-  time_ray_buffering_.reset();
   time_handling_.reset();
   time_load_balance_.reset();
   time_partition_.reset();
@@ -59,133 +62,180 @@ void DomainDecomposition::begin_solve()
 // Transport sweep and load balancing
 //==============================================================================
 
-uint64_t DomainDecomposition::transport_sweep(FlatSourceDomain& domain)
+uint64_t DomainDecomposition::transport_sweep()
 {
-  uint64_t n_intersections_total = 0;
+  uint64_t n_intersections = 0;
 
 #ifdef OPENMC_MPI
   // Divide the domain among the ranks. This is done once, and the division is
   // kept for any later solve.
   if (!partitioned_) {
     time_partition_.start();
-    map_->partition(domain);
+    map_->partition(*domain_);
     time_partition_.stop();
     partitioned_ = true;
   }
 
   double start_time_transport = simulation::time_transport.elapsed();
-  double start_time_ray_buffering = time_ray_buffering_.elapsed();
+  balancing_ = simulation::current_batch <= ITER_LOAD_BALANCE;
 
   time_handling_.start();
 
-  RayBank bank(*map_);
-
-// Create rays and add them to ray bank
-#pragma omp parallel for schedule(static)
+  // Sample the rays of this rank and transport those that start in its
+  // subdomain. The others are handed to the ranks they start in, as are the
+  // rays that leave the subdomain along the way.
+  simulation::time_transport.start();
+#pragma omp parallel for schedule(dynamic) reduction(+ : n_intersections)
   for (int i = 0; i < simulation::work_per_rank; i++) {
     uint64_t id = simulation::work_index[mpi::rank] + i;
-    RandomRay ray(id, &domain);
-
-    // Add ray to ray bank if it starts in my subdomain
-    if (!ray.has_left_subdomain()) {
-#pragma omp critical(raybank)
-      {
-        bank.my_ray_list_.push_back(ray);
-      }
-    }
-    // Put ray straight into buffer if it starts outside my subdomain
-    else {
-#pragma omp critical(raybuffer)
-      {
-        bank.buffer_ray_data_to_send(ray, &domain);
-      }
-    }
-  }
-
-  // If no ray is alive at this stage, it means that all of them have been
-  // buffered because they were sampled in foregin subdomain. This requires a
-  // ray bank update here.
-  if (!bank.is_any_ray_alive()) {
-    bank.update(&domain);
-  }
-
-  // Move rays across ranks until they are terminated
-  while (bank.is_any_ray_alive()) {
-
-    // Start timer for transport
-    simulation::time_transport.start();
-
-    uint64_t n_intersections = 0;
-#pragma omp parallel for schedule(dynamic) reduction(+ : n_intersections)
-    for (int i = 0; i < bank.ray_bank_size(); i++) {
-      RandomRay& ray = bank.my_ray_list_[i];
+    RandomRay ray(id, domain_);
+    if (ray.alive()) {
       n_intersections += ray.transport_history_based_single_ray();
-
-      // If ray has left my subdomain, buffer ray state
-      if (ray.has_left_subdomain()) {
-#pragma omp critical(raybuffer)
-        {
-          time_ray_buffering_.start();
-          bank.buffer_ray_data_to_send(ray, &domain);
-          time_ray_buffering_.stop();
-        }
-      }
     }
-    n_intersections_total += n_intersections;
-    simulation::time_transport.stop();
+  }
+  simulation::time_transport.stop();
 
+  // Move rays across ranks until they have all terminated
+  while (true) {
     // Capture wait time resulting from other transport sweeps
     time_imbalance_.start();
     MPI_Barrier(mpi::intracomm);
     time_imbalance_.stop();
 
-    // Update ray bank by communicating rays in buffer to new owner ranks and
-    // removing terminated ranks
+    // Send the rays that left the subdomain to the ranks they entered, and
+    // receive the rays that entered it
     time_ray_comms_.start();
-    bank.update(&domain);
+    bank_->exchange(domain_);
     MPI_Barrier(mpi::intracomm);
     time_ray_comms_.stop();
-
     n_communication_rounds_++;
+
+    if (!bank_->any_rays_alive())
+      break;
+
+    simulation::time_transport.start();
+    uint64_t n_intersections_round = 0;
+#pragma omp parallel for schedule(dynamic) reduction(+ : n_intersections_round)
+    for (int64_t i = 0; i < bank_->rays_.size(); i++) {
+      n_intersections_round +=
+        bank_->rays_[i].transport_history_based_single_ray();
+    }
+    n_intersections += n_intersections_round;
+    simulation::time_transport.stop();
   }
 
-  // Calculate load per rank based on number of hits in each source region that
-  // a rank owns
-  double batch_ray_buffering_time =
-    time_ray_buffering_.elapsed() - start_time_ray_buffering;
-  double batch_transport_time = simulation::time_transport.elapsed() -
-                                start_time_transport - batch_ray_buffering_time;
-
-  // Calculate rank load fractions for load balancing
-  if (simulation::current_batch <= ITER_LOAD_BALANCE) {
-    map_->calculate_rank_load(&domain, batch_transport_time);
+  // Estimate the load of each rank from the ray tracing work of the batch
+  if (balancing_) {
+    double batch_transport_time =
+      simulation::time_transport.elapsed() - start_time_transport;
+    map_->calculate_rank_load(domain_, batch_transport_time);
   }
 
   time_handling_.stop();
 
   // Check if any new source regions discovered and if so, exchange
   // discovered cell data between ranks
-  if (map_->any_discovered_source_regions(domain.discovered_source_regions_)) {
+  if (map_->any_discovered_source_regions(
+        domain_->discovered_source_regions_)) {
     time_source_region_exchange_.start();
-    map_->exchange_sr_info(domain.discovered_source_regions_);
+    map_->exchange_sr_info(domain_->discovered_source_regions_);
     MPI_Barrier(mpi::intracomm);
     time_source_region_exchange_.stop();
   }
 #endif
 
-  return n_intersections_total;
+  return n_intersections;
 }
 
-void DomainDecomposition::balance_load(FlatSourceDomain& domain)
+void DomainDecomposition::balance_load()
 {
 #ifdef OPENMC_MPI
   if (!active_ || simulation::current_batch > ITER_LOAD_BALANCE)
     return;
 
   time_load_balance_.start();
-  map_->balance_load(&domain);
+  map_->balance_load(domain_);
   MPI_Barrier(mpi::intracomm);
   time_load_balance_.stop();
+#endif
+}
+
+//==============================================================================
+// Hooks of the ray transport
+//==============================================================================
+
+bool DomainDecomposition::hand_off_at_birth(
+  RandomRay& ray, const SourceRegionKey& sr_key)
+{
+#ifdef OPENMC_MPI
+  if (!active_)
+    return false;
+
+  int owner =
+    map_->find_owner(sr_key, ray.r(), domain_->discovered_source_regions_);
+  if (owner == mpi::rank)
+    return false;
+
+  // The rank that owns the starting position sets the starting angular flux
+  std::fill(ray.angular_flux_.begin(), ray.angular_flux_.end(), 0.0f);
+  bank_->hand_off(ray, owner, 0.0, 0.0);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool DomainDecomposition::hand_off(RandomRay& ray,
+  const SourceRegionKey& sr_key, Position r, double distance, double offset,
+  double partial)
+{
+#ifdef OPENMC_MPI
+  if (!active_)
+    return false;
+
+  Position midpoint = r + ray.u() * (distance / 2.0);
+  int owner =
+    map_->find_owner(sr_key, midpoint, domain_->discovered_source_regions_);
+  if (owner == mpi::rank)
+    return false;
+
+  bank_->hand_off(ray, owner, offset, partial);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool DomainDecomposition::skip_crossing(double distance) const
+{
+  // Very flat angles can result in very small crossings of a mesh bin. At the
+  // boundary between two subdomains, such a crossing can make a ray bounce
+  // back and forth between two ranks indefinitely.
+  return active_ && distance <= TINY_BIT;
+}
+
+void DomainDecomposition::tally_ray_trace(
+  const RandomRay& ray, int64_t sr, int n_mesh_bins)
+{
+#ifdef OPENMC_MPI
+  // The counters are only read while the load is being balanced. Past that,
+  // updating them would be pure contention between threads.
+  if (!active_ || !balancing_)
+    return;
+
+  // The cost of finding the distance to the boundary grows with the number of
+  // surfaces of the cells the ray is in
+  uint64_t n_surfaces = 0;
+  for (int i = 0; i < ray.n_coord(); i++) {
+    n_surfaces += model::cells[ray.coord(i).cell()]->n_surfaces();
+  }
+
+  // Threads routinely transport rays through the same base source region, so
+  // the counters are shared and must be updated atomically
+#pragma omp atomic
+  map_->num_base_source_region_RT_[sr] += n_surfaces;
+#pragma omp atomic
+  map_->num_mesh_bin_RT_[sr] += n_mesh_bins;
 #endif
 }
 
@@ -293,10 +343,8 @@ double DomainDecomposition::transport_time(double time_transport)
     return time_transport;
 
   // The sweep of a batch ends when the slowest rank finishes, so the time a
-  // rank spends waiting on the others counts as transport time, while the
-  // time it spends buffering rays for other ranks does not
-  return time_transport - time_ray_buffering_.elapsed() +
-         time_imbalance_.elapsed();
+  // rank spends waiting on the others counts as transport time
+  return time_transport + time_imbalance_.elapsed();
 }
 
 double DomainDecomposition::overhead_time(double time_transport)
@@ -321,9 +369,8 @@ void DomainDecomposition::finalize_statistics(double time_transport)
     static_cast<double>(n_communication_rounds_) / settings::n_batches));
 
   // Every rank needs the measured load of all ranks, as it is plotted
-  double time_sweep = time_transport - time_ray_buffering_.elapsed();
   auto& fractions = map_->measured_rank_load_fractions_;
-  MPI_Allgather(&time_sweep, 1, MPI_DOUBLE, fractions.data(), 1, MPI_DOUBLE,
+  MPI_Allgather(&time_transport, 1, MPI_DOUBLE, fractions.data(), 1, MPI_DOUBLE,
     mpi::intracomm);
   double load_sum = std::accumulate(fractions.begin(), fractions.end(), 0.0);
   for (auto& fraction : fractions) {

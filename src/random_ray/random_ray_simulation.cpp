@@ -432,7 +432,7 @@ void RandomRaySimulation::simulate()
       settings::n_particles * RandomRay::distance_active_);
 
     // Balance the load between MPI ranks, if the problem is decomposed
-    domain_->decomposition_.balance_load(*domain_);
+    domain_->decomposition_.balance_load();
 
     // Add source to scalar flux (applying any transport stabilization
     // factors), compute number of FSR hits
@@ -749,8 +749,7 @@ void RandomRaySimulation::transport_sweep()
   // If the problem is decomposed over MPI ranks, the sweep also has to move
   // rays between ranks, which the domain decomposition takes care of
   if (domain_->decomposition_.active()) {
-    total_geometric_intersections_ +=
-      domain_->decomposition_.transport_sweep(*domain_);
+    total_geometric_intersections_ += domain_->decomposition_.transport_sweep();
     return;
   }
 

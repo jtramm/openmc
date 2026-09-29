@@ -1,6 +1,5 @@
 #include "openmc/random_ray/random_ray.h"
 
-#include "openmc/cell.h"
 #include "openmc/constants.h"
 #include "openmc/geometry.h"
 #include "openmc/message_passing.h"
@@ -14,7 +13,6 @@
 
 #include "openmc/distribution_spatial.h"
 #include "openmc/random_dist.h"
-#include "openmc/random_ray/decomposition_map.h"
 #include "openmc/source.h"
 
 namespace openmc {
@@ -266,11 +264,10 @@ uint64_t RandomRay::transport_history_based_single_ray()
 
   while (alive()) {
     event_advance_ray();
-
     if (!alive())
       break;
     event_cross_surface();
-
+    // If ray has too many events, display warning and kill it
     if (n_event() >= settings::max_particle_events) {
       warning("Ray " + std::to_string(id()) +
               " underwent maximum number of events, terminating ray.");
@@ -292,25 +289,6 @@ void RandomRay::event_advance_ray()
   // Find the distance to the nearest boundary
   boundary() = distance_to_boundary(*this);
   double distance = boundary().distance();
-
-#ifdef OPENMC_MPI
-  // Only consumed by calculate_rank_load(), which runs during the load
-  // balancing window; past it these atomics would be pure contention on a
-  // counter nobody reads.
-  if (mpi::n_procs > 1 && simulation::current_batch <= ITER_LOAD_BALANCE) {
-    // If domain decomposition is being used, update counter for
-    // ray trace operations in source region for load estimation
-    int64_t sr = domain_->lookup_base_source_region_idx(*this);
-    for (int i = 0; i < n_coord(); i++) {
-      Cell& c {*model::cells[coord(i).cell()]};
-      // Threads routinely transport rays through the same base source region,
-      // so this counter is shared and must be updated atomically
-#pragma omp atomic
-      domain_->decomposition_.map().num_base_source_region_RT_[sr] +=
-        c.n_surfaces();
-    }
-  }
-#endif
 
   if (distance < 0.0) {
     mark_as_lost("Negative transport distance detected for particle " +
@@ -339,12 +317,11 @@ void RandomRay::event_advance_ray()
     if (distance_travelled_ + distance >= distance_inactive_) {
       double distance_dead = distance_inactive_ - distance_travelled_;
       attenuate_flux(distance_dead, false);
-      is_active_ = true;
-      distance_travelled_ = 0.0;
-
-      if (has_left_subdomain()) {
+      if (!alive()) {
         return;
       }
+      is_active_ = true;
+      distance_travelled_ = 0.0;
 
       double distance_alive = distance - distance_dead;
 
@@ -373,9 +350,10 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
   // Lookup base source region index
   int64_t sr = domain_->lookup_base_source_region_idx(*this);
 
-  // Initialize values needed to buffer ray for domain decomposition
-  double mesh_partial_length = 0.0;
-  double tiny_multiplier = 0.0;
+  // If the problem is decomposed over MPI ranks, a source region may belong
+  // to another rank, in which case the ray is handed to that rank and
+  // terminated on this one
+  DomainDecomposition& decomposition = domain_->decomposition_;
 
   // Perform ray tracing across mesh
   // Determine the mesh index for the base source region, if any
@@ -385,6 +363,10 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     // If there's no mesh being applied to this cell, then
     // we just attenuate the flux as normal, and set
     // the mesh bin to 0
+    decomposition.tally_ray_trace(*this, sr, 0);
+    if (decomposition.hand_off(*this, {sr, 0}, r(), distance, offset, 0.0)) {
+      return;
+    }
     attenuate_flux_inner(distance, is_active, sr, 0, r());
   } else {
     // If there is a mesh being applied to this cell, then
@@ -404,69 +386,29 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh_bins_.resize(0);
     mesh_fractional_lengths_.resize(0);
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
+    decomposition.tally_ray_trace(*this, sr, mesh_bins_.size());
+
+    // Distance from the start of the segment to the current mesh bin
+    double partial = 0.0;
+    double fraction = 0.0;
 
     // Loop over all mesh bins and attenuate flux
     for (int b = 0; b < mesh_bins_.size(); b++) {
       double physical_length = reduced_distance * mesh_fractional_lengths_[b];
 
-#ifdef OPENMC_MPI
-      if (mpi::n_procs > 1 && simulation::current_batch <= ITER_LOAD_BALANCE) {
-        // Shared across threads; see the note in event_advance_ray()
-#pragma omp atomic
-        domain_->decomposition_.map().num_mesh_bin_RT_[sr] += 1;
+      if (!decomposition.skip_crossing(physical_length)) {
+        if (decomposition.hand_off(*this, {sr, mesh_bins_[b]}, start,
+              physical_length, offset, partial)) {
+          return;
+        }
+        attenuate_flux_inner(
+          physical_length, is_active, sr, mesh_bins_[b], start);
       }
-#endif
-
-      // Very flat angles can result in very small physical lengths,
-      // despite the TINY_BIT adjustment for Position start. If this happens at
-      // an MPI boundary, this can cause rays to bounce back and forth
-      // indefinitely. Very small lengths are therefore skipped. This is a
-      // domain decomposition workaround, so it is gated on being decomposed:
-      // applying it unconditionally would silently drop these segments (and
-      // their volume contribution) for every existing serial user.
-      if (mpi::n_procs > 1 && physical_length <= TINY_BIT) {
-        start += physical_length * u();
-        continue;
-      }
-
-      attenuate_flux_inner(
-        physical_length, is_active, sr, mesh_bins_[b], start);
 
       start += physical_length * u();
-
-      // If ray has left MPI subdomain, stop transport
-      // and calculate position
-      if (has_left_subdomain()) {
-        for (int i = 0; i <= b - 1; i++) {
-          mesh_partial_length += mesh_fractional_lengths_[i];
-        }
-
-        if (b > 0) {
-          // If ray is stopped within mesh of base source region,
-          // need to add TINY_BIT to account for deleted length
-          tiny_multiplier = 1.0;
-          // Reset last surface crossed to none if ray is stopped
-          // within mesh of base source region
-          surface() = 0;
-        }
-
-        mesh_partial_length =
-          tiny_multiplier * TINY_BIT + reduced_distance * mesh_partial_length;
-        break;
-      }
+      fraction += mesh_fractional_lengths_[b];
+      partial = TINY_BIT + reduced_distance * fraction;
     }
-  }
-
-  // If ray has left my subdomain, buffer ray state
-  if (has_left_subdomain()) {
-    double advance_distance = offset + mesh_partial_length;
-    double distance_buffer = distance_travelled_ + mesh_partial_length;
-
-#ifdef OPENMC_DAGMC_ENABLED
-    history().rollback_last_intersection();
-#endif
-    pack_ray_for_buffer(distance_buffer, advance_distance);
-    wgt() = 0.0;
   }
 }
 
@@ -474,24 +416,6 @@ void RandomRay::attenuate_flux_inner(
   double distance, bool is_active, int64_t sr, int mesh_bin, Position r)
 {
   SourceRegionKey sr_key {sr, mesh_bin};
-
-#ifdef OPENMC_MPI
-  if (mpi::n_procs > 1) {
-    // Check which rank owns the source region at the current position
-    Position midpoint = r + u() * (distance / 2.0);
-    int owner =
-      domain_->decomposition_.map().find_owner(SourceRegionKey(sr, mesh_bin),
-        midpoint, domain_->discovered_source_regions_);
-
-    // If current rank is not the owner return and mark as not local.
-    if (owner != mpi::rank) {
-      is_local_ = false;
-      owner_rank_ = owner;
-      return;
-    }
-  }
-#endif
-
   SourceRegionHandle srh;
   srh = domain_->get_subdivided_source_region_handle(sr_key, r, u());
   if (srh.is_numerical_fp_artifact_) {
@@ -883,125 +807,9 @@ void RandomRay::attenuate_flux_linear_source_void(
   }
 }
 
-void RandomRay::restart_ray(FlatSourceDomain* domain, RayExchangeData& data,
-  float* angular_flux, LocalCoord* coord, int* cell_last_data)
-{
-
-  domain_ = domain;
-  distance_travelled_ = data.distance_travelled;
-  owner_rank_ = mpi::rank;
-  n_transfers_ = data.n_transfers;
-
-  // A restarted ray is local again. This is correct today only because
-  // RayBank rebuilds my_ray_list_ from value-initialized objects every
-  // round; set it explicitly so that reusing the list in place cannot
-  // silently re-buffer the ray immediately.
-  is_local_ = true;
-
-  // A ray that keeps being handed between ranks without ever depositing is
-  // a sign that two ranks disagree about who owns a region. Terminate it
-  // rather than letting it hang every rank in the job.
-  if (n_transfers_ > MAX_RAY_TRANSFERS) {
-    warning("Ray " + std::to_string(data.ray_id) +
-            " was transferred between "
-            "MPI ranks " +
-            std::to_string(n_transfers_) + " times, terminating ray.");
-    wgt() = 0.0;
-    return;
-  }
-  ntemperature_ = domain->ntemperature_;
-
-  // Restore particle event counter from the transmitted ray
-  // This preserves the event count across MPI rank boundaries
-  n_event() = data.n_event;
-
-  is_active_ = data.is_active;
-
-  wgt() = 1.0;
-
-  // set identifier for particle
-  id() = data.ray_id;
-
-  // Restore GeometryState scalar fields
-  n_coord() = data.n_coord;
-  cell_instance() = data.cell_instance;
-  n_coord_last() = data.n_coord_last;
-  material() = data.material;
-  material_last() = data.material_last;
-  sqrtkT() = data.sqrtkT;
-  sqrtkT_last() = data.sqrtkT_last;
-  surface() = data.surface;
-
-  // Restore LocalCoord vector data (coord_)
-  // The vectors were already sized to model::n_coord_levels in the
-  // GeometryState constructor LocalCoord is POD so we can just copy the entire
-  // structure
-  const int n_coord_max = model::n_coord_levels;
-  for (int i = 0; i < n_coord_max; i++) {
-    this->coord(i) = coord[i];
-    cell_last(i) = cell_last_data[i];
-  }
-
-  u() = data.direction;
-
-  // The buffered coordinate levels hold the ray's state at the last geometry
-  // update, so the ray still has to be advanced to the point at which it left
-  // the previous subdomain. Use move_distance() rather than adding a single
-  // top-level displacement to every level: a rotated universe or lattice fill
-  // gives each level its own direction, and translating a lower level by the
-  // top-level displacement would put it somewhere else entirely.
-  move_distance(data.advance_distance);
-
-#ifdef OPENMC_DAGMC_ENABLED
-  // Restore DAGMC fields
-  // Restore last_dir and rebuild the history by adding entities in reverse
-  // order
-  last_dir() = data.last_dir;
-  for (int i = data.n_handles - 1; i >= 0; i--) {
-    history().add_entity(data.handles[i]);
-  }
-#endif
-
-  // Set particle type and energy (for random ray, these are not actually used)
-  type() = ParticleType::neutron();
-  E() = 0.0;
-
-  // No need to call exhaustive_find_cell() since we have the full geometry
-  // state! Just verify we have valid cell information
-  if (lowest_coord().cell() == C_NONE) {
-    this->mark_as_lost("Received particle " + std::to_string(id()) +
-                       " with invalid cell information");
-  }
-
-  // Set birth cell attribute if not set
-  if (cell_born() == C_NONE)
-    cell_born() = lowest_coord().cell();
-
-  // Set ray's angular flux to value before subdomain change
-  if (distance_travelled_ > 0.0 || is_active_) {
-    for (int g = 0; g < negroups_; g++) {
-      angular_flux_[g] = angular_flux[g];
-    }
-  }
-  // Initialize ray's starting angular flux to starting location's isotropic
-  // source
-  else {
-    SourceRegionKey sr_key = domain_->lookup_source_region_key(*this);
-    SourceRegionHandle srh =
-      domain_->get_subdivided_source_region_handle(sr_key, r(), u());
-
-    if (!srh.is_numerical_fp_artifact_) {
-      for (int g = 0; g < negroups_; g++) {
-        angular_flux_[g] = srh.source(g);
-      }
-    }
-  }
-}
-
 void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 {
   domain_ = domain;
-  owner_rank_ = mpi::rank;
   ntemperature_ = domain->ntemperature_;
 
   // Reset particle event counter
@@ -1048,26 +856,17 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   SourceRegionKey sr_key = domain_->lookup_source_region_key(*this);
 
-#ifdef OPENMC_MPI
-  if (mpi::n_procs > 1) {
-    // Check if ray sampling site belongs to subdomain
-    owner_rank_ = domain_->decomposition_.map().find_owner(
-      sr_key, r(), domain_->discovered_source_regions_);
-
-    if (owner_rank_ != mpi::rank) {
-      for (int g = 0; g < negroups_; g++) {
-        angular_flux_[g] = 0.0;
-      }
-      pack_ray_for_buffer(0.0, 0.0);
-      is_local_ = false;
-      return;
-    }
+  // If the problem is decomposed over MPI ranks and the ray starts in the
+  // subdomain of another rank, that rank transports it
+  if (domain_->decomposition_.hand_off_at_birth(*this, sr_key)) {
+    return;
   }
-#endif
 
   SourceRegionHandle srh =
     domain_->get_subdivided_source_region_handle(sr_key, r(), u());
 
+  // Initialize ray's starting angular flux to starting location's isotropic
+  // source
   if (!srh.is_numerical_fp_artifact_) {
     for (int g = 0; g < negroups_; g++) {
       angular_flux_[g] = srh.source(g);
@@ -1123,69 +922,6 @@ SourceSite RandomRay::sample_halton()
   site.u.z = std::sin(azi) * c;
 
   return site;
-}
-
-bool RandomRay::has_left_subdomain()
-{
-  return !is_local_;
-}
-
-void RandomRay::pack_ray_for_buffer(
-  double distance_buffer, double advance_distance)
-{
-  // Recorded for diagnostics only; the receiving rank reconstructs the
-  // position by advancing the buffered geometry state (see restart_ray)
-  exchange_data_.position = r() + advance_distance * u();
-  exchange_data_.advance_distance = advance_distance;
-  exchange_data_.n_transfers = ++n_transfers_;
-  exchange_data_.direction = u();
-  exchange_data_.angular_flux = angular_flux_;
-  exchange_data_.distance_travelled = distance_buffer;
-  exchange_data_.surface = surface();
-  exchange_data_.is_active = is_active_;
-  exchange_data_.ray_id = id();
-  exchange_data_.n_event = n_event();
-
-  // Pack GeometryState scalar fields
-  exchange_data_.n_coord = n_coord();
-  exchange_data_.cell_instance = cell_instance();
-  exchange_data_.n_coord_last = n_coord_last();
-  exchange_data_.material = material();
-  exchange_data_.material_last = material_last();
-  exchange_data_.sqrtkT = sqrtkT();
-  exchange_data_.sqrtkT_last = sqrtkT_last();
-
-  // Pack GeometryState vector fields
-  // LocalCoord is POD, so we can just copy the entire vector
-  // We always pack model::n_coord_levels elements to ensure consistent sizes
-  const int n_coord_max = model::n_coord_levels;
-
-  exchange_data_.coord.resize(n_coord_max);
-  exchange_data_.cell_last.resize(n_coord_max);
-
-  for (int i = 0; i < n_coord_max; i++) {
-    exchange_data_.coord[i] = coord(i);
-    exchange_data_.cell_last[i] = cell_last(i);
-  }
-
-#ifdef OPENMC_DAGMC_ENABLED
-  // Pack DAGMC fields
-  // Extract up to MAX_N_HANDLES from the ray history by rolling back
-  exchange_data_.last_dir = last_dir();
-  exchange_data_.n_handles = 0;
-
-  for (int i = 0; i < MAX_N_HANDLES; i++) {
-    moab::EntityHandle handle;
-    if (history().get_last_intersection(handle) == moab::MB_SUCCESS) {
-      exchange_data_.handles[i] = handle;
-      exchange_data_.n_handles++;
-      history().rollback_last_intersection();
-    } else {
-      // No more handles in history
-      break;
-    }
-  }
-#endif
 }
 
 SourceSite RandomRay::sample_s2()
