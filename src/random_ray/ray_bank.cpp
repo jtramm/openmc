@@ -75,6 +75,10 @@ void RayBank::pack(RandomRay& ray, int destination, double offset,
   data.is_newborn = is_newborn;
   data.ray_id = ray.id();
   data.n_event = ray.n_event();
+  for (int i = 0; i < N_STREAMS; i++) {
+    data.seeds[i] = ray.seeds(i);
+  }
+  data.stream = ray.stream();
 
   // GeometryState scalar fields
   data.n_coord = ray.n_coord();
@@ -338,6 +342,12 @@ void RayBank::restore(RandomRay& ray, FlatSourceDomain* domain,
 
   // set identifier for particle
   ray.id() = data.ray_id;
+
+  // Continue the random number streams of the ray where they were left
+  for (int i = 0; i < N_STREAMS; i++) {
+    ray.seeds(i) = data.seeds[i];
+  }
+  ray.stream() = data.stream;
 
   // Restore GeometryState scalar fields
   ray.n_coord() = data.n_coord;

@@ -6,6 +6,7 @@
 
 #include "openmc/particle_data.h"
 #include "openmc/position.h"
+#include "openmc/random_lcg.h"
 #include "openmc/random_ray/random_ray.h"
 #include "openmc/vector.h"
 
@@ -51,6 +52,11 @@ struct RayExchangeData {
   bool is_newborn;
   uint64_t ray_id;
   int n_event; // Number of events (surface crossings) the ray has undergone
+
+  // State of the random number streams of the ray, which a white boundary
+  // condition draws from
+  uint64_t seeds[N_STREAMS];
+  int stream;
 
   // GeometryState scalar fields
   int n_coord;
