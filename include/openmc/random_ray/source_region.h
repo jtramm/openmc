@@ -342,13 +342,9 @@ public:
 
 }; // class SourceRegionHandle
 
-//! Every per-region scalar lives here so that it is carried automatically by
-//! the raw-byte MPI transfer in DecompositionMap::send_sr_data(). When adding
-//! a per-region field, either put it in this struct, or handle it explicitly
-//! in ALL FOUR of: send_sr_data(), receive_sr_data(),
-//! SourceRegion(const SourceRegionHandle&), and
-//! SourceRegionContainer::push_back(). Anything missed is silently reset to
-//! its default every time load balancing rebuilds a rank's container.
+//! The scalar fields of a source region. They are kept together so that
+//! SourceRegion::pack() can copy them as a block: a scalar added to this class
+//! is packed without further changes.
 class ScalarSourceRegionFields {
 public:
   int material_ {0}; //!< Index in openmc::model::materials array
@@ -408,10 +404,38 @@ public:
 
   //----------------------------------------------------------------------------
   // Methods
-  void merge(SourceRegion& sr_add, bool is_linear);
+
+  //! Add what another MPI rank tallied for this source region. Both copies
+  //! must have been discovered in the current batch.
+  //! \param other The copy of the source region held by the other rank
+  void merge(const SourceRegion& other);
+
+  //! Number of bytes that pack() writes. It depends on the number of energy
+  //! groups and on the settings of the simulation, but not on the source
+  //! region.
+  size_t packed_size() const;
+
+  //! Write the state of the source region to a buffer, as a sequence of bytes
+  //! that can be sent to another MPI rank. The tally tasks are not written, as
+  //! the rank that receives a source region sets them up again.
+  //! \param buffer Start of a buffer of at least packed_size() bytes
+  //! \return The end of the bytes written
+  char* pack(char* buffer) const;
+
+  //! Read the state of the source region from a buffer written by pack()
+  //! \param buffer Start of the packed source region
+  //! \return The end of the bytes read
+  const char* unpack(const char* buffer);
 
   //----------------------------------------------------------------------------
   // Public Data members
+
+  // When adding a field to this class, add it to for_each_packed_field() in
+  // source_region.cpp as well (a scalar that is added to
+  // ScalarSourceRegionFields needs no such change), and copy it in
+  // SourceRegion(const SourceRegionHandle&) and in
+  // SourceRegionContainer::push_back(). A field that is left out is reset
+  // whenever a source region moves to another MPI rank.
 
   //---------------------------------------
   // Scalar fields

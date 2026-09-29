@@ -1,5 +1,8 @@
 #include "openmc/random_ray/source_region.h"
 
+#include <cstring>
+#include <type_traits>
+
 #include "openmc/error.h"
 #include "openmc/message_passing.h"
 #include "openmc/random_ray/flat_source_domain.h"
@@ -152,8 +155,9 @@ SourceRegion::SourceRegion(const SourceRegionHandle& handle)
 }
 
 // combine two source regions from different ranks together
-void SourceRegion::merge(SourceRegion& sr_add, bool is_linear)
+void SourceRegion::merge(const SourceRegion& sr_add)
 {
+  bool is_linear = !source_gradients_.empty();
 
   // scalar fields
   scalars_.volume_ += sr_add.scalars_.volume_;
@@ -190,6 +194,96 @@ void SourceRegion::merge(SourceRegion& sr_add, bool is_linear)
       flux_moments_new_[g] += sr_add.flux_moments_new_[g];
     }
   }
+}
+
+//==============================================================================
+// Packing of a source region into a sequence of bytes
+//==============================================================================
+
+namespace {
+
+// The operations that pack() and unpack() apply to each field in turn. A field
+// is given as a pointer to its first element and the number of its elements.
+
+struct ByteCounter {
+  template<typename T>
+  void operator()(const T* data, size_t n)
+  {
+    n_bytes += n * sizeof(T);
+  }
+  size_t n_bytes {0};
+};
+
+struct ByteWriter {
+  template<typename T>
+  void operator()(const T* data, size_t n)
+  {
+    static_assert(
+      std::is_trivially_copyable<T>::value, "Only plain data can be packed");
+    if (n > 0) {
+      std::memcpy(buffer, data, n * sizeof(T));
+      buffer += n * sizeof(T);
+    }
+  }
+  char* buffer;
+};
+
+struct ByteReader {
+  template<typename T>
+  void operator()(T* data, size_t n)
+  {
+    static_assert(
+      std::is_trivially_copyable<T>::value, "Only plain data can be packed");
+    if (n > 0) {
+      std::memcpy(data, buffer, n * sizeof(T));
+      buffer += n * sizeof(T);
+    }
+  }
+  const char* buffer;
+};
+
+// Applies an operation to each field that is part of the packed state of a
+// source region. This is the one list of those fields. An array that the
+// settings of the simulation leave unallocated has no elements, so it takes
+// no space in the buffer.
+template<typename Region, typename Operation>
+void for_each_packed_field(Region& sr, Operation& op)
+{
+  op(&sr.scalars_, 1);
+  op(&sr.extent_, 1);
+  op(sr.scalar_flux_old_.data(), sr.scalar_flux_old_.size());
+  op(sr.scalar_flux_new_.data(), sr.scalar_flux_new_.size());
+  op(sr.source_.data(), sr.source_.size());
+  op(sr.external_source_.data(), sr.external_source_.size());
+  op(sr.scalar_flux_final_.data(), sr.scalar_flux_final_.size());
+  op(sr.scalar_flux_t_.data(), sr.scalar_flux_t_.size());
+  op(sr.source_gradients_.data(), sr.source_gradients_.size());
+  op(sr.flux_moments_old_.data(), sr.flux_moments_old_.size());
+  op(sr.flux_moments_new_.data(), sr.flux_moments_new_.size());
+  op(sr.flux_moments_t_.data(), sr.flux_moments_t_.size());
+}
+
+} // namespace
+
+size_t SourceRegion::packed_size() const
+{
+  ByteCounter counter;
+  for_each_packed_field(*this, counter);
+  return counter.n_bytes;
+}
+
+char* SourceRegion::pack(char* buffer) const
+{
+  ByteWriter writer {buffer};
+  for_each_packed_field(*this, writer);
+  return writer.buffer;
+}
+
+const char* SourceRegion::unpack(const char* buffer)
+{
+  ByteReader reader {buffer};
+  for_each_packed_field(*this, reader);
+  return reader.buffer;
 }
 
 //==============================================================================
