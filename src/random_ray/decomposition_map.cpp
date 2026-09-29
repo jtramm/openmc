@@ -300,11 +300,13 @@ void DecompositionMap::calculate_grid_points(int grid_points_total)
       area *= domain_length[i];
     }
 
+    // A dimension that is much shorter than the other one gets a single
+    // grid point
     for (int i = 0; i < 3; i++) {
       if (i == excluded_dimension)
         continue;
-      grid_points_per_dimension[i] =
-        round((domain_length[i] / sqrt(area)) * sqrt(grid_points_total));
+      grid_points_per_dimension[i] = std::max(
+        1.0, round((domain_length[i] / sqrt(area)) * sqrt(grid_points_total)));
     }
   }
 
@@ -328,7 +330,7 @@ void DecompositionMap::calculate_grid_points(int grid_points_total)
     if (i == excluded_dimension)
       continue;
     grid_points_per_dimension[i] =
-      round(grid_points_per_dimension[i] * adjustment);
+      std::max(1.0, round(grid_points_per_dimension[i] * adjustment));
   }
 
   // Calculate spacing between grid points in each dimension
