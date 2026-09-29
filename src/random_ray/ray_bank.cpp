@@ -50,9 +50,10 @@ void RayBank::pack(RandomRay& ray, int destination, double offset,
       ray.id(), ray.r().x, ray.r().y, ray.r().z, destination));
   }
 
-  // A ray that stops inside a segment, rather than at its start, is no longer
-  // on the surface it last crossed
-  if (partial > 0.0) {
+  // The receiving rank restarts the ray at the point at which it stops. If
+  // that is not where the geometry state of the ray was last updated, the ray
+  // is no longer on the surface it last crossed.
+  if (offset + partial > 0.0) {
     ray.surface() = 0;
   }
 
