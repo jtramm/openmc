@@ -12,6 +12,7 @@
 #include "openmc/error.h"
 #include "openmc/message_passing.h"
 #include "openmc/output.h"
+#include "openmc/random_lcg.h"
 #include "openmc/random_ray/decomposition_map.h"
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/random_ray.h"
@@ -251,6 +252,44 @@ void DomainDecomposition::tally_ray_trace(
 #pragma omp atomic
   map_->num_mesh_bin_RT_[sr] += n_mesh_bins;
 #endif
+}
+
+//==============================================================================
+// Hooks of the plotting
+//==============================================================================
+
+bool DomainDecomposition::is_local(const SourceRegionKey& sr_key) const
+{
+#ifdef OPENMC_MPI
+  if (active_) {
+    // A source region that no ray has crossed belongs to no rank. The master
+    // stands in for its owner.
+    auto it = map_->subdomain_map_.find(sr_key);
+    int owner = (it != map_->subdomain_map_.end()) ? it->second : 0;
+    return owner == mpi::rank;
+  }
+#endif
+  return true;
+}
+
+vector<DomainDecomposition::PlotField> DomainDecomposition::plot_fields() const
+{
+  vector<PlotField> fields;
+#ifdef OPENMC_MPI
+  if (active_) {
+    // The subdomain of each rank, shown in a color of its own
+    vector<float> colors(mpi::n_procs);
+    for (int rank = 0; rank < mpi::n_procs; rank++) {
+      colors[rank] = future_prn(10, rank);
+    }
+    fields.push_back({"rank_subdomains", colors});
+
+    // The share of each rank in the time spent in transport sweeps
+    const auto& load = map_->measured_rank_load_fractions_;
+    fields.push_back({"measured_load", {load.begin(), load.end()}});
+  }
+#endif
+  return fields;
 }
 
 //==============================================================================

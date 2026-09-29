@@ -521,15 +521,7 @@ void RandomRaySimulation::output_simulation_results()
   }
 
   if (model::plots.size() > 0) {
-#ifdef OPENMC_MPI
-    if (mpi::n_procs > 1) {
-      domain_->output_to_vtk_decomp();
-    } else {
-      domain_->output_to_vtk();
-    }
-#else
     domain_->output_to_vtk();
-#endif
   }
 }
 

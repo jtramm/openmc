@@ -86,7 +86,6 @@ public:
   virtual void accumulate_iteration_flux();
   void demotion_step();
   void output_to_vtk() const;
-  void output_to_vtk_decomp() const;
   void convert_external_sources(bool use_adjoint_sources);
   void count_external_source_regions();
   void set_fw_adjoint_sources();

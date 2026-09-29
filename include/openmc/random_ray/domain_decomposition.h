@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include "openmc/memory.h"
 #include "openmc/position.h"
@@ -103,6 +104,23 @@ public:
   //! \param sr The base source region the segment lies in
   //! \param n_mesh_bins The number of mesh bins the segment crosses
   void tally_ray_trace(const RandomRay& ray, int64_t sr, int n_mesh_bins);
+
+  //----------------------------------------------------------------------------
+  // Hooks of the plotting
+
+  //! Whether a source region belongs to this rank, which holds its data
+  bool is_local(const SourceRegionKey& sr_key) const;
+
+  //! A quantity that describes the decomposition and is added to the plots of
+  //! the solver
+  struct PlotField {
+    std::string name;
+    vector<float> rank_values; //!< Value of the quantity on each rank
+  };
+
+  //! The quantities to add to the plots, none if the problem is not
+  //! decomposed
+  vector<PlotField> plot_fields() const;
 
   //----------------------------------------------------------------------------
   // Reductions over MPI ranks. Each replaces the value on every rank by the
