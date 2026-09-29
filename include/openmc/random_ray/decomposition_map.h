@@ -52,6 +52,7 @@ public:
   void update_load(FlatSourceDomain* domain, bool check_all_ranks,
     vector<double>& rank_load_combined, vector<double>& load_ratio);
   void redistribute_source_regions(FlatSourceDomain* domain);
+  Position location(const FlatSourceDomain* domain, int64_t sr) const;
 
   // Methods to find owner of source region
   int find_owner(SourceRegionKey sr_key, Position r,

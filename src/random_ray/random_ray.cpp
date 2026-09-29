@@ -480,7 +480,6 @@ void RandomRay::attenuate_flux_flat_source(
 
   // If ray is in the active phase (not in dead zone), make contributions to
   // source region bookkeeping
-  Position midpoint = r + u() * (distance / 2.0);
 
   // Aquire lock for source region
   srh.lock();
@@ -495,7 +494,6 @@ void RandomRay::attenuate_flux_flat_source(
     // Accomulate volume (ray distance) into this iteration's estimate
     // of the source region's volume
     srh.volume() += distance;
-    srh.centroid_iteration() += midpoint * distance;
 
     srh.n_hits() += 1;
   }
@@ -503,6 +501,7 @@ void RandomRay::attenuate_flux_flat_source(
   // Tally valid position inside the source region (e.g., midpoint of
   // the ray) if not done already
   if (!srh.position_recorded()) {
+    Position midpoint = r + u() * (distance / 2.0);
     srh.position() = midpoint;
     srh.position_recorded() = 1;
   }
@@ -522,8 +521,6 @@ void RandomRay::attenuate_flux_flat_source_void(
   // source region bookkeeping
   if (is_active) {
 
-    Position midpoint = r + u() * (distance / 2.0);
-
     // Aquire lock for source region
     srh.lock();
 
@@ -536,13 +533,13 @@ void RandomRay::attenuate_flux_flat_source_void(
     // Accomulate volume (ray distance) into this iteration's estimate
     // of the source region's volume
     srh.volume() += distance;
-    srh.centroid_iteration() += midpoint * distance;
     srh.volume_sq() += distance * distance;
     srh.n_hits() += 1;
 
     // Tally valid position inside the source region (e.g., midpoint of
     // the ray) if not done already
     if (!srh.position_recorded()) {
+      Position midpoint = r + u() * (distance / 2.0);
       srh.position() = midpoint;
       srh.position_recorded() = 1;
     }

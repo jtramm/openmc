@@ -965,6 +965,18 @@ void DecompositionMap::balance_load(FlatSourceDomain* domain)
   redistribute_source_regions(domain);
 }
 
+// The point that decides which rank a source region belongs to
+Position DecompositionMap::location(
+  const FlatSourceDomain* domain, int64_t sr) const
+{
+  // A position that was recorded inside the source region when it was first
+  // crossed by a ray. Unlike the centroid of the source region, it is known
+  // for a flat source as well as for a linear source, it does not move from
+  // one batch to the next, and it is kept when the solver is reset for an
+  // adjoint solve.
+  return domain->source_regions_.position(sr);
+}
+
 void DecompositionMap::update_load(FlatSourceDomain* domain,
   bool check_all_ranks, vector<double>& combined_rank_load,
   vector<double>& load_ratio)
@@ -972,8 +984,8 @@ void DecompositionMap::update_load(FlatSourceDomain* domain,
 
   vector<double> load(mpi::n_procs, 0);
 
-// Add up source region hits to respective rank depending of position of
-// centroid of each source region
+// Add up source region hits to respective rank depending on where each
+// source region is
 #pragma omp parallel
   {
     // number of hits per thread
@@ -981,8 +993,7 @@ void DecompositionMap::update_load(FlatSourceDomain* domain,
 
 #pragma omp for
     for (int64_t sr = 0; sr < domain->n_source_regions(); sr++) {
-      Position centroid = domain->source_regions_.centroid(sr);
-      int owner = find_closest_rank(centroid, check_all_ranks);
+      int owner = find_closest_rank(location(domain, sr), check_all_ranks);
       double volume_sr = domain->source_regions_.volume_t(sr);
       thread_load[owner] +=
         load_ratio[owner] *
@@ -1029,8 +1040,7 @@ void DecompositionMap::redistribute_source_regions(FlatSourceDomain* domain)
   // Each rank identifies source regions that need to be transferred to new
   // owner and updates subdomain map accordingly
   for (int64_t sr = 0; sr < domain->n_source_regions(); sr++) {
-    Position centroid = domain->source_regions_.centroid(sr);
-    int owner = find_closest_rank(centroid, true);
+    int owner = find_closest_rank(location(domain, sr), true);
 
     // If owner changed, write source region to list of outbound source regions
     if (owner != mpi::rank) {
