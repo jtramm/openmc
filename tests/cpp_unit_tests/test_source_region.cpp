@@ -204,6 +204,38 @@ TEST_CASE("Source regions are packed and unpacked without loss")
   }
 }
 
+TEST_CASE("Source regions are copied into and out of a container without loss")
+{
+  // With these settings the container stores every field
+  SettingsGuard guard(
+    RunMode::FIXED_SOURCE, RandomRayVolumeEstimator::STRICT_ADAPTIVE);
+  const int negroups = 3;
+  const bool is_linear = true;
+  const bool is_adaptive = true;
+  const bool is_strict_adaptive = true;
+  const bool track_extents = true;
+
+  SourceRegion first(negroups, is_linear);
+  SourceRegion second(negroups, is_linear);
+  fill(first, 1.0);
+  fill(second, 1000.0);
+
+  SourceRegionContainer container(
+    negroups, is_linear, is_adaptive, is_strict_adaptive, track_extents);
+  container.push_back(first);
+  container.push_back(second);
+  REQUIRE(container.n_source_regions() == 2);
+
+  require_same(first, container.get_source_region(0));
+  require_same(second, container.get_source_region(1));
+
+  // An empty container with the same settings stores the same fields
+  SourceRegionContainer other = container.empty_like();
+  REQUIRE(other.n_source_regions() == 0);
+  other.push_back(container.get_source_region(1));
+  require_same(second, other.get_source_region(0));
+}
+
 TEST_CASE("Source regions discovered by two MPI ranks are merged")
 {
   SettingsGuard guard(RunMode::FIXED_SOURCE, RandomRayVolumeEstimator::HYBRID);
