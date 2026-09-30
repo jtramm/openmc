@@ -186,6 +186,8 @@ private:
   // Statistics gathered by finalize_statistics()
   uint64_t avg_communication_rounds_ {0};
   double max_load_imbalance_ {0.0};
+  int64_t n_regions_moved_ {0};  //!< Source regions moved by load balancing
+  int64_t n_regions_merged_ {0}; //!< Source regions found by several ranks
 
 }; // class DomainDecomposition
 

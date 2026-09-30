@@ -640,6 +640,7 @@ void DecompositionMap::exchange_sr_info(
             sr_recv.unpack(buffer.data());
 
             sr.merge(sr_recv);
+            n_regions_merged_++;
           }
         }
       }
@@ -1047,6 +1048,7 @@ void DecompositionMap::redistribute_source_regions(FlatSourceDomain* domain)
     // If owner changed, write source region to list of outbound source regions
     if (owner != mpi::rank) {
       sr_send_list[owner].push_back(sr);
+      n_regions_moved_++;
     }
     // If owner did not change, add source region to new local container
     else {

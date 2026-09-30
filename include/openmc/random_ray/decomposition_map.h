@@ -91,6 +91,13 @@ public:
   vector<double> rank_weights_;
   double target_load_;
 
+  // Number of source regions that this rank sent to another rank because
+  // load balancing assigned them to it, and number of source regions of this
+  // rank to which it added what another rank had tallied for them in the batch
+  // they were discovered in
+  int64_t n_regions_moved_ {0};
+  int64_t n_regions_merged_ {0};
+
 private:
   //----------------------------------------------------------------------------
   // Private data members

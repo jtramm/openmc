@@ -69,6 +69,8 @@ void DomainDecomposition::begin_solve()
   time_source_region_exchange_.reset();
   time_imbalance_.reset();
   n_communication_rounds_ = 0;
+  map_->n_regions_moved_ = 0;
+  map_->n_regions_merged_ = 0;
 
   map_->initialize();
 #endif
@@ -433,6 +435,11 @@ void DomainDecomposition::finalize_statistics(double time_transport)
   }
   double max_load = *std::max_element(fractions.begin(), fractions.end());
   max_load_imbalance_ = (max_load - map_->target_load_) / map_->target_load_;
+
+  n_regions_moved_ = map_->n_regions_moved_;
+  n_regions_merged_ = map_->n_regions_merged_;
+  sum(n_regions_moved_);
+  sum(n_regions_merged_);
 #endif
 }
 
@@ -446,6 +453,8 @@ void DomainDecomposition::print_statistics() const
     " Avg Ray Subdomain Crossings       = {}\n", avg_communication_rounds_);
   fmt::print(" Maximum Load Imbalance            = {:.2f}%\n",
     max_load_imbalance_ * 100.0);
+  fmt::print(" SRs Moved Between Ranks           = {}\n", n_regions_moved_);
+  fmt::print(" SRs Found by Several Ranks        = {}\n", n_regions_merged_);
 }
 
 void DomainDecomposition::print_timing(double time_transport)
