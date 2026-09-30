@@ -2147,8 +2147,8 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   bool is_linear = RandomRay::source_shape_ != RandomRaySourceShape::FLAT;
   SourceRegion* sr_ptr =
     discovered_source_regions_.emplace(sr_key, {negroups_, is_linear});
+  sr_ptr->scalars_.key_ = sr_key;
   SourceRegionHandle handle {*sr_ptr};
-  handle.key() = sr_key;
 
   // Determine the material
   int gs_i_cell = gs.lowest_coord().cell();

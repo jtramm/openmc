@@ -42,14 +42,8 @@ SourceRegionHandle::SourceRegionHandle(SourceRegion& sr)
     flux_moments_old_(sr.flux_moments_old_.data()),
     flux_moments_new_(sr.flux_moments_new_.data()),
     flux_moments_t_(sr.flux_moments_t_.data()),
-    tally_task_(sr.tally_task_.data()), key_(&sr.scalars_.key_)
-{
-  centroid_offset_ = &sr.scalars_.centroid_offset_;
-  // data() on an unallocated vector is null in practice but not by contract,
-  // and this pointer is null-tested to mean "field absent"
-  scalar_flux_t_ =
-    sr.scalar_flux_t_.empty() ? nullptr : sr.scalar_flux_t_.data();
-}
+    tally_task_(sr.tally_task_.data())
+{}
 
 //==============================================================================
 // SourceRegion implementation
@@ -83,77 +77,6 @@ SourceRegion::SourceRegion(int negroups, bool is_linear)
     flux_moments_new_.resize(negroups);
     flux_moments_t_.resize(negroups);
   }
-}
-
-SourceRegion::SourceRegion(const SourceRegionHandle& handle)
-  : SourceRegion(handle.negroups_, handle.is_linear_)
-{
-  scalars_.material_ = handle.material();
-  scalars_.is_small_ = handle.is_small();
-  scalars_.temperature_idx_ = handle.temperature_idx();
-  scalars_.density_mult_ = handle.density_mult();
-  scalars_.n_hits_ = handle.n_hits();
-  scalars_.volume_ = handle.volume();
-  scalars_.volume_t_ = handle.volume_t();
-  scalars_.volume_sq_ = handle.volume_sq();
-  scalars_.volume_sq_t_ = handle.volume_sq_t();
-  scalars_.volume_naive_ = handle.volume_naive();
-  scalars_.position_recorded_ = handle.position_recorded();
-  scalars_.position_ = handle.position();
-  scalars_.key_ = handle.key();
-
-  // These are wired on the handle only when the corresponding feature is
-  // enabled, so they have to be null-checked. Missing any of them here
-  // silently resets it whenever load balancing rebuilds the container.
-  if (handle.n_negative_batches_) {
-    scalars_.n_negative_batches_ = *handle.n_negative_batches_;
-  }
-  if (handle.converged_negative_) {
-    scalars_.converged_negative_ = *handle.converged_negative_;
-  }
-  if (handle.extent_) {
-    extent_ = *handle.extent_;
-  }
-  if (handle.centroid_offset_) {
-    scalars_.centroid_offset_ = *handle.centroid_offset_;
-  }
-  if (handle.centroid_t_) {
-    scalars_.centroid_t_ = *handle.centroid_t_;
-  }
-  scalars_.mesh_ = handle.mesh();
-  scalars_.parent_sr_ = handle.parent_sr();
-
-  if (handle.is_linear_) {
-    scalars_.centroid_ = handle.centroid();
-    scalars_.centroid_iteration_ = handle.centroid_iteration();
-    scalars_.mom_matrix_ = handle.mom_matrix();
-    scalars_.mom_matrix_t_ = handle.mom_matrix_t();
-  }
-
-  for (int g = 0; g < scalar_flux_new_.size(); g++) {
-    scalar_flux_old_[g] = handle.scalar_flux_old(g);
-    scalar_flux_new_[g] = handle.scalar_flux_new(g);
-    source_[g] = handle.source(g);
-    scalar_flux_final_[g] = handle.scalar_flux_final(g);
-    if (handle.scalar_flux_t_) {
-      scalar_flux_t_[g] = handle.scalar_flux_t_[g];
-    }
-    if (handle.is_linear_) {
-      source_gradients_[g] = handle.source_gradients(g);
-      flux_moments_old_[g] = handle.flux_moments_old(g);
-      flux_moments_new_[g] = handle.flux_moments_new(g);
-      flux_moments_t_[g] = handle.flux_moments_t(g);
-    }
-    tally_task_[g] = handle.tally_task(g);
-  }
-  if (settings::run_mode == RunMode::FIXED_SOURCE) {
-    scalars_.external_source_present_ = handle.external_source_present();
-    for (int g = 0; g < scalar_flux_new_.size(); g++) {
-      external_source_[g] = handle.external_source(g);
-    }
-  }
-
-  volume_task_ = handle.volume_task();
 }
 
 // combine two source regions from different ranks together
@@ -367,6 +290,80 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
   }
 }
 
+SourceRegion SourceRegionContainer::get_source_region(int64_t sr) const
+{
+  SourceRegion region(negroups_, is_linear_);
+  auto& scalars = region.scalars_;
+
+  // Scalar fields
+  scalars.material_ = material_[sr];
+  scalars.temperature_idx_ = temperature_idx_[sr];
+  scalars.density_mult_ = density_mult_[sr];
+  scalars.is_small_ = is_small_[sr];
+  if (is_strict_adaptive_) {
+    scalars.n_negative_batches_ = n_negative_batches_[sr];
+  }
+  if (is_adaptive_) {
+    scalars.converged_negative_ = converged_negative_[sr];
+  }
+  scalars.n_hits_ = n_hits_[sr];
+  scalars.volume_ = volume_[sr];
+  scalars.volume_t_ = volume_t_[sr];
+  scalars.volume_sq_ = volume_sq_[sr];
+  scalars.volume_sq_t_ = volume_sq_t_[sr];
+  scalars.volume_naive_ = volume_naive_[sr];
+  scalars.position_recorded_ = position_recorded_[sr];
+  scalars.external_source_present_ = external_source_present_[sr];
+  scalars.position_ = position_[sr];
+  region.volume_task_ = volume_task_[sr];
+  scalars.mesh_ = mesh_[sr];
+  scalars.parent_sr_ = parent_sr_[sr];
+  scalars.key_ = key_[sr];
+
+  // Only store these fields if is_linear_ is true
+  if (is_linear_) {
+    scalars.centroid_ = centroid_[sr];
+    scalars.centroid_iteration_ = centroid_iteration_[sr];
+    scalars.centroid_offset_ = centroid_offset_[sr];
+    scalars.mom_matrix_ = mom_matrix_[sr];
+    scalars.mom_matrix_t_ = mom_matrix_t_[sr];
+  }
+  if (track_centroids_) {
+    scalars.centroid_t_ = centroid_t_[sr];
+  }
+  if (track_extents_) {
+    region.extent_ = extents_[sr];
+  }
+
+  // Energy-dependent fields
+  for (int g = 0; g < negroups_; ++g) {
+    int64_t se = index(sr, g);
+    region.scalar_flux_old_[g] = scalar_flux_old_[se];
+    region.scalar_flux_new_[g] = scalar_flux_new_[se];
+    region.scalar_flux_final_[g] = scalar_flux_final_[se];
+    if (is_adaptive_) {
+      region.scalar_flux_t_[g] = scalar_flux_t_[se];
+    }
+    region.source_[g] = source_[se];
+    if (settings::run_mode == RunMode::FIXED_SOURCE) {
+      region.external_source_[g] = external_source_[se];
+    }
+
+    // Only store these fields if is_linear_ is true
+    if (is_linear_) {
+      region.source_gradients_[g] = source_gradients_[se];
+      region.flux_moments_old_[g] = flux_moments_old_[se];
+      region.flux_moments_new_[g] = flux_moments_new_[se];
+      region.flux_moments_t_[g] = flux_moments_t_[se];
+    }
+
+    // Tally tasks
+    region.tally_task_[g] = tally_task_[se];
+  }
+
+  return region;
+}
+
 void SourceRegionContainer::assign(
   int n_source_regions, const SourceRegion& source_region)
 {
@@ -468,10 +465,10 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   }
   handle.scalar_flux_final_ = &scalar_flux_final(sr, 0);
   handle.tally_task_ = &tally_task(sr, 0);
-  handle.centroid_t_ = track_centroids_ ? &centroid_t(sr) : nullptr;
-  handle.key_ = &key(sr);
-  handle.centroid_offset_ = is_linear_ ? &centroid_offset(sr) : nullptr;
-  handle.scalar_flux_t_ = is_adaptive_ ? &scalar_flux_t(sr, 0) : nullptr;
+
+  if (track_centroids_) {
+    handle.centroid_t_ = &centroid_t(sr);
+  }
 
   if (handle.is_linear_) {
     handle.centroid_ = &centroid(sr);

@@ -227,14 +227,14 @@ TEST_CASE("Source regions are copied into and out of a container without loss")
   container.push_back(second);
   REQUIRE(container.n_source_regions() == 2);
 
-  require_same(first, SourceRegion {container.get_source_region_handle(0)});
-  require_same(second, SourceRegion {container.get_source_region_handle(1)});
+  require_same(first, container.get_source_region(0));
+  require_same(second, container.get_source_region(1));
 
   // An empty container with the same settings stores the same fields
   SourceRegionContainer other = container.empty_like();
   REQUIRE(other.n_source_regions() == 0);
-  other.push_back(container.get_source_region_handle(1));
-  require_same(second, SourceRegion {other.get_source_region_handle(0)});
+  other.push_back(container.get_source_region(1));
+  require_same(second, other.get_source_region(0));
 }
 
 TEST_CASE("Source regions discovered by two MPI ranks are merged")

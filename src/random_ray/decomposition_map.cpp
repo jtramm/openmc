@@ -1058,7 +1058,7 @@ void DecompositionMap::redistribute_source_regions(FlatSourceDomain* domain)
     // If owner did not change, add source region to new local container
     else {
       source_regions_new.push_back(
-        domain->source_regions_.get_source_region_handle(sr));
+        domain->source_regions_.get_source_region(sr));
     }
   }
 
@@ -1154,8 +1154,7 @@ void DecompositionMap::redistribute_source_regions(FlatSourceDomain* domain)
     buffer.resize(sr_indices.size() * packed_size);
     char* position = buffer.data();
     for (int64_t sr_idx : sr_indices) {
-      SourceRegion sr {
-        domain->source_regions_.get_source_region_handle(sr_idx)};
+      SourceRegion sr = domain->source_regions_.get_source_region(sr_idx);
       position = sr.pack(position);
     }
     isend_bytes(buffer, receiver, TAG_SOURCE_REGIONS, requests);
