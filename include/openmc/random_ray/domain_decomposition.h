@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 
+#include "openmc/constants.h"
 #include "openmc/memory.h"
 #include "openmc/position.h"
 #include "openmc/timer.h"
@@ -71,14 +72,18 @@ public:
   void balance_load();
 
   //----------------------------------------------------------------------------
-  // Hooks of the ray transport
+  // Hooks of the ray transport. They are called for every segment of every
+  // ray, so the test of whether the problem is decomposed is inlined.
 
   //! Hand a newly sampled ray to the rank that owns its starting position.
   //! \param ray The ray
   //! \param sr_key The source region the ray starts in
   //! \return Whether the ray was handed off, in which case it is terminated
   //!   on this rank
-  bool hand_off_at_birth(RandomRay& ray, const SourceRegionKey& sr_key);
+  bool hand_off_at_birth(RandomRay& ray, const SourceRegionKey& sr_key)
+  {
+    return active_ && hand_off_at_birth_decomposed(ray, sr_key);
+  }
 
   //! Hand a ray to the rank that owns the source region it is about to
   //! cross, if that is not this rank.
@@ -92,18 +97,35 @@ public:
   //! \return Whether the ray was handed off, in which case it is terminated
   //!   on this rank
   bool hand_off(RandomRay& ray, const SourceRegionKey& sr_key, Position r,
-    double distance, double offset, double partial);
+    double distance, double offset, double partial)
+  {
+    return active_ &&
+           hand_off_decomposed(ray, sr_key, r, distance, offset, partial);
+  }
 
   //! Whether a crossing is too short to be attributed to a source region
   //! reliably when the problem is decomposed, and is to be skipped
-  bool skip_crossing(double distance) const;
+  bool skip_crossing(double distance) const
+  {
+    // Very flat angles can result in very small crossings of a mesh bin. At
+    // the boundary between two subdomains, such a crossing can make a ray
+    // bounce back and forth between two ranks indefinitely.
+    return active_ && distance <= TINY_BIT;
+  }
 
   //! Record the ray tracing work of a geometric segment, from which the load
   //! of each rank is estimated
   //! \param ray The ray
   //! \param sr The base source region the segment lies in
   //! \param n_mesh_bins The number of mesh bins the segment crosses
-  void tally_ray_trace(const RandomRay& ray, int64_t sr, int n_mesh_bins);
+  void tally_ray_trace(const RandomRay& ray, int64_t sr, int n_mesh_bins)
+  {
+    // The counters are only read while the load is being balanced. Past that,
+    // updating them would be pure contention between threads.
+    if (balancing_) {
+      tally_ray_trace_decomposed(ray, sr, n_mesh_bins);
+    }
+  }
 
   //----------------------------------------------------------------------------
   // Hooks of the plotting
@@ -154,13 +176,24 @@ public:
   //! Print the decomposition lines of the timing statistics
   void print_timing(double time_transport);
 
+private:
   //----------------------------------------------------------------------------
-  // Accessors used by the decomposition classes themselves
-  DecompositionMap& map() { return *map_; }
-  const DecompositionMap& map() const { return *map_; }
+  // Private methods
+  bool hand_off_at_birth_decomposed(
+    RandomRay& ray, const SourceRegionKey& sr_key);
+  bool hand_off_decomposed(RandomRay& ray, const SourceRegionKey& sr_key,
+    Position r, double distance, double offset, double partial);
+  void tally_ray_trace_decomposed(
+    const RandomRay& ray, int64_t sr, int n_mesh_bins);
 
   //----------------------------------------------------------------------------
-  // Public data members
+  // Private data members
+  bool active_ {false};
+  bool partitioned_ {false}; //!< Has the domain been divided among the ranks?
+  bool balancing_ {false};   //!< Is the load still being balanced?
+  FlatSourceDomain* domain_; //!< The source regions of this rank
+  unique_ptr<DecompositionMap> map_;
+  unique_ptr<RayBank> bank_;
 
   // Timers of the decomposition tasks
   Timer time_ray_comms_;              //!< Exchange of rays between ranks
@@ -172,16 +205,6 @@ public:
 
   // Number of rounds of ray exchange, summed over the batches of the solve
   uint64_t n_communication_rounds_ {0};
-
-private:
-  //----------------------------------------------------------------------------
-  // Private data members
-  bool active_ {false};
-  bool partitioned_ {false}; //!< Has the domain been divided among the ranks?
-  bool balancing_ {false};   //!< Is the load still being balanced?
-  FlatSourceDomain* domain_; //!< The source regions of this rank
-  unique_ptr<DecompositionMap> map_;
-  unique_ptr<RayBank> bank_;
 
   // Statistics gathered by finalize_statistics()
   uint64_t avg_communication_rounds_ {0};

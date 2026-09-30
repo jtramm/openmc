@@ -7,7 +7,6 @@
 #include "openmc/mgxs_interface.h"
 #include "openmc/output.h"
 #include "openmc/random_lcg.h"
-#include "openmc/random_ray/domain_decomposition.h"
 #include "openmc/random_ray/flat_source_domain.h"
 #include "openmc/random_ray/random_ray.h"
 #include "openmc/simulation.h"
@@ -508,17 +507,12 @@ bool DecompositionMap::any_discovered_source_regions(
   ParallelMap<SourceRegionKey, SourceRegion, SourceRegionKey::HashFunctor>&
     discovered_source_regions)
 {
-
-  decomp_->time_handling_.start();
-
   int flag = 0;
   if (discovered_source_regions.begin() != discovered_source_regions.end()) {
     flag = 1;
   }
 
   MPI_Allreduce(MPI_IN_PLACE, &flag, 1, MPI_INT, MPI_MAX, mpi::intracomm);
-
-  decomp_->time_handling_.stop();
 
   return flag > 0;
 }

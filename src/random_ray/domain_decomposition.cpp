@@ -31,7 +31,7 @@ DomainDecomposition::DomainDecomposition(FlatSourceDomain* domain)
 #ifdef OPENMC_MPI
   active_ = mpi::n_procs > 1;
   if (active_) {
-    map_ = make_unique<DecompositionMap>(this);
+    map_ = make_unique<DecompositionMap>();
     bank_ = make_unique<RayBank>(*map_);
   }
 #endif
@@ -130,12 +130,16 @@ uint64_t DomainDecomposition::transport_sweep()
     if (!bank_->any_rays_alive())
       break;
 
+    // A ray keeps count of the intersections it has made on all ranks, so
+    // only those it makes from here on are counted for this rank
     simulation::time_transport.start();
     uint64_t n_intersections_round = 0;
 #pragma omp parallel for schedule(dynamic) reduction(+ : n_intersections_round)
     for (int64_t i = 0; i < bank_->rays_.size(); i++) {
+      RandomRay& ray = bank_->rays_[i];
+      uint64_t n_start = ray.n_event();
       n_intersections_round +=
-        bank_->rays_[i].transport_history_based_single_ray();
+        ray.transport_history_based_single_ray() - n_start;
     }
     n_intersections += n_intersections_round;
     simulation::time_transport.stop();
@@ -148,12 +152,14 @@ uint64_t DomainDecomposition::transport_sweep()
     map_->calculate_rank_load(domain_, batch_transport_time);
   }
 
-  time_handling_.stop();
-
   // Check if any new source regions discovered and if so, exchange
   // discovered cell data between ranks
-  if (map_->any_discovered_source_regions(
-        domain_->discovered_source_regions_)) {
+  bool any_discovered =
+    map_->any_discovered_source_regions(domain_->discovered_source_regions_);
+
+  time_handling_.stop();
+
+  if (any_discovered) {
     time_source_region_exchange_.start();
     map_->exchange_sr_info(domain_->discovered_source_regions_);
     MPI_Barrier(mpi::intracomm);
@@ -181,13 +187,10 @@ void DomainDecomposition::balance_load()
 // Hooks of the ray transport
 //==============================================================================
 
-bool DomainDecomposition::hand_off_at_birth(
+bool DomainDecomposition::hand_off_at_birth_decomposed(
   RandomRay& ray, const SourceRegionKey& sr_key)
 {
 #ifdef OPENMC_MPI
-  if (!active_)
-    return false;
-
   int owner =
     map_->find_owner(sr_key, ray.r(), domain_->discovered_source_regions_);
   if (owner == mpi::rank)
@@ -201,14 +204,11 @@ bool DomainDecomposition::hand_off_at_birth(
 #endif
 }
 
-bool DomainDecomposition::hand_off(RandomRay& ray,
+bool DomainDecomposition::hand_off_decomposed(RandomRay& ray,
   const SourceRegionKey& sr_key, Position r, double distance, double offset,
   double partial)
 {
 #ifdef OPENMC_MPI
-  if (!active_)
-    return false;
-
   Position midpoint = r + ray.u() * (distance / 2.0);
   int owner =
     map_->find_owner(sr_key, midpoint, domain_->discovered_source_regions_);
@@ -224,23 +224,10 @@ bool DomainDecomposition::hand_off(RandomRay& ray,
 #endif
 }
 
-bool DomainDecomposition::skip_crossing(double distance) const
-{
-  // Very flat angles can result in very small crossings of a mesh bin. At the
-  // boundary between two subdomains, such a crossing can make a ray bounce
-  // back and forth between two ranks indefinitely.
-  return active_ && distance <= TINY_BIT;
-}
-
-void DomainDecomposition::tally_ray_trace(
+void DomainDecomposition::tally_ray_trace_decomposed(
   const RandomRay& ray, int64_t sr, int n_mesh_bins)
 {
 #ifdef OPENMC_MPI
-  // The counters are only read while the load is being balanced. Past that,
-  // updating them would be pure contention between threads.
-  if (!active_ || !balancing_)
-    return;
-
   // The cost of finding the distance to the boundary grows with the number of
   // surfaces of the cells the ray is in
   uint64_t n_surfaces = 0;

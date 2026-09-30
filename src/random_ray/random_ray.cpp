@@ -9,6 +9,7 @@
 #include "openmc/search.h"
 #include "openmc/settings.h"
 #include "openmc/simulation.h"
+
 #include <numeric>
 
 #include "openmc/distribution_spatial.h"
@@ -260,8 +261,6 @@ RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
 uint64_t RandomRay::transport_history_based_single_ray()
 {
   using namespace openmc;
-  int n_start = n_event();
-
   while (alive()) {
     event_advance_ray();
     if (!alive())
@@ -275,8 +274,7 @@ uint64_t RandomRay::transport_history_based_single_ray()
     }
   }
 
-  int delta_n = n_event() - n_start;
-  return delta_n;
+  return n_event();
 }
 
 // Transports ray across a single source region
@@ -306,6 +304,10 @@ void RandomRay::event_advance_ray()
       wgt() = 0.0;
     }
 
+    // The distance travelled is only updated once the segment has been
+    // attenuated. If the problem is decomposed over MPI ranks, the ray may be
+    // handed to another rank part of the way through the segment, along with
+    // the distance it had travelled by then.
     attenuate_flux(distance, true);
     distance_travelled_ += distance;
   } else {
@@ -811,7 +813,6 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
 
   // Reset particle event counter
   n_event() = 0;
-  n_transfers_ = 0;
 
   is_active_ = (distance_inactive_ <= 0.0);
 

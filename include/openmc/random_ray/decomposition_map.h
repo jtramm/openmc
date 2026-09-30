@@ -10,8 +10,6 @@
 
 namespace openmc {
 
-class DomainDecomposition;
-
 // Number of initial batches over which the load is rebalanced between MPI
 // ranks during random ray transport. (The iteration cap within a single
 // rebalancing pass is a local in DecompositionMap::balance_load.)
@@ -19,10 +17,6 @@ constexpr int ITER_LOAD_BALANCE {5};
 
 class DecompositionMap {
 public:
-  //----------------------------------------------------------------------------
-  // Constructors
-  explicit DecompositionMap(DomainDecomposition* decomp) : decomp_(decomp) {}
-
   //----------------------------------------------------------------------------
   // Methods
 
@@ -102,9 +96,6 @@ public:
 private:
   //----------------------------------------------------------------------------
   // Private data members
-
-  // The domain decomposition this map belongs to
-  DomainDecomposition* decomp_ {nullptr};
 
   SpatialBox* spatial_box_ = nullptr;
 
