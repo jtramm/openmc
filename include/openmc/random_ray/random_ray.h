@@ -9,9 +9,6 @@
 
 namespace openmc {
 
-// Forward declare
-class FlatSourceDomain;
-
 /*
  * The RandomRay class encompasses data and methods for transporting random rays
  * through the model. It is a small extension of the Particle class.

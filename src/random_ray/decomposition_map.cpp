@@ -109,6 +109,13 @@ void DecompositionMap::initialize()
     }
   }
 
+  // The cost of finding the distance to the boundary of a cell grows with
+  // the number of surfaces that bound it
+  n_cell_surfaces_.resize(model::cells.size());
+  for (int i = 0; i < model::cells.size(); i++) {
+    n_cell_surfaces_[i] = model::cells[i]->surfaces().size();
+  }
+
   num_base_source_region_RT_.resize(n_base_sr_, 0);
   num_mesh_bin_RT_.resize(n_base_sr_, 0);
   ray_tracing_cost_.resize(n_base_sr_);

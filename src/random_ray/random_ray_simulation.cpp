@@ -1,7 +1,6 @@
 #include "openmc/random_ray/random_ray_simulation.h"
 
 #include "openmc/capi.h"
-#include "openmc/constants.h"
 #include "openmc/eigenvalue.h"
 #include "openmc/geometry.h"
 #include "openmc/message_passing.h"
@@ -17,7 +16,6 @@
 #include "openmc/tallies/tally_scoring.h"
 #include "openmc/timer.h"
 #include "openmc/weight_windows.h"
-#include <numeric>
 
 namespace openmc {
 

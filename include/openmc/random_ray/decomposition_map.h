@@ -83,6 +83,7 @@ public:
                                      // operations per base source region
   vector<uint64_t> num_mesh_bin_RT_; // number of mesh bin ray trace operations
                                      // per base source region
+  vector<int> n_cell_surfaces_;      // number of surfaces that bound each cell
   vector<double> ray_tracing_cost_;
   vector<double> volume_base_sr_;
   vector<double> measured_rank_load_fractions_;

@@ -7,7 +7,6 @@
 
 #include <fmt/core.h>
 
-#include "openmc/cell.h"
 #include "openmc/constants.h"
 #include "openmc/error.h"
 #include "openmc/message_passing.h"
@@ -246,7 +245,7 @@ void DomainDecomposition::tally_ray_trace(
   // surfaces of the cells the ray is in
   uint64_t n_surfaces = 0;
   for (int i = 0; i < ray.n_coord(); i++) {
-    n_surfaces += model::cells[ray.coord(i).cell()]->n_surfaces();
+    n_surfaces += map_->n_cell_surfaces_[ray.coord(i).cell()];
   }
 
   // Threads routinely transport rays through the same base source region, so
