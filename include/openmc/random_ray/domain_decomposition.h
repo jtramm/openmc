@@ -182,8 +182,17 @@ public:
   //! Total time spent on decomposition tasks outside of the transport sweep
   double overhead_time(double time_transport);
 
-  //! Gather the statistics reported at the end of a solve
-  void finalize_statistics(double time_transport);
+  //! Combine the statistics of a solve over the MPI ranks: the counts passed
+  //! in, those that the domain keeps of the final batch, and those of the
+  //! decomposition itself. Called once at the end of a solve, before the
+  //! statistics are printed.
+  //! \param n_intersections Number of geometric intersections, of this rank on
+  //!   entry and of all ranks on exit
+  //! \param n_source_regions Number of source regions, likewise
+  //! \param n_external_source_regions Number of source regions that contain
+  //!   an external source, likewise
+  void reduce_statistics(uint64_t& n_intersections, int64_t& n_source_regions,
+    int64_t& n_external_source_regions);
 
   //! Print the decomposition lines of the simulation statistics
   void print_statistics() const;
@@ -221,7 +230,7 @@ private:
   // Number of rounds of ray exchange, summed over the batches of the solve
   uint64_t n_communication_rounds_ {0};
 
-  // Statistics gathered by finalize_statistics()
+  // Statistics gathered by reduce_statistics()
   uint64_t avg_communication_rounds_ {0};
   double max_load_imbalance_ {0.0};
   int64_t n_regions_moved_ {0};  //!< Source regions moved by load balancing

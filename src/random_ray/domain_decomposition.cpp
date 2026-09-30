@@ -402,16 +402,35 @@ double DomainDecomposition::overhead_time(double time_transport)
          transport_time(time_transport);
 }
 
-void DomainDecomposition::finalize_statistics(double time_transport)
+void DomainDecomposition::reduce_statistics(uint64_t& n_intersections,
+  int64_t& n_source_regions, int64_t& n_external_source_regions)
 {
   if (!active_)
     return;
 
 #ifdef OPENMC_MPI
+  // The counts of the solver
+  sum(n_intersections);
+  sum(n_source_regions);
+  sum(n_external_source_regions);
+
+  // The numbers of source regions that received each treatment in the final
+  // batch, which the domain keeps for the adaptive volume estimator
+  sum(domain_->n_final_naive_);
+  sum(domain_->n_final_latch_);
+  sum(domain_->n_final_strong_);
+  sum(domain_->n_final_sign_);
+  sum(domain_->n_final_small_);
+  sum(domain_->n_final_chronic_);
+  sum(domain_->n_final_rescued_);
+  sum(domain_->n_final_floored_);
+
+  // The statistics of the decomposition itself
   avg_communication_rounds_ = static_cast<uint64_t>(std::round(
     static_cast<double>(n_communication_rounds_) / settings::n_batches));
 
   // Every rank needs the measured load of all ranks, as it is plotted
+  double time_transport = simulation::time_transport.elapsed();
   auto& fractions = map_->measured_rank_load_fractions_;
   MPI_Allgather(&time_transport, 1, MPI_DOUBLE, fractions.data(), 1, MPI_DOUBLE,
     mpi::intracomm);

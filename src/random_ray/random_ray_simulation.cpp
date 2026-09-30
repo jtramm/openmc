@@ -502,22 +502,11 @@ void RandomRaySimulation::simulate()
 
 void RandomRaySimulation::output_simulation_results()
 {
-  // Combine the diagnostics of all MPI ranks, if the problem is decomposed
-  DomainDecomposition& decomposition = domain_->decomposition_;
+  // Combine the statistics of all MPI ranks, if the problem is decomposed
   int64_t n_source_regions = domain_->n_source_regions();
   int64_t n_external_source_regions = domain_->n_external_source_regions_;
-  decomposition.sum(total_geometric_intersections_);
-  decomposition.sum(n_source_regions);
-  decomposition.sum(n_external_source_regions);
-  decomposition.sum(domain_->n_final_naive_);
-  decomposition.sum(domain_->n_final_latch_);
-  decomposition.sum(domain_->n_final_strong_);
-  decomposition.sum(domain_->n_final_sign_);
-  decomposition.sum(domain_->n_final_small_);
-  decomposition.sum(domain_->n_final_chronic_);
-  decomposition.sum(domain_->n_final_rescued_);
-  decomposition.sum(domain_->n_final_floored_);
-  decomposition.finalize_statistics(simulation::time_transport.elapsed());
+  domain_->decomposition_.reduce_statistics(total_geometric_intersections_,
+    n_source_regions, n_external_source_regions);
 
   // Print random ray results
   if (mpi::master) {
