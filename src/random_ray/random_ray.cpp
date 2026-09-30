@@ -9,7 +9,6 @@
 #include "openmc/search.h"
 #include "openmc/settings.h"
 #include "openmc/simulation.h"
-
 #include <numeric>
 
 #include "openmc/distribution_spatial.h"
@@ -261,12 +260,14 @@ RandomRay::RandomRay(uint64_t ray_id, FlatSourceDomain* domain) : RandomRay()
 uint64_t RandomRay::transport_history_based_single_ray()
 {
   using namespace openmc;
+
   while (alive()) {
     event_advance_ray();
+
     if (!alive())
       break;
     event_cross_surface();
-    // If ray has too many events, display warning and kill it
+
     if (n_event() >= settings::max_particle_events) {
       warning("Ray " + std::to_string(id()) +
               " underwent maximum number of events, terminating ray.");
@@ -867,8 +868,6 @@ void RandomRay::initialize_ray(uint64_t ray_id, FlatSourceDomain* domain)
   SourceRegionHandle srh =
     domain_->get_subdivided_source_region_handle(sr_key, r(), u());
 
-  // Initialize ray's starting angular flux to starting location's isotropic
-  // source
   if (!srh.is_numerical_fp_artifact_) {
     for (int g = 0; g < negroups_; g++) {
       angular_flux_[g] = srh.source(g);
