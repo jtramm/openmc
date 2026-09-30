@@ -474,10 +474,15 @@ class SourceRegionContainer {
 public:
   //----------------------------------------------------------------------------
   // Constructors
+  //! \param track_centroids Whether the centroid of each source region is
+  //!   accumulated for a flat source as well (it always is for a linear
+  //!   source), which the domain decomposition needs to assign source regions
+  //!   to MPI ranks
   SourceRegionContainer(int negroups, bool is_linear, bool is_adaptive,
-    bool is_strict_adaptive, bool track_extents)
+    bool is_strict_adaptive, bool track_extents, bool track_centroids)
     : negroups_(negroups), is_linear_(is_linear), is_adaptive_(is_adaptive),
-      is_strict_adaptive_(is_strict_adaptive), track_extents_(track_extents)
+      is_strict_adaptive_(is_strict_adaptive), track_extents_(track_extents),
+      track_centroids_(is_linear || track_centroids)
   {}
   SourceRegionContainer() = default;
 
@@ -486,8 +491,8 @@ public:
   //! container from scratch after load balancing.
   SourceRegionContainer empty_like() const
   {
-    return SourceRegionContainer(
-      negroups_, is_linear_, is_adaptive_, is_strict_adaptive_, track_extents_);
+    return SourceRegionContainer(negroups_, is_linear_, is_adaptive_,
+      is_strict_adaptive_, track_extents_, track_centroids_);
   }
 
   //----------------------------------------------------------------------------
@@ -764,6 +769,9 @@ private:
   // Whether the sampled bounding boxes are stored (linear source with the
   // source gradient limiter enabled)
   bool track_extents_ {false};
+  // Whether the accumulated centroids are stored (linear source, or a flat
+  // source when the problem is decomposed over MPI ranks)
+  bool track_centroids_ {false};
 
   // SoA storage for scalar fields (one item per source region)
   vector<int> material_;

@@ -498,6 +498,8 @@ void RandomRay::attenuate_flux_flat_source(
     srh.volume() += distance;
 
     srh.n_hits() += 1;
+
+    domain_->decomposition_.tally_centroid(srh, r, u(), distance);
   }
 
   // Tally valid position inside the source region (e.g., midpoint of
@@ -537,6 +539,8 @@ void RandomRay::attenuate_flux_flat_source_void(
     srh.volume() += distance;
     srh.volume_sq() += distance * distance;
     srh.n_hits() += 1;
+
+    domain_->decomposition_.tally_centroid(srh, r, u(), distance);
 
     // Tally valid position inside the source region (e.g., midpoint of
     // the ray) if not done already

@@ -92,7 +92,10 @@ void SourceRegion::merge(const SourceRegion& sr_add)
   scalars_.external_source_present_ =
     std::max(scalars_.external_source_present_,
       sr_add.scalars_.external_source_present_);
+  // A linear source accumulates the centroid of the batch, a flat source in a
+  // decomposed problem the running total
   scalars_.centroid_iteration_ += sr_add.scalars_.centroid_iteration_;
+  scalars_.centroid_t_ += sr_add.scalars_.centroid_t_;
   if (is_linear) {
     scalars_.mom_matrix_ += sr_add.scalars_.mom_matrix_;
   }
@@ -101,8 +104,8 @@ void SourceRegion::merge(const SourceRegion& sr_add)
   // the source gradient limiter is the union of the two boxes
   extent_ |= sr_add.extent_;
 
-  // Both copies were discovered during the current batch, so the accumulated
-  // quantities (volume_t_, centroid_t_, scalar_flux_t_, the _t_ moments and
+  // Both copies were discovered during the current batch, so the other
+  // accumulated quantities (volume_t_, scalar_flux_t_, the _t_ moments and
   // the demotion counters) are still zero on both sides and need no combining.
 
   // Accumulated (tallied) vector fields. Note that external_source_ is
@@ -249,10 +252,12 @@ void SourceRegionContainer::push_back(const SourceRegion& sr)
   if (is_linear_) {
     centroid_.push_back(sr.scalars_.centroid_);
     centroid_iteration_.push_back(sr.scalars_.centroid_iteration_);
-    centroid_t_.push_back(sr.scalars_.centroid_t_);
     centroid_offset_.push_back(sr.scalars_.centroid_offset_);
     mom_matrix_.push_back(sr.scalars_.mom_matrix_);
     mom_matrix_t_.push_back(sr.scalars_.mom_matrix_t_);
+  }
+  if (track_centroids_) {
+    centroid_t_.push_back(sr.scalars_.centroid_t_);
   }
   if (track_extents_) {
     extents_.push_back(sr.extent_);
@@ -320,10 +325,12 @@ SourceRegion SourceRegionContainer::get_source_region(int64_t sr) const
   if (is_linear_) {
     scalars.centroid_ = centroid_[sr];
     scalars.centroid_iteration_ = centroid_iteration_[sr];
-    scalars.centroid_t_ = centroid_t_[sr];
     scalars.centroid_offset_ = centroid_offset_[sr];
     scalars.mom_matrix_ = mom_matrix_[sr];
     scalars.mom_matrix_t_ = mom_matrix_t_[sr];
+  }
+  if (track_centroids_) {
+    scalars.centroid_t_ = centroid_t_[sr];
   }
   if (track_extents_) {
     region.extent_ = extents_[sr];
@@ -386,11 +393,11 @@ void SourceRegionContainer::assign(
   if (is_linear_) {
     centroid_.clear();
     centroid_iteration_.clear();
-    centroid_t_.clear();
     centroid_offset_.clear();
     mom_matrix_.clear();
     mom_matrix_t_.clear();
   }
+  centroid_t_.clear();
   extents_.clear();
 
   scalar_flux_old_.clear();
@@ -460,10 +467,13 @@ SourceRegionHandle SourceRegionContainer::get_source_region_handle(int64_t sr)
   handle.scalar_flux_final_ = &scalar_flux_final(sr, 0);
   handle.tally_task_ = &tally_task(sr, 0);
 
+  if (track_centroids_) {
+    handle.centroid_t_ = &centroid_t(sr);
+  }
+
   if (handle.is_linear_) {
     handle.centroid_ = &centroid(sr);
     handle.centroid_iteration_ = &centroid_iteration(sr);
-    handle.centroid_t_ = &centroid_t(sr);
     handle.mom_matrix_ = &mom_matrix(sr);
     handle.mom_matrix_t_ = &mom_matrix_t(sr);
     handle.extent_ = track_extents_ ? &extent(sr) : nullptr;

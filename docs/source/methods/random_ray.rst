@@ -1367,12 +1367,14 @@ where :math:`N_{\mathrm{rank}}` is the total number of MPI ranks.
 Changes to the weights :math:`\mathbf{\omega_{\mathrm{rank}}}` increase or
 decrease the reach of a specific MPI rank, and thus the number of source regions
 that belong to it. The rank of a source region is found by evaluating Equation
-:eq:`mpi_ownership` at a position inside the source region, which is recorded
-the first time a ray crosses it. After each weight change, the rank load
-estimates are updated according to the anticipated changes in the ownership of
-source regions, and the new load estimates are then used again to calculate new
-weights. These load optimization iterations continue until the estimated load
-imbalance is smaller than 1% or until a maximum of 200 iterations is reached.
+:eq:`mpi_ownership` at its centroid, estimated from the ray segments that have
+crossed it, or, for a source region that no ray has crossed yet, at a position
+recorded inside it the first time a ray crossed it. After each weight change,
+the rank load estimates are updated according to the anticipated changes in the
+ownership of source regions, and the new load estimates are then used again to
+calculate new weights. These load optimization iterations continue until the
+estimated load imbalance is smaller than 1% or until a maximum of 200
+iterations is reached.
 
 After the load balancing, numerous source regions will belong to new MPI ranks.
 The corresponding cell data is transferred to the new owner ranks and erased

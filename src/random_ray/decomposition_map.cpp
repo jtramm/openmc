@@ -973,12 +973,16 @@ void DecompositionMap::balance_load(FlatSourceDomain* domain)
 Position DecompositionMap::location(
   const FlatSourceDomain* domain, int64_t sr) const
 {
-  // A position that was recorded inside the source region when it was first
-  // crossed by a ray. Unlike the centroid of the source region, it is known
-  // for a flat source as well as for a linear source, it does not move from
-  // one batch to the next, and it is kept when the solver is reset for an
-  // adjoint solve.
-  return domain->source_regions_.position(sr);
+  // The centroid of the source region, estimated from the ray segments that
+  // have crossed it in the current solve. A source region that no ray has
+  // crossed yet (the solver is reset for an adjoint solve) is placed at the
+  // position recorded inside it when it was first crossed.
+  const SourceRegionContainer& regions = domain->source_regions_;
+  double volume_t = regions.volume_t(sr);
+  if (volume_t > 0.0) {
+    return regions.centroid_t(sr) / volume_t;
+  }
+  return regions.position(sr);
 }
 
 void DecompositionMap::update_load(FlatSourceDomain* domain,

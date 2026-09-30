@@ -8,6 +8,7 @@
 #include "openmc/constants.h"
 #include "openmc/memory.h"
 #include "openmc/position.h"
+#include "openmc/random_ray/source_region.h"
 #include "openmc/timer.h"
 #include "openmc/vector.h"
 
@@ -18,7 +19,6 @@ class DecompositionMap;
 class FlatSourceDomain;
 class RandomRay;
 class RayBank;
-class SourceRegionKey;
 
 /*
  * The DomainDecomposition class is the single point of contact between the
@@ -111,6 +111,21 @@ public:
     // the boundary between two subdomains, such a crossing can make a ray
     // bounce back and forth between two ranks indefinitely.
     return active_ && distance <= TINY_BIT;
+  }
+
+  //! Accumulate the centroid of a source region with a flat source, by which
+  //! the source region is assigned to a rank. A linear source accumulates the
+  //! centroid itself.
+  //! \param srh The source region
+  //! \param r Position at which the ray enters the source region
+  //! \param u Direction of the ray
+  //! \param distance Length of the crossing
+  void tally_centroid(
+    SourceRegionHandle& srh, Position r, Direction u, double distance) const
+  {
+    if (active_) {
+      srh.centroid_t() += (r + u * (distance / 2.0)) * distance;
+    }
   }
 
   //! Record the ray tracing work of a geometric segment, from which the load

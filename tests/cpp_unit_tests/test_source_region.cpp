@@ -214,14 +214,15 @@ TEST_CASE("Source regions are copied into and out of a container without loss")
   const bool is_adaptive = true;
   const bool is_strict_adaptive = true;
   const bool track_extents = true;
+  const bool track_centroids = true;
 
   SourceRegion first(negroups, is_linear);
   SourceRegion second(negroups, is_linear);
   fill(first, 1.0);
   fill(second, 1000.0);
 
-  SourceRegionContainer container(
-    negroups, is_linear, is_adaptive, is_strict_adaptive, track_extents);
+  SourceRegionContainer container(negroups, is_linear, is_adaptive,
+    is_strict_adaptive, track_extents, track_centroids);
   container.push_back(first);
   container.push_back(second);
   REQUIRE(container.n_source_regions() == 2);
@@ -257,6 +258,8 @@ TEST_CASE("Source regions discovered by two MPI ranks are merged")
   REQUIRE(sum.scalars_.n_hits_ == a.scalars_.n_hits_ + b.scalars_.n_hits_);
   REQUIRE(same(sum.scalars_.centroid_iteration_,
     a.scalars_.centroid_iteration_ + b.scalars_.centroid_iteration_));
+  REQUIRE(same(
+    sum.scalars_.centroid_t_, a.scalars_.centroid_t_ + b.scalars_.centroid_t_));
   REQUIRE(sum.scalars_.mom_matrix_.a ==
           a.scalars_.mom_matrix_.a + b.scalars_.mom_matrix_.a);
   for (int g = 0; g < negroups; g++) {
