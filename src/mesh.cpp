@@ -3307,18 +3307,30 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   moab::CartVect dir(u.x, u.y, u.z);
   dir.normalize();
 
+  bins.clear();
+  lengths.clear();
+
   double track_len = (end - start).length();
-  if (track_len == 0.0)
+  if (track_len == 0.0) {
+    // In random ray mode, source regions are mapped onto mesh tally bins with
+    // a zero-length track located at a point inside the source region (see
+    // FlatSourceDomain::convert_source_regions_to_tallies). Score the whole
+    // track to the bin containing that point, as StructuredMesh does.
+    if (settings::solver_type == SolverType::RANDOM_RAY) {
+      int bin = this->get_bin(r0);
+      if (bin != -1) {
+        bins.push_back(bin);
+        lengths.push_back(1.0);
+      }
+    }
     return;
+  }
 
   start -= TINY_BIT * dir;
   end += TINY_BIT * dir;
 
   vector<double> hits;
   intersect_track(start, dir, track_len, hits);
-
-  bins.clear();
-  lengths.clear();
 
   // if there are no intersections the track may lie entirely
   // within a single tet. If this is the case, apply entire
