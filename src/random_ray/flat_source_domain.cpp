@@ -2438,6 +2438,12 @@ void FlatSourceDomain::apply_meshes()
     if (mesh_domain_map_.find(mesh_id) == mesh_domain_map_.end())
       continue;
 
+    // Ray tracing through the mesh and locating source regions within it
+    // require the mesh's point-location acceleration structures, which
+    // unstructured meshes only build on request (normally triggered by a mesh
+    // filter or weight windows referencing the mesh).
+    mesh->prepare_for_point_location();
+
     // Loop over domains associated with the mesh
     for (auto& domain : mesh_domain_map_[mesh_id]) {
       Source::DomainType domain_type = domain.first;

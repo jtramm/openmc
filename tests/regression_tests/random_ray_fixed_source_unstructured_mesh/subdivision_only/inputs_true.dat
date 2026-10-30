@@ -31,19 +31,6 @@
       </constraints>
     </source>
     <energy_mode>multi-group</energy_mode>
-    <weight_window_generators>
-      <weight_windows_generator>
-        <mesh>1</mesh>
-        <particle_type>neutron</particle_type>
-        <max_realizations>5</max_realizations>
-        <update_interval>1</update_interval>
-        <on_the_fly>true</on_the_fly>
-        <method>magic</method>
-      </weight_windows_generator>
-    </weight_window_generators>
-    <mesh id="1" type="unstructured" library="moab">
-      <filename>../unstructured_mesh/test_mesh_dagmc_tets.vtk</filename>
-    </mesh>
     <random_ray>
       <distance_active>10.0</distance_active>
       <distance_inactive>3.0</distance_inactive>
@@ -61,21 +48,16 @@
         </mesh>
       </source_region_meshes>
     </random_ray>
+    <mesh id="1" type="unstructured" library="moab">
+      <filename>../../unstructured_mesh/test_mesh_dagmc_tets.vtk</filename>
+    </mesh>
   </settings>
   <tallies>
-    <filter id="1" type="mesh">
+    <filter id="1" type="cell">
       <bins>1</bins>
     </filter>
-    <filter id="2" type="cell">
-      <bins>1</bins>
-    </filter>
-    <tally id="1" name="tet flux">
+    <tally id="1" name="cell flux">
       <filters>1</filters>
-      <scores>flux</scores>
-      <estimator>tracklength</estimator>
-    </tally>
-    <tally id="2" name="cell flux">
-      <filters>2</filters>
       <scores>flux</scores>
       <estimator>tracklength</estimator>
     </tally>

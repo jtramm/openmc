@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model>
+  <materials>
+    <cross_sections>mgxs.h5</cross_sections>
+    <material id="1" name="mat">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="mat"/>
+    </material>
+  </materials>
+  <geometry>
+    <cell id="1" name="cube" material="1" region="-2 1 -4 3 -6 5" universe="1"/>
+    <surface id="1" type="x-plane" boundary="reflective" coeffs="-0.5"/>
+    <surface id="2" type="x-plane" boundary="vacuum" coeffs="0.5"/>
+    <surface id="3" type="y-plane" boundary="reflective" coeffs="-0.5"/>
+    <surface id="4" type="y-plane" boundary="vacuum" coeffs="0.5"/>
+    <surface id="5" type="z-plane" boundary="reflective" coeffs="-0.5"/>
+    <surface id="6" type="z-plane" boundary="vacuum" coeffs="0.5"/>
+  </geometry>
+  <settings>
+    <run_mode>fixed source</run_mode>
+    <particles>100</particles>
+    <batches>10</batches>
+    <inactive>5</inactive>
+    <source type="independent" strength="1.0" particle="neutron">
+      <energy type="discrete">
+        <parameters>1000000.0 1.0</parameters>
+      </energy>
+      <constraints>
+        <domain_type>cell</domain_type>
+        <domain_ids>1</domain_ids>
+      </constraints>
+    </source>
+    <energy_mode>multi-group</energy_mode>
+    <weight_window_generators>
+      <weight_windows_generator>
+        <mesh>1</mesh>
+        <particle_type>neutron</particle_type>
+        <max_realizations>5</max_realizations>
+        <update_interval>1</update_interval>
+        <on_the_fly>true</on_the_fly>
+        <method>magic</method>
+      </weight_windows_generator>
+    </weight_window_generators>
+    <mesh id="1" type="unstructured" library="moab">
+      <filename>../../unstructured_mesh/test_mesh_dagmc_tets.vtk</filename>
+    </mesh>
+    <random_ray>
+      <distance_active>10.0</distance_active>
+      <distance_inactive>3.0</distance_inactive>
+      <ray_source>
+        <source type="independent" strength="1.0" particle="neutron">
+          <space type="box">
+            <parameters>-0.5 -0.5 -0.5 0.5 0.5 0.5</parameters>
+          </space>
+        </source>
+      </ray_source>
+      <volume_estimator>hybrid</volume_estimator>
+      <source_region_meshes>
+        <mesh id="1">
+          <domain id="1" type="universe"/>
+        </mesh>
+      </source_region_meshes>
+    </random_ray>
+  </settings>
+  <tallies>
+    <filter id="1" type="cell">
+      <bins>1</bins>
+    </filter>
+    <filter id="2" type="mesh">
+      <bins>1</bins>
+    </filter>
+    <tally id="1" name="cell flux">
+      <filters>1</filters>
+      <scores>flux</scores>
+      <estimator>tracklength</estimator>
+    </tally>
+    <tally id="2" name="tet flux">
+      <filters>2</filters>
+      <scores>flux</scores>
+      <estimator>tracklength</estimator>
+    </tally>
+  </tallies>
+</model>
