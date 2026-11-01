@@ -1,5 +1,8 @@
 #include "openmc/random_ray/random_ray.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <fmt/core.h>
 
 #include "openmc/cell.h"
@@ -371,6 +374,23 @@ void RandomRay::event_advance_ray()
   }
 }
 
+namespace {
+
+//! Length up to which a traversal of a mesh may lose or add to a track,
+//! from the magnitude of the mesh's coordinates
+double traversal_resolution(const Mesh& mesh)
+{
+  const BoundingBox box = mesh.bounding_box();
+  double scale = 0.0;
+  for (int d = 0; d < 3; d++) {
+    scale = std::max({scale, std::abs(box.min[d]), std::abs(box.max[d]),
+      box.max[d] - box.min[d]});
+  }
+  return 1e-8 * scale;
+}
+
+} // namespace
+
 void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 {
   // Lookup base source region index
@@ -410,15 +430,27 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 
     // Portions of the segment outside the mesh are not returned, so they
     // could be neither attenuated nor tallied: the mesh has to cover the
-    // cells it subdivides
-    if (reduced_distance > 10.0 * TINY_BIT &&
-        std::accumulate(mesh_fractional_lengths_.begin(),
-          mesh_fractional_lengths_.end(), 0.0) < 1.0 - 1e-6) {
+    // cells it subdivides. The lengths returned add up to the segment's
+    // length to within roundoff, or to within the resolution of the mesh's
+    // traversal, which follows the magnitude of the mesh's coordinates.
+    if (reduced_distance > 10.0 * TINY_BIT) {
+      const double excess = std::accumulate(mesh_fractional_lengths_.begin(),
+                              mesh_fractional_lengths_.end(), 0.0) -
+                            1.0;
+      if (std::abs(excess) > 1e-6 &&
+          std::abs(excess) * reduced_distance > traversal_resolution(*mesh)) {
 #pragma omp critical(random_ray_mesh_coverage)
-      fatal_error(fmt::format(
-        "Source region mesh {} does not cover all of the cells it is "
-        "applied to: a ray crosses part of such a cell outside of the mesh.",
-        mesh->id()));
+        fatal_error(
+          excess < 0.0
+            ? fmt::format(
+                "Source region mesh {} does not cover all of the cells it is "
+                "applied to: a ray crosses part of such a cell outside of the "
+                "mesh.",
+                mesh->id())
+            : fmt::format("The elements of source region mesh {} overlap: a "
+                          "ray crosses them for more than its length.",
+                mesh->id()));
+      }
     }
 
     // Loop over all mesh bins and attenuate flux

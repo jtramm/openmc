@@ -455,6 +455,20 @@ std::string Mesh::surface_bin_label(int surf_index) const
     labels[dim], max ? "max" : "min");
 }
 
+void Mesh::bins_crossed_with_starts(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths,
+  vector<double>& starts) const
+{
+  // The crossings follow one another from r0
+  bins_crossed(r0, r1, u, bins, lengths);
+  starts.clear();
+  double start = 0.0;
+  for (double length : lengths) {
+    starts.push_back(start);
+    start += length;
+  }
+}
+
 void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
   int32_t* materials, double* volumes) const
 {
@@ -500,6 +514,7 @@ void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
     // Preallocate vector for mesh indices and length fractions and particle
     vector<int> bins;
     vector<double> length_fractions;
+    vector<double> start_fractions;
     Particle p;
 
     SourceSite site;
@@ -571,18 +586,22 @@ void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
 
         bins.clear();
         length_fractions.clear();
-        this->bins_crossed(r0, r1, site.u, bins, length_fractions);
+        start_fractions.clear();
+        if (compute_bboxes) {
+          this->bins_crossed_with_starts(
+            r0, r1, site.u, bins, length_fractions, start_fractions);
+        } else {
+          this->bins_crossed(r0, r1, site.u, bins, length_fractions);
+        }
 
-        double cumulative_frac = 0.0;
         for (int i_bin = 0; i_bin < bins.size(); i_bin++) {
           int mesh_index = bins[i_bin];
           double length = distance * length_fractions[i_bin];
           double volume = length * d1 * d2;
 
           if (compute_bboxes) {
-            double axis_start = r0[axis] + distance * cumulative_frac;
+            double axis_start = r0[axis] + distance * start_fractions[i_bin];
             double axis_end = axis_start + length;
-            cumulative_frac += length_fractions[i_bin];
 
             Position contrib_min = site.r;
             Position contrib_max = site.r;
@@ -3302,6 +3321,20 @@ void MOABMesh::intersect_track(const moab::CartVect& start,
 void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
+  traverse(r0, r1, u, bins, lengths, nullptr);
+}
+
+void MOABMesh::bins_crossed_with_starts(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths,
+  vector<double>& starts) const
+{
+  starts.clear();
+  traverse(r0, r1, u, bins, lengths, &starts);
+}
+
+void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
+  vector<int>& bins, vector<double>& lengths, vector<double>* starts) const
+{
   moab::CartVect start(r0.x, r0.y, r0.z);
   moab::CartVect end(r1.x, r1.y, r1.z);
   moab::CartVect dir(u.x, u.y, u.z);
@@ -3329,6 +3362,8 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     if (bin != -1) {
       bins.push_back(bin);
       lengths.push_back(1.0);
+      if (starts)
+        starts->push_back(0.0);
     }
     return;
   }
@@ -3355,6 +3390,8 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 
     bins.push_back(bin);
     lengths.push_back(segment_length / track_len);
+    if (starts)
+      starts->push_back((hit - segment_length) / track_len);
   }
 
   // tally remaining portion of track after last hit if
@@ -3368,6 +3405,8 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     if (bin != -1) {
       bins.push_back(bin);
       lengths.push_back(segment_length / track_len);
+      if (starts)
+        starts->push_back(hits.back() / track_len);
     }
   }
 };
@@ -3925,7 +3964,7 @@ void LibMesh::initialize()
 
   find_inverted_elements();
   build_refined_sides();
-  build_element_grid();
+  build_element_tree();
   build_boundary_triangles();
   check_elements();
 
@@ -4046,18 +4085,6 @@ int side_corners(libMesh::ElemType type, unsigned int s)
   }
 }
 
-//! Index of the grid interval that x falls in; -1 if x is outside [0, n)
-//! (NaN included), or the nearest valid index if clamp is set
-int grid_index(double x, int n, bool clamp)
-{
-  const double f = std::floor(x);
-  if (f >= 0.0 && f < n)
-    return static_cast<int>(f);
-  if (!clamp)
-    return -1;
-  return f >= n ? n - 1 : 0;
-}
-
 //! Corner nodes (local indices) of side s of an element, in order around it.
 //! They come first in a side's node list, so for the standard element types
 //! no search is needed.
@@ -4096,108 +4123,239 @@ bool in_side_mask(unsigned int mask, unsigned int s)
   return s < 32 && ((mask >> s) & 1u);
 }
 
+//! Distinct nodes of the corners of side s of an element, in order around
+//! it: a collapsed (degenerate) side lists some of its corners twice in a row
+void side_corner_ids(
+  const libMesh::Elem& elem, unsigned int s, vector<libMesh::dof_id_type>& ids)
+{
+  static thread_local vector<unsigned int> corners;
+  side_corner_nodes(elem, s, corners);
+  ids.clear();
+  for (auto c : corners) {
+    if (ids.empty() || elem.node_id(c) != ids.back())
+      ids.push_back(elem.node_id(c));
+  }
+  while (ids.size() > 1 && ids.back() == ids.front())
+    ids.pop_back();
+}
+
 //! Whether two elements that share a side list its corners in the same
 //! direction around it, which they do if one of them is mirrored relative to
-//! the other
-bool same_sense(const libMesh::Elem& a, unsigned int side_a,
+//! the other: 1 if they do, 0 if they do not, and -1 if the side has fewer
+//! than three distinct corners (it is collapsed to an edge or a point) or the
+//! elements do not list the same ones
+int same_sense(const libMesh::Elem& a, unsigned int side_a,
   const libMesh::Elem& b, unsigned int side_b)
 {
-  vector<unsigned int> corners_a;
-  vector<unsigned int> corners_b;
-  side_corner_nodes(a, side_a, corners_a);
-  side_corner_nodes(b, side_b, corners_b);
-  const size_t n = corners_a.size();
-  if (n < 3 || corners_b.size() != n)
-    return false;
-  const auto first = a.node_id(corners_a[0]);
-  const auto second = a.node_id(corners_a[1]);
+  vector<libMesh::dof_id_type> ids_a;
+  vector<libMesh::dof_id_type> ids_b;
+  side_corner_ids(a, side_a, ids_a);
+  side_corner_ids(b, side_b, ids_b);
+  const size_t n = ids_a.size();
+  if (n < 3 || ids_b.size() != n)
+    return -1;
   for (size_t j = 0; j < n; j++) {
-    if (b.node_id(corners_b[j]) == first)
-      return b.node_id(corners_b[(j + 1) % n]) == second;
+    if (ids_b[j] != ids_a[0])
+      continue;
+    if (ids_b[(j + 1) % n] == ids_a[1])
+      return 1;
+    if (ids_b[(j + n - 1) % n] == ids_a[1])
+      return 0;
+    return -1;
   }
-  return false;
+  return -1;
 }
 
 } // namespace
 
-void LibMesh::UniformGrid::build(
-  const libMesh::BoundingBox& bbox, int n_items, double margin)
+LibMesh::BoxTree::Bounds LibMesh::BoxTree::bounds_of(
+  const libMesh::Point& box_lo, const libMesh::Point& box_hi) const
 {
-  // Cells about as wide in every direction, about four items per cell
-  std::array<double, 3> extent;
-  double volume = 1.0;
+  // Rounded outward to single precision. Rounding is monotonic, so a point
+  // in the box is within the bounds when it is made relative to the origin.
+  constexpr float inf = std::numeric_limits<float>::infinity();
+  Bounds bounds;
   for (int d = 0; d < 3; d++) {
-    extent[d] = bbox.max()(d) - bbox.min()(d) + 2.0 * margin;
-    volume *= extent[d];
+    const double l = box_lo(d) - origin(d);
+    const double h = box_hi(d) - origin(d);
+    bounds.lo[d] = static_cast<float>(l);
+    if (bounds.lo[d] > l)
+      bounds.lo[d] = std::nextafter(bounds.lo[d], -inf);
+    bounds.hi[d] = static_cast<float>(h);
+    if (bounds.hi[d] < h)
+      bounds.hi[d] = std::nextafter(bounds.hi[d], inf);
   }
-  const double n_cells = std::clamp(n_items / 4.0, 1.0, 1.0e7);
-  double spacing = std::cbrt(volume / n_cells);
-  auto total = [&]() {
-    double cells = 1.0;
-    for (int d = 0; d < 3; d++)
-      cells *= std::max(1.0, std::ceil(extent[d] / spacing));
-    return cells;
-  };
-  // A direction much thinner than the others (a slab-like mesh) gets a
-  // single layer of cells, so widen the cells until the total fits
-  while (total() > 2.0 * n_cells)
-    spacing *= 1.25;
-  for (int d = 0; d < 3; d++) {
-    shape[d] = std::max(1, static_cast<int>(std::ceil(extent[d] / spacing)));
-    lower(d) = bbox.min()(d) - margin;
-    width(d) = extent[d] / shape[d];
-  }
-  offsets.clear();
-  items.clear();
+  return bounds;
 }
 
-int LibMesh::UniformGrid::cell(const libMesh::Point& p) const
-{
-  int index = 0;
-  int stride = 1;
-  for (int d = 0; d < 3; d++) {
-    const int i = grid_index((p(d) - lower(d)) / width(d), shape[d], false);
-    if (i < 0)
-      return -1;
-    index += stride * i;
-    stride *= shape[d];
-  }
-  return index;
-}
-
-void LibMesh::UniformGrid::cell_range(const libMesh::Point& lo,
-  const libMesh::Point& hi, std::array<int, 3>& ilo,
-  std::array<int, 3>& ihi) const
-{
-  for (int d = 0; d < 3; d++) {
-    ilo[d] = grid_index((lo(d) - lower(d)) / width(d), shape[d], true);
-    ihi[d] = grid_index((hi(d) - lower(d)) / width(d), shape[d], true);
-  }
-}
-
-void LibMesh::UniformGrid::fill(
+void LibMesh::BoxTree::build(
   const vector<std::pair<libMesh::Point, libMesh::Point>>& boxes)
 {
-  // Two passes over the items: count the entries of each cell, then fill
-  // the lists in item order
-  const int n_cells = shape[0] * shape[1] * shape[2];
-  offsets.assign(n_cells + 1, 0);
-  std::array<int, 3> ilo, ihi;
-  auto for_cells = [&](const auto& box, auto f) {
-    cell_range(box.first, box.second, ilo, ihi);
-    for (int k = ilo[2]; k <= ihi[2]; k++)
-      for (int j = ilo[1]; j <= ihi[1]; j++)
-        for (int i = ilo[0]; i <= ihi[0]; i++)
-          f(i + shape[0] * (j + shape[1] * k));
+  constexpr int leaf_size = 4;
+  const int n = boxes.size();
+  nodes.clear();
+  items.clear();
+  if (n == 0)
+    return;
+  origin = boxes[0].first;
+  for (const auto& box : boxes) {
+    for (int d = 0; d < 3; d++)
+      origin(d) = std::min(origin(d), box.first(d));
+  }
+  vector<libMesh::Point> centers(n);
+  for (int i = 0; i < n; i++)
+    centers[i] = 0.5 * (boxes[i].first + boxes[i].second);
+  vector<int> order(n);
+  std::iota(order.begin(), order.end(), 0);
+
+  // Nodes still to be filled in, with the range of items below each
+  struct Pending {
+    int node, begin, end;
   };
-  for (const auto& box : boxes)
-    for_cells(box, [&](int c) { offsets[c + 1]++; });
-  for (int c = 0; c < n_cells; c++)
-    offsets[c + 1] += offsets[c];
-  items.resize(offsets[n_cells]);
-  vector<int64_t> next(offsets.begin(), offsets.end() - 1);
-  for (int item = 0; item < static_cast<int>(boxes.size()); item++)
-    for_cells(boxes[item], [&](int c) { items[next[c]++] = item; });
+  vector<Pending> pending {{0, 0, n}};
+  nodes.reserve(2 * (n / leaf_size) + 1);
+  nodes.emplace_back();
+  while (!pending.empty()) {
+    const Pending next = pending.back();
+    pending.pop_back();
+    libMesh::Point node_lo = boxes[order[next.begin]].first;
+    libMesh::Point node_hi = boxes[order[next.begin]].second;
+    libMesh::Point center_lo = centers[order[next.begin]];
+    libMesh::Point center_hi = center_lo;
+    for (int k = next.begin; k < next.end; k++) {
+      const int i = order[k];
+      for (int d = 0; d < 3; d++) {
+        node_lo(d) = std::min(node_lo(d), boxes[i].first(d));
+        node_hi(d) = std::max(node_hi(d), boxes[i].second(d));
+        center_lo(d) = std::min(center_lo(d), centers[i](d));
+        center_hi(d) = std::max(center_hi(d), centers[i](d));
+      }
+    }
+    Node node;
+    node.bounds = bounds_of(node_lo, node_hi);
+    if (next.end - next.begin <= leaf_size) {
+      node.first = next.begin;
+      node.count = next.end - next.begin;
+    } else {
+      int axis = 0;
+      for (int d = 1; d < 3; d++) {
+        if (center_hi(d) - center_lo(d) > center_hi(axis) - center_lo(axis))
+          axis = d;
+      }
+      const int middle = next.begin + (next.end - next.begin) / 2;
+      std::nth_element(order.begin() + next.begin, order.begin() + middle,
+        order.begin() + next.end, [&](int a, int b) {
+          return centers[a](axis) < centers[b](axis) ||
+                 (centers[a](axis) == centers[b](axis) && a < b);
+        });
+      node.first = nodes.size();
+      node.count = 0;
+      nodes.emplace_back();
+      nodes.emplace_back();
+      pending.push_back({node.first, next.begin, middle});
+      pending.push_back({node.first + 1, middle, next.end});
+    }
+    nodes[next.node] = node;
+  }
+
+  items.resize(n);
+  for (int k = 0; k < n; k++) {
+    const int i = order[k];
+    items[k] = {bounds_of(boxes[i].first, boxes[i].second), i};
+  }
+}
+
+template<typename F>
+bool LibMesh::BoxTree::for_point(const libMesh::Point& p, F f) const
+{
+  // The tree is balanced, so its depth (and the stack) is at most about
+  // log2 of the number of items
+  if (nodes.empty())
+    return false;
+  const libMesh::Point q = p - origin;
+  if (!nodes[0].bounds.contain(q))
+    return false;
+  // Nodes on the stack contain the point. Of two children that do, the one
+  // whose center is nearer the point is searched first, as it more likely
+  // holds the element that contains the point.
+  auto distance = [&](const Bounds& bounds) {
+    double d = 0.0;
+    for (int i = 0; i < 3; i++)
+      d += std::abs(bounds.lo[i] + bounds.hi[i] - 2.0 * q(i));
+    return d;
+  };
+  std::array<int, 64> stack;
+  int top = 0;
+  stack[top++] = 0;
+  while (top > 0) {
+    const Node& node = nodes[stack[--top]];
+    if (node.count > 0) {
+      for (int k = node.first; k < node.first + node.count; k++) {
+        if (items[k].bounds.contain(q) && f(items[k].index))
+          return true;
+      }
+      continue;
+    }
+    const Node& a = nodes[node.first];
+    const Node& b = nodes[node.first + 1];
+    const bool in_a = a.bounds.contain(q);
+    const bool in_b = b.bounds.contain(q);
+    if (in_a && in_b) {
+      const bool a_first = distance(a.bounds) <= distance(b.bounds);
+      stack[top++] = a_first ? node.first + 1 : node.first;
+      stack[top++] = a_first ? node.first : node.first + 1;
+    } else if (in_a) {
+      stack[top++] = node.first;
+    } else if (in_b) {
+      stack[top++] = node.first + 1;
+    }
+  }
+  return false;
+}
+
+template<typename F>
+void LibMesh::BoxTree::for_track(const libMesh::Point& p0,
+  const libMesh::Point& dir, double t_min, double& t_max, F f) const
+{
+  if (nodes.empty())
+    return;
+  const libMesh::Point q0 = p0 - origin;
+  // Whether the track is within the bounds somewhere in [t_min, t_max]
+  auto crosses = [&](const Bounds& bounds) {
+    double t0 = t_min;
+    double t1 = t_max;
+    for (int d = 0; d < 3; d++) {
+      if (dir(d) == 0.0) {
+        if (q0(d) < bounds.lo[d] || q0(d) > bounds.hi[d])
+          return false;
+        continue;
+      }
+      const double ta = (bounds.lo[d] - q0(d)) / dir(d);
+      const double tb = (bounds.hi[d] - q0(d)) / dir(d);
+      t0 = std::max(t0, std::min(ta, tb));
+      t1 = std::min(t1, std::max(ta, tb));
+      if (!(t0 <= t1))
+        return false;
+    }
+    return true;
+  };
+  std::array<int, 64> stack;
+  int top = 0;
+  stack[top++] = 0;
+  while (top > 0) {
+    const Node& node = nodes[stack[--top]];
+    if (!crosses(node.bounds))
+      continue;
+    if (node.count > 0) {
+      for (int k = node.first; k < node.first + node.count; k++) {
+        if (crosses(items[k].bounds))
+          f(items[k].index);
+      }
+    } else {
+      stack[top++] = node.first;
+      stack[top++] = node.first + 1;
+    }
+  }
 }
 
 unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
@@ -4205,29 +4363,13 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
 {
   tris.clear();
   unsigned int split_sides = 0;
-  static thread_local vector<unsigned int> corners;
-  static thread_local vector<const libMesh::Node*> polygon;
-  static thread_local vector<const libMesh::Node*> sorted;
-
-  // Append the nodes splitting the edge from vertex a to vertex b, in order
-  // from a, if the edge is split
-  auto append_splits = [&](auto&& self, libMesh::dof_id_type a,
-                         libMesh::dof_id_type b, int depth) -> bool {
-    const auto it = splits->find({std::min(a, b), std::max(a, b)});
-    if (it == splits->end() || depth > 64)
-      return false;
-    const libMesh::Node* middle = it->second;
-    self(self, a, middle->id(), depth + 1);
-    polygon.push_back(middle);
-    self(self, middle->id(), b, depth + 1);
-    return true;
-  };
-
   for (auto s : elem.side_index_range()) {
-    side_corner_nodes(elem, s, corners);
-    const int n = corners.size();
-    if (n < 3)
-      continue;
+    auto add_triangle = [&](const libMesh::Point& a, const libMesh::Point& b,
+                          const libMesh::Point& c) {
+      SideTriangle tri {a, b, c, (b - a).cross(c - a), s};
+      if (tri.normal.norm_sq() > 0.0)
+        tris.push_back(tri);
+    };
 
     // The polygon of the side's corners and of the nodes splitting the edges
     // between them (the same nodes for every element around an edge),
@@ -4236,7 +4378,47 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
     // does not share their nodes. libMesh lists a side's nodes
     // counterclockwise as seen from outside the element (for an element that
     // is not inverted) and a rotation of that cyclic order keeps the sense, so
-    // the triangles' normals point outward.
+    // the triangles' normals point outward. Without split edges, the side of
+    // an element of a standard type is the fan from that corner over its
+    // three or four corners, which is found without the general bookkeeping.
+    const int n_standard = splits ? 0 : side_corners(elem.type(), s);
+    if (n_standard > 0) {
+      std::array<const libMesh::Node*, 4> corner;
+      int first = 0;
+      for (int i = 0; i < n_standard; i++) {
+        corner[i] = elem.node_ptr(elem.local_side_node(s, i));
+        if (node_before(corner[i], corner[first]))
+          first = i;
+      }
+      for (int i = 1; i + 1 < n_standard; i++) {
+        add_triangle(*corner[first], *corner[(first + i) % n_standard],
+          *corner[(first + i + 1) % n_standard]);
+      }
+      continue;
+    }
+
+    static thread_local vector<unsigned int> corners;
+    static thread_local vector<const libMesh::Node*> polygon;
+    static thread_local vector<const libMesh::Node*> sorted;
+    side_corner_nodes(elem, s, corners);
+    const int n = corners.size();
+    if (n < 3)
+      continue;
+
+    // Append the nodes splitting the edge from vertex a to vertex b, in order
+    // from a, if the edge is split
+    auto append_splits = [&](auto&& self, libMesh::dof_id_type a,
+                           libMesh::dof_id_type b, int depth) -> bool {
+      const auto it = splits->find({std::min(a, b), std::max(a, b)});
+      if (it == splits->end() || depth > 64)
+        return false;
+      const libMesh::Node* middle = it->second;
+      self(self, a, middle->id(), depth + 1);
+      polygon.push_back(middle);
+      self(self, middle->id(), b, depth + 1);
+      return true;
+    };
+
     int first = 0;
     for (int i = 1; i < n; i++) {
       if (node_before(elem.node_ptr(corners[i]), elem.node_ptr(corners[first])))
@@ -4252,12 +4434,6 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
       if (split && s < 32)
         split_sides |= 1u << s;
     }
-    auto add_triangle = [&](const libMesh::Point& a, const libMesh::Point& b,
-                          const libMesh::Point& c) {
-      SideTriangle tri {a, b, c, (b - a).cross(c - a), s};
-      if (tri.normal.norm_sq() > 0.0)
-        tris.push_back(tri);
-    };
     if (polygon.size() == static_cast<size_t>(n)) {
       // Fan from the first corner
       for (int i = 1; i + 1 < n; i++)
@@ -4318,6 +4494,20 @@ int LibMesh::classify(
   // triangle itself, subtends no solid angle.
   if (tris.empty())
     return -1;
+  // A point on the inner side of the plane of every triangle, by more than
+  // tol, is inside: the triangles' solid angles are all positive and add up
+  // to 4 pi, and it is on none of them
+  bool inside = true;
+  for (const auto& tri : tris) {
+    const double numerator = (tri.a - p) * tri.normal;
+    if (numerator <= 0.0 ||
+        numerator * numerator <= tol * tol * tri.normal.norm_sq()) {
+      inside = false;
+      break;
+    }
+  }
+  if (inside)
+    return 1;
   double solid_angle = 0.0;
   for (const auto& tri : tris) {
     const libMesh::Point a = tri.a - p;
@@ -4358,41 +4548,39 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   const std::set<libMesh::subdomain_id_type>* blocks,
   const libMesh::Elem* exclude) const
 {
-  // The active elements are binned by bounding box on a grid and the
-  // decision is made with classify(), the geometry bins_crossed() walks
-  // through, so the result does not depend on libMesh's point locator (which
-  // works with the true, possibly curved, sides and caches its previous
-  // answer per thread). An element that contains the point by more than
-  // roundoff is preferred over one whose surface is merely within the
+  // The elements whose bounding boxes contain the point are found in a tree
+  // and the decision is made with classify(), the geometry bins_crossed()
+  // walks through, so the result does not depend on libMesh's point locator
+  // (which works with the true, possibly curved, sides and caches its
+  // previous answer per thread). An element that contains the point by more
+  // than roundoff is preferred over one whose surface is merely within the
   // tolerance of it, so that a point just past a side is placed in the
-  // element it is in. Otherwise, as the lists are in id order, the lowest id
-  // of the elements whose surface the point is on wins, which does not
-  // depend on roundoff.
-  const int cell = elem_grid_.cell(p);
-  if (cell < 0)
-    return nullptr;
+  // element it is in; elements do not overlap, so there is at most one such
+  // element and the search stops there. Otherwise the lowest id of the
+  // elements whose surface the point is on wins, which does not depend on
+  // roundoff or on the order of the search.
   static thread_local vector<SideTriangle> tris;
+  const libMesh::Elem* inside = nullptr;
   const libMesh::Elem* on_surface = nullptr;
-  for (int64_t k = elem_grid_.offsets[cell]; k < elem_grid_.offsets[cell + 1];
-       k++) {
-    const int i = elem_grid_.items[k];
-    const libMesh::Elem* elem = grid_elems_[i];
+  int on_surface_index = -1;
+  elem_tree_.for_point(p, [&](int i) {
+    const libMesh::Elem* elem = tree_elems_[i];
     if (elem == exclude || (blocks && !blocks->count(elem->subdomain_id())))
-      continue;
-    if (!grid_bboxes_[i].contains_point(p))
-      continue;
+      return false;
     side_triangles(*elem, tris);
     const int position = classify(tris, p, surface_tol_);
-    if (position > 0)
-      return elem;
-    if (position == 0) {
-      if (classify(tris, p, roundoff_tol_) > 0)
-        return elem;
-      if (!on_surface)
-        on_surface = elem;
+    if (position > 0 ||
+        (position == 0 && classify(tris, p, roundoff_tol_) > 0)) {
+      inside = elem;
+      return true;
     }
-  }
-  return on_surface;
+    if (position == 0 && (on_surface_index < 0 || i < on_surface_index)) {
+      on_surface = elem;
+      on_surface_index = i;
+    }
+    return false;
+  });
+  return inside ? inside : on_surface;
 }
 
 void LibMesh::find_inverted_elements()
@@ -4427,13 +4615,15 @@ void LibMesh::find_inverted_elements()
         if (!neighbor || !neighbor->active() || neighbor->dim() < 3 ||
             sense[neighbor->id()] != 0)
           continue;
-        // Only sides shared whole (not those facing a coarser neighbor)
+        // Only sides shared whole (not those facing a coarser neighbor), and
+        // with enough corners to tell the direction they are listed in
         const unsigned int t = neighbor->which_neighbor_am_i(elem);
         if (t >= neighbor->n_sides() || neighbor->neighbor_ptr(t) != elem)
           continue;
-        sense[neighbor->id()] = same_sense(*elem, s, *neighbor, t)
-                                  ? -sense[elem->id()]
-                                  : sense[elem->id()];
+        const int same = same_sense(*elem, s, *neighbor, t);
+        if (same < 0)
+          continue;
+        sense[neighbor->id()] = same ? -sense[elem->id()] : sense[elem->id()];
         stack.push_back(neighbor);
       }
     }
@@ -4539,7 +4729,7 @@ void LibMesh::build_refined_sides()
   }
 }
 
-void LibMesh::build_element_grid()
+void LibMesh::build_element_tree()
 {
   // Active 3D elements in id order, with bounding boxes enlarged by the
   // surface tolerance. A box also covers the side triangles, whose vertices
@@ -4567,23 +4757,20 @@ void LibMesh::build_element_grid()
   std::sort(elems.begin(), elems.end(),
     [](const auto& a, const auto& b) { return a.first->id() < b.first->id(); });
 
-  grid_elems_.clear();
-  grid_bboxes_.clear();
+  tree_elems_.clear();
   vector<std::pair<libMesh::Point, libMesh::Point>> boxes;
   for (const auto& [elem, box] : elems) {
-    grid_elems_.push_back(elem);
-    grid_bboxes_.push_back(box);
+    tree_elems_.push_back(elem);
     boxes.emplace_back(box.min(), box.max());
   }
-  elem_grid_.build(bbox_, boxes.size(), 4.0 * surface_tol_);
-  elem_grid_.fill(boxes);
+  elem_tree_.build(boxes);
 }
 
 void LibMesh::build_boundary_triangles()
 {
   boundary_tris_.clear();
   vector<SideTriangle> tris;
-  for (const libMesh::Elem* elem : grid_elems_) {
+  for (const libMesh::Elem* elem : tree_elems_) {
     side_triangles(*elem, tris);
     for (const auto& tri : tris) {
       if (!elem->neighbor_ptr(tri.side))
@@ -4591,6 +4778,8 @@ void LibMesh::build_boundary_triangles()
     }
   }
 
+  // Boxes enlarged so that they also hold the hits that ray_triangle()
+  // accepts just outside the triangles
   vector<std::pair<libMesh::Point, libMesh::Point>> boxes;
   for (const auto& tri : boundary_tris_) {
     libMesh::Point lo, hi;
@@ -4598,10 +4787,12 @@ void LibMesh::build_boundary_triangles()
       lo(d) = std::min({tri.a(d), tri.b(d), tri.c(d)});
       hi(d) = std::max({tri.a(d), tri.b(d), tri.c(d)});
     }
-    boxes.emplace_back(lo, hi);
+    const libMesh::Point margin =
+      1e-8 * (hi - lo) + libMesh::Point(2.0 * surface_tol_, 2.0 * surface_tol_,
+                           2.0 * surface_tol_);
+    boxes.emplace_back(lo - margin, hi + margin);
   }
-  boundary_grid_.build(bbox_, boxes.size(), 4.0 * surface_tol_);
-  boundary_grid_.fill(boxes);
+  boundary_tree_.build(boxes);
 }
 
 bool LibMesh::valid_polyhedron(
@@ -4662,7 +4853,7 @@ void LibMesh::check_elements() const
   vector<const libMesh::Elem*> touching;
   vector<unsigned int> corners;
   vector<unsigned int> other_corners;
-  for (const libMesh::Elem* elem : grid_elems_) {
+  for (const libMesh::Elem* elem : tree_elems_) {
     side_triangles(*elem, tris);
     if (!valid_polyhedron(tris, elem->vertex_average()))
       inverted.push_back(elem->id());
@@ -4701,8 +4892,8 @@ void LibMesh::check_elements() const
           side_corner_nodes(*other, t, other_corners);
           coincident = other_corners.size() == corners.size();
           for (size_t i = 0; i < corners.size() && coincident; i++) {
-            coincident = std::any_of(other_corners.begin(),
-              other_corners.end(), [&](unsigned int c) {
+            coincident = std::any_of(
+              other_corners.begin(), other_corners.end(), [&](unsigned int c) {
                 return other->point(c) == elem->point(corners[i]);
               });
           }
@@ -4737,7 +4928,8 @@ void LibMesh::check_elements() const
     std::string list;
     for (size_t i = 0; i < ids.size() && i < 5; i++)
       list += fmt::format("{}{}", i > 0 ? ", " : "", ids[i]);
-    return fmt::format("{} elements of {} (libMesh element ids {}{})",
+    return fmt::format("{} elements of {} (libMesh element ids, counting from "
+                       "0: {}{})",
       ids.size(),
       id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
                : std::string("an unstructured mesh"),
@@ -4754,9 +4946,12 @@ void LibMesh::check_elements() const
     fatal_error(fmt::format(
       "{} have a side at a non-conforming interface (one touching other "
       "elements that are not its neighbors in libMesh, and whose corners are "
-      "not those of one of their sides) that is not flat to within 1e-12 of "
-      "the mesh's size. OpenMC takes the sides of libMesh elements to be flat, "
-      "so such sides would leave gaps and overlaps.",
+      "not at the corners of one of their sides) that is not flat to within "
+      "1e-12 of the larger of the mesh's extent and the magnitude of its "
+      "coordinates. OpenMC takes the sides of libMesh elements to be flat, so "
+      "such sides would leave gaps and overlaps. (In a mesh file with "
+      "single-precision coordinates, sides that are not aligned with the "
+      "axes are only flat to about 1e-7.)",
       describe(warped)));
   }
 }
@@ -5000,64 +5195,44 @@ double LibMesh::exit_distance(const vector<SideTriangle>& tris,
 const libMesh::Elem* LibMesh::find_entry(const libMesh::Point& p0,
   const libMesh::Point& dir, double t_min, double t_max, double& t_entry) const
 {
-  // Walk the grid cells along the track and test their boundary triangles.
-  // An entry is a hit, beyond t_min, on a triangle facing the oncoming track.
-  const auto& grid = boundary_grid_;
-  const libMesh::Point start = p0 + t_min * dir;
-  std::array<int, 3> ijk, step;
-  std::array<double, 3> t_next, t_delta;
-  for (int d = 0; d < 3; d++) {
-    ijk[d] = grid_index(
-      (start(d) - grid.lower(d)) / grid.width(d), grid.shape[d], true);
-    if (dir(d) > 0.0) {
-      step[d] = 1;
-      t_next[d] =
-        t_min +
-        (grid.lower(d) + (ijk[d] + 1) * grid.width(d) - start(d)) / dir(d);
-      t_delta[d] = grid.width(d) / dir(d);
-    } else if (dir(d) < 0.0) {
-      step[d] = -1;
-      t_next[d] =
-        t_min + (grid.lower(d) + ijk[d] * grid.width(d) - start(d)) / dir(d);
-      t_delta[d] = -grid.width(d) / dir(d);
-    } else {
-      step[d] = 0;
-      t_next[d] = INFTY;
-      t_delta[d] = INFTY;
-    }
-  }
-
+  // Search the boundary triangles whose bounds the track passes through
+  // before the nearest entry found so far. An entry is a hit, beyond t_min, on
+  // a triangle facing the oncoming track; of hits at the same distance, the
+  // one on the triangle listed first wins, whatever the order of the search.
   const libMesh::Elem* entry_elem = nullptr;
   t_entry = t_max;
-  double t_cell = t_min; // distance at which the current cell was entered
-  while (t_cell < t_entry) {
-    const int cell = ijk[0] + grid.shape[0] * (ijk[1] + grid.shape[1] * ijk[2]);
-    for (int64_t k = grid.offsets[cell]; k < grid.offsets[cell + 1]; k++) {
-      const auto& tri = boundary_tris_[grid.items[k]];
-      if (dir * tri.normal >= 0.0)
-        continue;
-      double t;
-      if (ray_triangle(p0, dir, tri.a, tri.b, tri.c, t) && t > t_min &&
-          t < t_entry) {
-        t_entry = t;
-        entry_elem = tri.elem;
-      }
+  int entry_tri = -1;
+  boundary_tree_.for_track(p0, dir, t_min, t_entry, [&](int i) {
+    const auto& tri = boundary_tris_[i];
+    if (dir * tri.normal >= 0.0)
+      return;
+    double t;
+    if (ray_triangle(p0, dir, tri.a, tri.b, tri.c, t) && t > t_min &&
+        (t < t_entry || (t == t_entry && entry_tri >= 0 && i < entry_tri))) {
+      t_entry = t;
+      entry_tri = i;
+      entry_elem = tri.elem;
     }
-
-    // Advance to the next cell along the track
-    const int d =
-      std::min_element(t_next.begin(), t_next.end()) - t_next.begin();
-    t_cell = t_next[d];
-    ijk[d] += step[d];
-    if (ijk[d] < 0 || ijk[d] >= grid.shape[d])
-      break;
-    t_next[d] += t_delta[d];
-  }
+  });
   return entry_elem;
 }
 
 void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
+{
+  traverse(r0, r1, u, bins, lengths, nullptr);
+}
+
+void LibMesh::bins_crossed_with_starts(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths,
+  vector<double>& starts) const
+{
+  starts.clear();
+  traverse(r0, r1, u, bins, lengths, &starts);
+}
+
+void LibMesh::traverse(Position r0, Position r1, const Direction& u,
+  vector<int>& bins, vector<double>& lengths, vector<double>* starts) const
 {
   // Work in mesh coordinates; fractions of the track are scale invariant
   libMesh::Point p0(r0.x, r0.y, r0.z);
@@ -5071,12 +5246,15 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   if (track_len == 0.0)
     return;
 
-  // Portion of the track that lies within the element grid
+  // Portion of the track within the mesh's bounding box, enlarged by a few
+  // times the surface tolerance: no point outside of it is in an element
+  if (elem_tree_.nodes.empty())
+    return;
   double t_lo = 0.0;
   double t_hi = track_len;
   for (int i = 0; i < 3; i++) {
-    const double lo = elem_grid_.lower(i);
-    const double hi = lo + elem_grid_.shape[i] * elem_grid_.width(i);
+    const double lo = bbox_.min()(i) - 4.0 * surface_tol_;
+    const double hi = bbox_.max()(i) + 4.0 * surface_tol_;
     if (dir(i) == 0.0) {
       if (p0(i) < lo || p0(i) > hi)
         return;
@@ -5111,21 +5289,30 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     if (owner && is_bin_element(owner)) {
       bins.push_back(get_bin_from_element(owner));
       lengths.push_back((s1 - s0) / track_len);
+      if (starts)
+        starts->push_back(s0 / track_len);
     }
   };
 
   // Score a part of the track that the walk steps past to the elements found
   // along it, halving it until the element found at its middle is also the
-  // one found a quarter of the way from either end, or until it is no longer
-  // than a step
+  // one found just inside either end and a quarter of the way from either
+  // end, or until it is too short to tell elements apart (a few times the
+  // surface tolerance)
+  const double resolution = 16.0 * surface_tol_;
   auto score_located = [&](auto&& self, double s0, double s1) -> void {
     const double middle = 0.5 * (s0 + s1);
     const libMesh::Elem* owner = locate(point(middle));
-    if (s1 - s0 > step && (locate(point(0.5 * (s0 + middle))) != owner ||
-                            locate(point(0.5 * (middle + s1))) != owner)) {
-      self(self, s0, middle);
-      self(self, middle, s1);
-      return;
+    if (s1 - s0 > resolution) {
+      const double inset = 0.25 * resolution;
+      for (double s :
+        {s0 + inset, 0.5 * (s0 + middle), 0.5 * (middle + s1), s1 - inset}) {
+        if (locate(point(s)) != owner) {
+          self(self, s0, middle);
+          self(self, middle, s1);
+          return;
+        }
+      }
     }
     score(s0, s1, owner);
   };
@@ -5135,14 +5322,17 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // elements whose sides do not quite meet (such as curved second-order
   // elements in an adaptively refined mesh) within a distance h, located by
   // bisection, or else where the track enters the mesh through its boundary.
-  // Moves s to a point in the element returned. Nothing is past the end of
-  // the element grid.
+  // Moves s to a point in the element returned; the piece of track up to a
+  // step long that is stepped over to get there (which can be in elements) is
+  // scored to the elements found along it. Nothing is past the end of the
+  // bounding box.
   auto resume = [&](double& s, double h) -> const libMesh::Elem* {
     if (s >= t_hi) {
       s = track_len;
       return nullptr;
     }
     if (const libMesh::Elem* found = locate(point(ahead(s)))) {
+      score_located(score_located, s, ahead(s));
       s = ahead(s);
       return found;
     }
@@ -5166,6 +5356,7 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
             before = middle;
           }
         }
+        score_located(score_located, before, after);
         s = after;
         return found;
       }
@@ -5176,7 +5367,7 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     return entered;
   };
 
-  // March from element to element, up to the end of the element grid.
+  // March from element to element, up to the end of the bounding box.
   // Outside of the mesh, the boundary triangles give the (re-)entry point.
   int64_t n_steps = 0;
   int n_stalled = 0;
@@ -5246,12 +5437,12 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     side_triangles(*elem, tris);
 
     // Exits are only computed from an element that contains the point the
-    // walk is at, or the point just ahead (an element thinner than the step
-    // can be skipped). Otherwise the walk has strayed, into a gap between
-    // elements or out of the mesh, and continues where the track is.
-    // Relocating at the same point counts as a step without progress.
-    if (classify(tris, point(t), surface_tol_) < 0 &&
-        classify(tris, point(ahead(t)), surface_tol_) < 0) {
+    // walk is at, or the point just ahead. Otherwise the walk has strayed,
+    // into a gap between elements or out of the mesh, and continues where the
+    // track is. Relocating at the same point counts as a step without
+    // progress.
+    const int position = classify(tris, point(t), surface_tol_);
+    if (position < 0 && classify(tris, point(ahead(t)), surface_tol_) < 0) {
       const libMesh::Elem* found = locate(point(t), nullptr, elem);
       n_redone = 0;
       if (found) {
@@ -5262,6 +5453,25 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
         elem = resume(t, elem->hmax());
       }
       continue;
+    }
+
+    // If only the point just ahead is in the element (where it was located),
+    // the track enters the element within a step. The piece of track before
+    // the entry, which can cross elements thinner than the step, is scored to
+    // the elements found along it, and the walk moves to the entry.
+    if (position < 0) {
+      double d_in = INFTY;
+      for (const auto& tri : tris) {
+        double d;
+        if (dir * tri.normal < 0.0 &&
+            ray_triangle(point(t), dir, tri.a, tri.b, tri.c, d) && d > 0.0)
+          d_in = std::min(d_in, d);
+      }
+      if (d_in < INFTY) {
+        const double t_in = std::min(t + d_in, ahead(t));
+        score_located(score_located, t, t_in);
+        t = t_in;
+      }
     }
 
     unsigned int exit_side;

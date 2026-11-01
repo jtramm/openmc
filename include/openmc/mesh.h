@@ -183,6 +183,24 @@ public:
   virtual void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const = 0;
 
+  //! Determine which bins were crossed by a particle, and where each of the
+  //! crossings starts
+  //
+  //! The parts of the track outside of the mesh are not crossings, so there
+  //! can be gaps between crossings. The default implementation takes the
+  //! crossings to follow one another from r0, as they do on a mesh that the
+  //! track does not leave.
+  //
+  //! \param[in] r0 Previous position of the particle
+  //! \param[in] r1 Current position of the particle
+  //! \param[in] u Particle direction
+  //! \param[out] bins Bins that were crossed
+  //! \param[out] lengths Fraction of tracklength in each bin
+  //! \param[out] starts Fraction of tracklength before each crossing starts
+  virtual void bins_crossed_with_starts(Position r0, Position r1,
+    const Direction& u, vector<int>& bins, vector<double>& lengths,
+    vector<double>& starts) const;
+
   //! Determine which surface bins were crossed by a particle
   //
   //! \param[in] r0 Previous position of the particle
@@ -906,6 +924,10 @@ public:
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
 
+  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths,
+    vector<double>& starts) const override;
+
   int get_bin(Position r) const override;
 
   int n_bins() const override;
@@ -960,6 +982,11 @@ private:
   //! \param[out] Mesh intersections
   void intersect_track(const moab::CartVect& start, const moab::CartVect& dir,
     double track_len, vector<double>& hits) const;
+
+  //! Determine the bins crossed by a track, and optionally where each of the
+  //! crossings starts (see bins_crossed_with_starts())
+  void traverse(Position r0, Position r1, const Direction& u, vector<int>& bins,
+    vector<double>& lengths, vector<double>* starts) const;
 
   //! Calculate the volume for a given tetrahedron handle.
   //
@@ -1071,6 +1098,10 @@ public:
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
 
+  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths,
+    vector<double>& starts) const override;
+
   Position sample_element(int32_t bin, uint64_t* seed) const override;
 
   virtual int get_bin(Position r) const override;
@@ -1172,25 +1203,54 @@ private:
     std::map<std::pair<libMesh::dof_id_type, libMesh::dof_id_type>,
       const libMesh::Node*>;
 
-  //! Uniform grid over the bounding box of the mesh, binning items (elements
-  //! or boundary triangles) by their bounding boxes. The item lists are
-  //! stored contiguously, in increasing item order within each cell.
-  struct UniformGrid {
-    libMesh::Point lower;     //!< lower corner, in mesh coordinates
-    libMesh::Point width;     //!< cell width in each direction
-    std::array<int, 3> shape; //!< number of cells in each direction
-    vector<int64_t> offsets;  //!< start of each cell's list in items
-    vector<int> items;        //!< item indices
+  //! Bounding volume hierarchy over items (elements or boundary triangles),
+  //! by their bounding boxes. The items are split in halves at the median of
+  //! their boxes' centers along the longest extent of the centers, down to a
+  //! few items per leaf, so a search takes logarithmic time however unevenly
+  //! the items are spread (as they are on a strongly graded mesh). Bounds are
+  //! kept in single precision relative to a corner of all the boxes, rounded
+  //! outward, so that a search reads little memory.
+  struct BoxTree {
+    struct Bounds {
+      std::array<float, 3> lo, hi; //!< corners, relative to origin
 
-    //! Size the grid for about four items per cell over a bounding box
-    void build(const libMesh::BoundingBox& bbox, int n_items, double margin);
-    //! Index of the cell containing a point, or -1 if outside the grid
-    int cell(const libMesh::Point& p) const;
-    //! Index range of the cells overlapped by a box
-    void cell_range(const libMesh::Point& lo, const libMesh::Point& hi,
-      std::array<int, 3>& ilo, std::array<int, 3>& ihi) const;
-    //! Fill the item lists from the items' bounding boxes
-    void fill(const vector<std::pair<libMesh::Point, libMesh::Point>>& boxes);
+      //! Whether the bounds contain a point given relative to origin
+      bool contain(const libMesh::Point& q) const
+      {
+        return q(0) >= lo[0] && q(0) <= hi[0] && q(1) >= lo[1] &&
+               q(1) <= hi[1] && q(2) >= lo[2] && q(2) <= hi[2];
+      }
+    };
+    struct Node {
+      Bounds bounds; //!< bounds of the boxes of the items below
+      int first;     //!< first of two children, or first leaf item
+      int count;     //!< number of items of a leaf, 0 otherwise
+    };
+    struct Item {
+      Bounds bounds; //!< bounds of the item's box
+      int index;     //!< index of the item
+    };
+    libMesh::Point origin; //!< lower corner of the boxes, which the bounds
+                           //!< are relative to
+    vector<Node> nodes;    //!< nodes, the root first
+    vector<Item> items;    //!< items, by leaf
+
+    //! Build the tree over the items' bounding boxes
+    void build(const vector<std::pair<libMesh::Point, libMesh::Point>>& boxes);
+    //! Bounds containing the box from lo to hi, relative to origin
+    Bounds bounds_of(const libMesh::Point& lo, const libMesh::Point& hi) const;
+    //! Call f(item) for each item whose box (with bounds rounded outward)
+    //! contains a point, until f returns true
+    //
+    //! \return Whether f returned true
+    template<typename F>
+    bool for_point(const libMesh::Point& p, F f) const;
+    //! Call f(item) for each item whose box (with bounds rounded outward) the
+    //! track p0 + t dir passes through for some t in [t_min, t_max], where f
+    //! can lower t_max
+    template<typename F>
+    void for_track(const libMesh::Point& p0, const libMesh::Point& dir,
+      double t_min, double& t_max, F f) const;
   };
 
   // Methods
@@ -1230,11 +1290,10 @@ private:
   //! Collect the triangles replacing the sides that refinement changes
   void build_refined_sides();
 
-  //! Bin the active elements on a grid by their bounding boxes
-  void build_element_grid();
+  //! Gather the active elements and their bounding boxes in a tree
+  void build_element_tree();
 
-  //! Collect the triangles making up the boundary of the mesh and bin them
-  //! on a grid
+  //! Collect the triangles making up the boundary of the mesh in a tree
   void build_boundary_triangles();
 
   //! Stop with an error if the elements, with flat sides, are not valid
@@ -1258,6 +1317,11 @@ private:
   double exit_distance(const vector<SideTriangle>& tris,
     const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
     double min_distance = 0.0, bool planes = true) const;
+
+  //! Determine the bins crossed by a track, and optionally where each of the
+  //! crossings starts (see bins_crossed_with_starts())
+  void traverse(Position r0, Position r1, const Direction& u, vector<int>& bins,
+    vector<double>& lengths, vector<double>* starts) const;
 
   //! Find where a track that is outside of the mesh enters it
   //
@@ -1295,11 +1359,10 @@ private:
     inverted_; //!< ids of elements whose node order is inverted
   std::unordered_map<libMesh::dof_id_type, RefinedSides>
     refined_sides_; //!< sides that refinement changes, by element id
-  vector<const libMesh::Elem*> grid_elems_;  //!< active 3D elements, by id
-  vector<libMesh::BoundingBox> grid_bboxes_; //!< their bounding boxes
-  UniformGrid elem_grid_;                    //!< grid over grid_elems_
-  vector<BoundaryTriangle> boundary_tris_;   //!< triangulated mesh boundary
-  UniformGrid boundary_grid_;                //!< grid over boundary_tris_
+  vector<const libMesh::Elem*> tree_elems_; //!< active 3D elements, by id
+  BoxTree elem_tree_;                       //!< tree over their boxes
+  vector<BoundaryTriangle> boundary_tris_;  //!< triangulated mesh boundary
+  BoxTree boundary_tree_;                   //!< tree over boundary_tris_
   int64_t max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {
     false}; //!< whether a track that exceeded the bound was reported
@@ -1309,7 +1372,7 @@ private:
 //! to a set of subdomains
 //
 //! The element data gathered when the object is constructed (the bin maps,
-//! the element and boundary grids, and the sides that refinement changes)
+//! the element and boundary trees, and the sides that refinement changes)
 //! refer to the mesh as it is then: if the application refines or coarsens
 //! the mesh, or moves its nodes, afterwards, the object has to be constructed
 //! again.

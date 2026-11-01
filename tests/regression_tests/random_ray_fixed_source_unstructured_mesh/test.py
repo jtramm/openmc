@@ -18,7 +18,8 @@ MESH_FILES = {
     'moab': 'test_mesh_dagmc_tets.vtk',
     'libmesh': 'test_mesh_dagmc_tets.e',
 }
-FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh'}
+FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh', 'xdg-moab': 'xdg',
+            'xdg-libmesh': 'xdg'}
 
 
 class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
@@ -31,7 +32,8 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 
 def make_model(library, mesh_path, case, x_max=0.5):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
-    by the mesh in mesh_path, or by a regular mesh of [-0.5, 0.5]^3"""
+    by the mesh in mesh_path (read by a mesh library, directly or through
+    XDG), or by a regular mesh of [-0.5, 0.5]^3"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -68,6 +70,9 @@ def make_model(library, mesh_path, case, x_max=0.5):
         umesh.lower_left = (-0.5, -0.5, -0.5)
         umesh.upper_right = (0.5, 0.5, 0.5)
         umesh.dimension = (3, 3, 3)
+    elif library.startswith('xdg-'):
+        umesh = openmc.UnstructuredMesh(mesh_path, library=library[4:])
+        umesh.interface = 'xdg'
     else:
         umesh = openmc.UnstructuredMesh(mesh_path, library=library)
 
@@ -93,14 +98,15 @@ def make_model(library, mesh_path, case, x_max=0.5):
     cell_tally.estimator = 'tracklength'
     tallies = openmc.Tallies([cell_tally])
 
-    # In one case the tet mesh is also the tally mesh and the weight window
-    # mesh; in the other it is used for subdivision alone
-    if case == 'tally_and_ww':
+    # The mesh is also the tally mesh and the weight window mesh, the tally
+    # mesh only, or used for subdivision alone
+    if case in ('tally_and_ww', 'tally'):
         mesh_tally = openmc.Tally(name='tet flux')
         mesh_tally.filters = [openmc.MeshFilter(umesh)]
         mesh_tally.scores = ['flux']
         mesh_tally.estimator = 'tracklength'
         tallies.append(mesh_tally)
+    if case == 'tally_and_ww':
         settings.weight_window_generators = openmc.WeightWindowGenerator(
             mesh=umesh, method='magic', max_realizations=5)
 
@@ -126,12 +132,15 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     # The cell is twice as long as the mesh
     ('moab', MESH_FILES['moab'], 1.5),
     ('libmesh', MESH_FILES['libmesh'], 1.5),
+    ('xdg-libmesh', MESH_FILES['libmesh'], 1.5),
     ('regular', None, 1.5),
     # The mesh covers the cell: the 24-tet mesh and the regular mesh tile it,
     # the others tile [-1, 1]^3 with other element types
     ('regular', None, 0.5),
     ('moab', MESH_FILES['moab'], 0.5),
     ('libmesh', MESH_FILES['libmesh'], 0.5),
+    ('xdg-moab', MESH_FILES['moab'], 0.5),
+    ('xdg-libmesh', MESH_FILES['libmesh'], 0.5),
     ('libmesh', 'test_mesh_hexes_warped.e', 0.5),
     ('libmesh', 'test_mesh_hexes_nonconforming.e', 0.5),
     ('libmesh', 'test_mesh_hexes20.e', 0.5),
@@ -142,7 +151,8 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
 def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
     """A run with a mesh covering only half of the cell it subdivides stops
-    with an error, and one with a mesh covering all of it does not"""
+    with an error, and one with a mesh covering all of it does not, and its
+    flux on the mesh adds up to the flux in the cell"""
     if (library != 'regular' and
             not openmc.lib.feature_enabled(FEATURES[library])):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
@@ -150,8 +160,11 @@ def test_random_ray_unstructured_mesh_coverage(
     openmc.reset_auto_ids()
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
                  if mesh_file else None)
+    covered = x_max <= 0.5
     with change_directory(tmp_path):
-        model = make_model(library, mesh_path, 'subdivision_only', x_max=x_max)
+        model = make_model(library, mesh_path,
+                           'tally' if covered else 'subdivision_only',
+                           x_max=x_max)
         model.export_to_model_xml()
 
     if config['build_inputs']:
@@ -162,8 +175,13 @@ def test_random_ray_unstructured_mesh_coverage(
     result = subprocess.run(args, cwd=tmp_path, capture_output=True,
                             text=True)
     output = result.stdout + result.stderr
-    if x_max <= 0.5:
+    if covered:
         assert result.returncode == 0, output
+        with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
+            cell_flux = sp.get_tally(name='cell flux').mean.sum()
+            mesh_flux = sp.get_tally(name='tet flux').mean.sum()
+        assert cell_flux > 0.0
+        assert mesh_flux == pytest.approx(cell_flux, rel=1e-10)
     else:
         assert result.returncode != 0
         assert 'does not cover' in output

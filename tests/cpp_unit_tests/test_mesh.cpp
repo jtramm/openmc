@@ -18,6 +18,7 @@
 
 #ifdef OPENMC_LIBMESH_ENABLED
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <map>
@@ -960,6 +961,130 @@ TEST_CASE("libMesh mesh far from the origin")
     check_track(umesh, lo, hi, r0, r1, 1e-6);
   for (const auto& [r0, r1] : node_tracks(mesh, 200, 5))
     check_track(umesh, lo, hi, r0, r1, 1e-6);
+}
+
+TEST_CASE(
+  "Track-length traversal far from the origin gives every tet its chord")
+{
+  // Small tetrahedra, with interior nodes displaced, tiling a cube of width 2
+  // centered at (1e5, 1e5, 1e5), where the walk looks for the next element a
+  // step of 1e-4 past an exit point: tracks cross some tets for less than
+  // that. Every tet gets its chord to within a few times the tolerance
+  // (1e-12 of the coordinates, 1e-7).
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  libMesh::MeshTools::Generation::build_cube(
+    mesh, 10, 10, 10, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+  libMesh::MeshTools::Modification::distort(mesh, 0.3, false);
+  const Position center {1e5, 1e5, 1e5};
+  libMesh::MeshTools::Modification::translate(
+    mesh, center[0], center[1], center[2]);
+  LibMesh umesh(mesh);
+
+  const Position lo = center - Position {1.0, 1.0, 1.0};
+  const Position hi = center + Position {1.0, 1.0, 1.0};
+  for (const auto& [r0, r1] : make_tracks(lo, hi, center[0], 300, 14)) {
+    const double length = (r1 - r0).norm();
+    vector<int> bins;
+    vector<double> lengths;
+    umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
+    std::map<int, double> scored;
+    for (int k = 0; k < bins.size(); k++)
+      scored[bins[k]] += lengths[k] * length;
+    double worst = 0.0;
+    for (int bin = 0; bin < umesh.n_bins(); bin++) {
+      const double chord = tet_chord(mesh.elem_ref(bin), r0, r1);
+      const double found = scored.count(bin) ? scored[bin] : 0.0;
+      worst = std::max(worst, std::abs(found - chord));
+    }
+    REQUIRE(worst <= 5e-6);
+  }
+}
+
+TEST_CASE("libMesh hexes with collapsed edges")
+{
+  // Two hexes along x in [-1, 1] x [0, 1] x [0, 1], with the nodes of their
+  // top (or bottom) edges along x merged at y = 0.5: wedges written as
+  // hexes, as some mesh converters do, whose shared side lists one node twice
+  for (double z_collapsed : {1.0, 0.0}) {
+    DYNAMIC_SECTION("collapsed at z = " << z_collapsed)
+    {
+      LibMeshComm libmesh;
+      libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+      libMesh::MeshTools::Generation::build_cube(
+        mesh, 2, 1, 1, -1.0, 1.0, 0.0, 1.0, 0.0, 1.0, libMesh::HEX8);
+      std::map<long, libMesh::Node*> merged;
+      for (auto* elem : mesh.element_ptr_range()) {
+        for (unsigned int i = 0; i < elem->n_nodes(); i++) {
+          libMesh::Node* node = elem->node_ptr(i);
+          if ((*node)(2) != z_collapsed)
+            continue;
+          const long key = std::lround((*node)(0));
+          if (!merged.count(key))
+            merged[key] = node;
+          elem->set_node(i) = merged[key];
+        }
+      }
+      for (auto& [key, node] : merged)
+        (*node)(1) = 0.5;
+      mesh.prepare_for_use();
+      LibMesh umesh(mesh);
+
+      // Each element is a wedge of volume 0.5. A wedge is the triangular
+      // prism of the cross section (y, z) between (0, 1 - z_collapsed),
+      // (1, 1 - z_collapsed) and (0.5, z_collapsed), between its nodes' x.
+      const double sign = z_collapsed > 0.0 ? 1.0 : -1.0;
+      const double z_base = 1.0 - z_collapsed;
+      for (int bin = 0; bin < umesh.n_bins(); bin++)
+        REQUIRE(umesh.volume(bin) == Catch::Approx(0.5).epsilon(1e-12));
+      std::mt19937_64 rng(15);
+      std::uniform_real_distribution<double> uniform(-0.3, 1.3);
+      for (int i = 0; i < 2000; i++) {
+        const Position r0 {
+          -1.5 + 0.2 * uniform(rng), uniform(rng), uniform(rng)};
+        const Position r1 {
+          1.5 - 0.2 * uniform(rng), uniform(rng), uniform(rng)};
+        const Position d = r1 - r0;
+        vector<int> bins;
+        vector<double> lengths;
+        umesh.bins_crossed(r0, r1, d / d.norm(), bins, lengths);
+        std::map<int, double> scored;
+        for (int k = 0; k < bins.size(); k++)
+          scored[bins[k]] += lengths[k] * d.norm();
+        for (int bin = 0; bin < umesh.n_bins(); bin++) {
+          double x_lo = INFTY;
+          double x_hi = -INFTY;
+          for (const auto& node : mesh.elem_ref(bin).node_ref_range()) {
+            x_lo = std::min(x_lo, node(0));
+            x_hi = std::max(x_hi, node(0));
+          }
+          // Clip the track by the half-spaces n . r <= c of the wedge
+          const std::array<std::pair<Position, double>, 5> faces {{
+            {{-1.0, 0.0, 0.0}, -x_lo},
+            {{1.0, 0.0, 0.0}, x_hi},
+            {{0.0, 0.0, -sign}, -sign * z_base},
+            {{0.0, -2.0, sign}, sign * z_base},
+            {{0.0, 2.0, sign}, 2.0 + sign * z_base},
+          }};
+          double s_lo = 0.0;
+          double s_hi = 1.0;
+          for (const auto& [n, c] : faces) {
+            const double a = n.dot(r0) - c;
+            const double b = n.dot(d);
+            if (b > 0.0)
+              s_hi = std::min(s_hi, -a / b);
+            else if (b < 0.0)
+              s_lo = std::max(s_lo, -a / b);
+            else if (a > 0.0)
+              s_hi = -1.0;
+          }
+          const double chord = std::max(0.0, s_hi - s_lo) * d.norm();
+          const double found = scored.count(bin) ? scored[bin] : 0.0;
+          REQUIRE(found == Catch::Approx(chord).epsilon(0.0).margin(1e-9));
+        }
+      }
+    }
+  }
 }
 
 TEST_CASE("Block-restricted libMesh meshes partition the tracks")

@@ -2768,8 +2768,9 @@ class UnstructuredMesh(MeshBase):
         or in part, as strongly curved elements can be), and a side where
         elements touch without being neighbors in libMesh (at a non-conforming
         interface, such as one with hanging nodes) must be flat, to within
-        1e-12 of the mesh's size, unless the side on the other side has the
-        same corners. OpenMC checks both when it loads the mesh.
+        1e-12 of the larger of the mesh's extent and the magnitude of its
+        coordinates, unless the side across from it has its corners at the
+        same positions. OpenMC checks both when it loads the mesh.
 
     Parameters
     ----------

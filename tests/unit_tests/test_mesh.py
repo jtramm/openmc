@@ -1361,6 +1361,58 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
+@pytest.mark.parametrize('mesh_file, mesh_library', [
+    ("test_mesh_tets_w_holes.exo", "moab"),
+    ("test_mesh_tets_w_holes.exo", "libmesh"),
+    ("test_mesh_delaunay_patches.e", "libmesh"),
+])
+def test_umesh_material_volume_bounding_boxes(
+        mesh_file, mesh_library, run_in_tmpdir):
+    """The bounding boxes of the material volumes in the elements of a mesh
+    that does not fill its own bounding box (so that rays leave and enter it)
+    lie within the elements, give or take half the spacing of the rays"""
+    if mesh_library == 'moab' and not openmc.lib.feature_enabled('dagmc'):
+        pytest.skip("DAGMC not enabled.")
+    if mesh_library == 'libmesh' and not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+
+    mat = openmc.Material()
+    mat.add_nuclide('H1', 1.0)
+    mat.set_density('g/cm3', 1.0)
+    box = openmc.model.RectangularParallelepiped(
+        -20, 20, -20, 20, -20, 20, boundary_type='vacuum')
+    model = openmc.Model()
+    model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-box)])
+    model.settings.run_mode = 'fixed source'
+    model.settings.batches = 1
+    model.settings.particles = 10
+    umesh = openmc.UnstructuredMesh(UMESH_DIR / mesh_file, mesh_library)
+    tally = openmc.Tally()
+    tally.filters = [openmc.MeshFilter(umesh)]
+    tally.scores = ['flux']
+    model.tallies = [tally]
+
+    # The elements' vertices, by bin
+    with openmc.StatePoint(model.run()) as sp:
+        mesh = sp.meshes[umesh.id]
+        vertices = mesh.vertices
+        connectivity = mesh.connectivity
+
+    n = 40
+    mmv = umesh.material_volumes(model, (n, n, n), bounding_boxes=True)
+    tol = 0.5 * (vertices.max(axis=0) - vertices.min(axis=0)) / n + 1e-9
+    n_boxes = 0
+    for i in range(mmv.num_elements):
+        nodes = vertices[connectivity[i][connectivity[i] >= 0]]
+        for mat_id, volume, bbox in mmv.by_element(i, include_bboxes=True):
+            if mat_id is None or volume == 0.0:
+                continue
+            n_boxes += 1
+            assert np.all(bbox.lower_left >= nodes.min(axis=0) - tol)
+            assert np.all(bbox.upper_right <= nodes.max(axis=0) + tol)
+    assert n_boxes > 0
+
+
 @pytest.mark.parametrize('mesh_file, message', [
     # Tets around a node pushed past its neighbors (some are inverted)
     ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
