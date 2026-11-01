@@ -1168,22 +1168,30 @@ private:
     const libMesh::Elem& elem, vector<SideTriangle>& tris);
 
   //! Whether a point is inside an element, judged by its side triangles
+  static bool contains(
+    const vector<SideTriangle>& tris, const libMesh::Point& p);
   static bool contains(const libMesh::Elem& elem, const libMesh::Point& p);
+
+  //! Whether a point is inside, or within tol of, the element whose side
+  //! triangles are given
+  static bool within_roundoff(
+    const vector<SideTriangle>& tris, const libMesh::Point& p, double tol);
 
   //! Collect the triangles making up the boundary of the mesh and bin them
   //! on a grid
   void build_boundary_triangles();
 
-  //! Distance along dir from p (inside elem) to the side through which the
-  //! track leaves elem
+  //! Distance along dir from p (inside the element) to the side through
+  //! which the track leaves the element
   //
-  //! \param[in] elem Element containing p
+  //! \param[in] tris Side triangles of the element
   //! \param[in] p Starting point, in mesh coordinates
   //! \param[in] dir Unit direction of travel
-  //! \param[out] exit_side Side of elem the track leaves through
+  //! \param[out] exit_side Side the track leaves through, or the largest
+  //!   unsigned int if none is found
   //! \param[in] min_distance Exits closer than this are ignored
   //! \return Distance to the exit side
-  static double exit_distance(const libMesh::Elem& elem,
+  static double exit_distance(const vector<SideTriangle>& tris,
     const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
     double min_distance = 0.0);
 

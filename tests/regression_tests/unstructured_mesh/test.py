@@ -284,30 +284,43 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
 # fine one, with hanging nodes and no neighbor information across the
 # interface. The beams run along the x = y = 0 edge line of the non-conforming
 # mesh and out of its (0, 0, 0) vertex, so tracks and collision sites lie
-# exactly on element edges and vertices.
-@pytest.mark.parametrize("mesh_filename,length_multiplier,source,estimator", [
-    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength'),
-    ("test_mesh_hexes_warped.e", 2.0, 'box', 'tracklength'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'tracklength'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'collision'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'vertex', 'tracklength'),
+# exactly on element edges and vertices. In the 'shell' geometry the mesh cube
+# is a cell inside a larger box, so tracks enter and leave the mesh across a
+# cell boundary that coincides with the mesh boundary.
+@pytest.mark.parametrize(
+    "mesh_filename,length_multiplier,source,estimator,geometry", [
+    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_warped.e", 2.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'collision', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'vertex', 'tracklength', 'cube'),
+    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'shell'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength', 'shell'),
 ])
-def test_unstructured_mesh_conservation(
-        model, mesh_filename, length_multiplier, source, estimator, tmp_path):
+def test_unstructured_mesh_conservation(model, mesh_filename,
+        length_multiplier, source, estimator, geometry, tmp_path):
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh is not enabled in this build.")
 
-    # A single cube cell matching the (scaled) mesh
+    # A cube cell matching the (scaled) mesh, on its own or inside a larger box
     half_width = length_multiplier
     water = model.geometry.get_materials_by_name('water')[0]
     box = openmc.model.RectangularParallelepiped(
         -half_width, half_width, -half_width, half_width, -half_width,
-        half_width, boundary_type='vacuum')
+        half_width, boundary_type='vacuum' if geometry == 'cube' else
+        'transmission')
     cell = openmc.Cell(fill=water, region=-box)
-    model.geometry = openmc.Geometry([cell])
+    cells = [cell]
+    if geometry == 'shell':
+        outer = openmc.model.RectangularParallelepiped(
+            -2*half_width, 2*half_width, -2*half_width, 2*half_width,
+            -2*half_width, 2*half_width, boundary_type='vacuum')
+        cells.append(openmc.Cell(fill=water, region=-outer & +box))
+    model.geometry = openmc.Geometry(cells)
     if source == 'box':
-        space = openmc.stats.Box(3*[-0.9*half_width], 3*[0.9*half_width])
+        extent = 0.9*half_width if geometry == 'cube' else 1.9*half_width
+        space = openmc.stats.Box(3*[-extent], 3*[extent])
         angle = None
     elif source == 'edge':
         space = openmc.stats.Point((0.0, 0.0, -0.9*half_width))

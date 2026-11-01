@@ -14,6 +14,7 @@
 #include "openmc/settings.h"
 #include "openmc/simulation.h"
 #include <numeric>
+#include <set>
 
 #include "openmc/distribution_spatial.h"
 #include "openmc/random_dist.h"
@@ -414,10 +415,9 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     if (reduced_distance > 10.0 * TINY_BIT &&
         std::accumulate(mesh_fractional_lengths_.begin(),
           mesh_fractional_lengths_.end(), 0.0) < 1.0 - 1e-6) {
-      static bool warned = false;
+      static std::set<int> warned_meshes;
 #pragma omp critical(random_ray_mesh_coverage)
-      if (!warned) {
-        warned = true;
+      if (warned_meshes.insert(mesh->id()).second) {
         warning(fmt::format(
           "Source region mesh {} does not cover all of the cells it is "
           "applied to. Ray segments outside the mesh are neither attenuated "

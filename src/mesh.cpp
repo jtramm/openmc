@@ -3914,6 +3914,19 @@ void LibMesh::initialize()
     upper_right_ = {ur(0), ur(1), ur(2)};
   }
 
+  // Track-length traversal takes the sides' outward orientation from the
+  // element's node order, which an inverted element gets wrong
+  int n_inverted = 0;
+  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
+    if (elem->volume() <= 0.0)
+      n_inverted++;
+  }
+  if (n_inverted > 0) {
+    warning(fmt::format("Unstructured mesh {} has {} elements with a "
+                        "non-positive volume; tallies on them are unreliable.",
+      id_, n_inverted));
+  }
+
   build_boundary_triangles();
 
   // A track can cross every active element at most twice (once more after
@@ -3936,7 +3949,8 @@ bool ray_triangle(const libMesh::Point& origin, const libMesh::Point& dir,
   const libMesh::Point e2 = c - a;
   const libMesh::Point pvec = dir.cross(e2);
   const double det = e1 * pvec;
-  if (det == 0.0)
+  // A ray (nearly) parallel to the triangle misses it
+  if (det * det <= 1e-24 * e1.norm_sq() * e2.norm_sq())
     return false;
   const double inv_det = 1.0 / det;
   const libMesh::Point tvec = origin - a;
@@ -3998,17 +4012,17 @@ void LibMesh::side_triangles(
   }
 }
 
-bool LibMesh::contains(const libMesh::Elem& elem, const libMesh::Point& p)
+bool LibMesh::contains(
+  const vector<SideTriangle>& tris, const libMesh::Point& p)
 {
   // Solid angle subtended by the (outward oriented) side triangles at p: 4 pi
-  // inside the element, 0 outside, 2 pi on a side, where the point counts as
-  // inside for both elements sharing the side. This is the same geometry
+  // inside the element and 0 outside. This is the same geometry that
   // bins_crossed() walks through, and it is consistent between the two
-  // elements sharing a side even when that side is warped. On an edge or a
-  // vertex only the dihedral or corner angle is subtended, so such a point is
-  // rejected by every element sharing it; locate() handles that case.
-  static thread_local vector<SideTriangle> tris;
-  side_triangles(elem, tris);
+  // elements sharing a side even when that side is warped. The test is not
+  // reliable for a point on the surface: a point on a side gets 4 pi or 0
+  // depending on the sign of a roundoff-sized numerator, and a point on an
+  // edge or a vertex only the dihedral or corner angle, so such a point may
+  // be rejected by every element sharing it. locate() handles that case.
   double solid_angle = 0.0;
   for (const auto& tri : tris) {
     const libMesh::Point a = tri.a - p;
@@ -4025,6 +4039,25 @@ bool LibMesh::contains(const libMesh::Elem& elem, const libMesh::Point& p)
   return solid_angle > 2.0 * PI * (1.0 - FP_COINCIDENT);
 }
 
+bool LibMesh::contains(const libMesh::Elem& elem, const libMesh::Point& p)
+{
+  static thread_local vector<SideTriangle> tris;
+  side_triangles(elem, tris);
+  return contains(tris, p);
+}
+
+bool LibMesh::within_roundoff(
+  const vector<SideTriangle>& tris, const libMesh::Point& p, double tol)
+{
+  // The point is not beyond the plane of any side triangle by more than tol
+  for (const auto& tri : tris) {
+    const libMesh::Point normal = (tri.b - tri.a).cross(tri.c - tri.a);
+    if ((p - tri.a) * normal > tol * normal.norm())
+      return false;
+  }
+  return true;
+}
+
 const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   const std::set<libMesh::subdomain_id_type>* blocks) const
 {
@@ -4033,8 +4066,8 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   // near a side it can name either of the elements sharing that side (and its
   // single-element lookup prefers the element of its previous query, which
   // differs between threads). The decision is made with contains(), the
-  // geometry bins_crossed() uses, taking the lowest id when the point is
-  // within roundoff of a side.
+  // geometry bins_crossed() uses, taking the lowest id when more than one
+  // element qualifies.
   std::set<const libMesh::Elem*> candidates;
   (*pl_.at(thread_num()))(p, candidates, blocks);
 
@@ -4064,12 +4097,17 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   if (const libMesh::Elem* best = lowest_containing(neighbors))
     return best;
 
-  // No element contains the point by its triangles: it is on an edge or a
-  // vertex, or within the locator's tolerance of the mesh boundary. The
-  // locator accepts such points, so take the lowest id of its candidates.
+  // No element contains the point by its triangles: it is on a side, an edge
+  // or a vertex (see contains()), or it is outside the mesh but within the
+  // locator's tolerance (about 1e-6 of the element size). Take the lowest-id
+  // candidate that the point is within roundoff of, if there is one.
+  static thread_local vector<SideTriangle> tris;
   const libMesh::Elem* best = nullptr;
   for (const libMesh::Elem* elem : candidates) {
-    if (elem->active() && (!best || elem->id() < best->id()))
+    if (!elem->active() || (best && elem->id() > best->id()))
+      continue;
+    side_triangles(*elem, tris);
+    if (within_roundoff(tris, p, 1e-10 * elem->hmax()))
       best = elem;
   }
   return best;
@@ -4301,18 +4339,15 @@ void LibMesh::write(const std::string& filename) const
     filename + ".e", *equation_systems_, &systems_out);
 }
 
-double LibMesh::exit_distance(const libMesh::Elem& elem,
+double LibMesh::exit_distance(const vector<SideTriangle>& tris,
   const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
   double min_distance)
 {
-  static thread_local vector<SideTriangle> tris;
-  side_triangles(elem, tris);
-
   // The exit side is the first side whose triangle the track hits moving
   // along dir, beyond min_distance. Only outward-facing triangles can be
   // exited through, which also excludes the side the track entered through.
   double distance = INFTY;
-  exit_side = elem.n_sides();
+  exit_side = std::numeric_limits<unsigned int>::max();
   for (const auto& tri : tris) {
     if (dir * (tri.b - tri.a).cross(tri.c - tri.a) <= 0.0)
       continue;
@@ -4444,6 +4479,8 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 
   // March from element to element. Outside of the mesh, the boundary
   // triangles give the (re-)entry point.
+  static thread_local vector<SideTriangle> tris;
+  static thread_local vector<SideTriangle> owner_tris;
   int n_steps = 0;
   double t = t_lo;
   const libMesh::Elem* elem = locate(p0 + (t + TINY_BIT) * dir);
@@ -4473,17 +4510,18 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
       t = t_entry;
     }
 
+    side_triangles(*elem, tris);
     unsigned int exit_side;
     double t_exit = std::min(
-      t + exit_distance(*elem, p0 + t * dir, dir, exit_side), track_len);
+      t + exit_distance(tris, p0 + t * dir, dir, exit_side), track_len);
 
     // A hit within the tolerance of a side triangle's edge can report an
     // exit at (almost) zero distance for a track that stays inside the
     // element. If the point just ahead is still inside, the real exit is the
     // first one beyond that point.
-    if (t_exit - t <= TINY_BIT && locate(p0 + (t + TINY_BIT) * dir) == elem) {
+    if (t_exit - t <= TINY_BIT && contains(tris, p0 + (t + TINY_BIT) * dir)) {
       t_exit = std::min(
-        t + exit_distance(*elem, p0 + t * dir, dir, exit_side, TINY_BIT),
+        t + exit_distance(tris, p0 + t * dir, dir, exit_side, TINY_BIT),
         track_len);
     }
 
@@ -4492,25 +4530,38 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // midpoint (the random ray solver relies on this). If that is not the
     // element being walked (the walk strayed at an edge, a vertex or a warped
     // side), the step is redone from the element that does contain it, as
-    // long as that advances the walk.
+    // long as that advances the walk; otherwise the segment is just scored to
+    // it, and its start may then lie in the walked element, a roundoff-level
+    // inconsistency with get_bin() of that start. A midpoint outside the mesh
+    // means the track left the mesh before the exit found here: the walk
+    // then resumes from where the track enters the mesh again.
     const libMesh::Elem* scored = elem;
-    if (t_exit > t && !contains(*elem, p0 + 0.5 * (t + t_exit) * dir)) {
-      const libMesh::Elem* owner = locate(p0 + 0.5 * (t + t_exit) * dir);
-      if (owner && owner != elem) {
-        unsigned int owner_side;
-        double t_exit_owner = std::min(
-          t + exit_distance(*owner, p0 + t * dir, dir, owner_side), track_len);
-        scored = owner;
-        if (t_exit_owner - t > TINY_BIT) {
-          elem = owner;
-          exit_side = owner_side;
-          t_exit = t_exit_owner;
+    if (t_exit > t) {
+      const libMesh::Point midpoint = p0 + 0.5 * (t + t_exit) * dir;
+      if (!contains(tris, midpoint)) {
+        const libMesh::Elem* owner = locate(midpoint);
+        if (!owner) {
+          elem = nullptr;
+          continue;
+        }
+        if (owner != elem) {
+          side_triangles(*owner, owner_tris);
+          unsigned int owner_side;
+          double t_exit_owner = std::min(
+            t + exit_distance(owner_tris, p0 + t * dir, dir, owner_side),
+            track_len);
+          scored = owner;
+          if (t_exit_owner - t > TINY_BIT) {
+            elem = owner;
+            exit_side = owner_side;
+            t_exit = t_exit_owner;
+          }
         }
       }
-    }
-    if (t_exit > t && is_bin_element(scored)) {
-      bins.push_back(get_bin_from_element(scored));
-      lengths.push_back((t_exit - t) / track_len);
+      if (is_bin_element(scored)) {
+        bins.push_back(get_bin_from_element(scored));
+        lengths.push_back((t_exit - t) / track_len);
+      }
     }
     if (t_exit >= track_len)
       return;
