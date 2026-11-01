@@ -1124,9 +1124,12 @@ protected:
   //
   //! \param[in] p Point in mesh coordinates
   //! \param[in] blocks Subdomains to restrict the search to, if any
-  //! \return Element containing the point, or nullptr if outside the mesh
+  //! \param[in] exclude An element not to consider, if any
+  //! \return Element containing the point (the one with the lowest id if the
+  //!   point is on the surface of several), or nullptr if outside the mesh
   const libMesh::Elem* locate(const libMesh::Point& p,
-    const std::set<libMesh::subdomain_id_type>* blocks = nullptr) const;
+    const std::set<libMesh::subdomain_id_type>* blocks = nullptr,
+    const libMesh::Elem* exclude = nullptr) const;
 
   // Data members
   libMesh::MeshBase* m_; //!< pointer to libMesh MeshBase instance, always set
@@ -1165,10 +1168,10 @@ private:
     libMesh::Point lower;     //!< lower corner, in mesh coordinates
     libMesh::Point width;     //!< cell width in each direction
     std::array<int, 3> shape; //!< number of cells in each direction
-    vector<int> offsets;      //!< start of each cell's list in items
+    vector<int64_t> offsets;  //!< start of each cell's list in items
     vector<int> items;        //!< item indices
 
-    //! Size the grid for about two items per cell over a bounding box
+    //! Size the grid for about four items per cell over a bounding box
     void build(const libMesh::BoundingBox& bbox, int n_items, double margin);
     //! Index of the cell containing a point, or -1 if outside the grid
     int cell(const libMesh::Point& p) const;
@@ -1271,7 +1274,7 @@ private:
   UniformGrid elem_grid_;                    //!< grid over grid_elems_
   vector<BoundaryTriangle> boundary_tris_;   //!< triangulated mesh boundary
   UniformGrid boundary_grid_;                //!< grid over boundary_tris_
-  int max_track_steps_; //!< bound on element crossings for a single track
+  int64_t max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {
     false}; //!< whether a track that exceeded the bound was reported
 };

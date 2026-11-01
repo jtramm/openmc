@@ -3929,7 +3929,7 @@ void LibMesh::initialize()
   // A generous bound on the element crossings of a single straight track,
   // which enters a (non-convex) element at most a few times; counting the
   // elements is O(n) in libMesh
-  max_track_steps_ = 8 * m_->n_active_elem() + 64;
+  max_track_steps_ = 8 * static_cast<int64_t>(m_->n_active_elem()) + 64;
 }
 
 namespace {
@@ -4007,19 +4007,31 @@ int side_corners(libMesh::ElemType type, unsigned int s)
   }
 }
 
+//! Index of the grid interval that x falls in; -1 if x is outside [0, n)
+//! (NaN included), or the nearest valid index if clamp is set
+int grid_index(double x, int n, bool clamp)
+{
+  const double f = std::floor(x);
+  if (f >= 0.0 && f < n)
+    return static_cast<int>(f);
+  if (!clamp)
+    return -1;
+  return f >= n ? n - 1 : 0;
+}
+
 } // namespace
 
 void LibMesh::UniformGrid::build(
   const libMesh::BoundingBox& bbox, int n_items, double margin)
 {
-  // Cells about as wide in every direction, about two items per cell
+  // Cells about as wide in every direction, about four items per cell
   std::array<double, 3> extent;
   double volume = 1.0;
   for (int d = 0; d < 3; d++) {
     extent[d] = bbox.max()(d) - bbox.min()(d) + 2.0 * margin;
     volume *= extent[d];
   }
-  const double n_cells = std::clamp(n_items / 2.0, 1.0, 1.0e7);
+  const double n_cells = std::clamp(n_items / 4.0, 1.0, 1.0e7);
   double spacing = std::cbrt(volume / n_cells);
   auto total = [&]() {
     double cells = 1.0;
@@ -4045,8 +4057,8 @@ int LibMesh::UniformGrid::cell(const libMesh::Point& p) const
   int index = 0;
   int stride = 1;
   for (int d = 0; d < 3; d++) {
-    const int i = static_cast<int>(std::floor((p(d) - lower(d)) / width(d)));
-    if (i < 0 || i >= shape[d])
+    const int i = grid_index((p(d) - lower(d)) / width(d), shape[d], false);
+    if (i < 0)
       return -1;
     index += stride * i;
     stride *= shape[d];
@@ -4059,12 +4071,8 @@ void LibMesh::UniformGrid::cell_range(const libMesh::Point& lo,
   std::array<int, 3>& ihi) const
 {
   for (int d = 0; d < 3; d++) {
-    ilo[d] =
-      std::clamp(static_cast<int>(std::floor((lo(d) - lower(d)) / width(d))), 0,
-        shape[d] - 1);
-    ihi[d] =
-      std::clamp(static_cast<int>(std::floor((hi(d) - lower(d)) / width(d))), 0,
-        shape[d] - 1);
+    ilo[d] = grid_index((lo(d) - lower(d)) / width(d), shape[d], true);
+    ihi[d] = grid_index((hi(d) - lower(d)) / width(d), shape[d], true);
   }
 }
 
@@ -4088,7 +4096,7 @@ void LibMesh::UniformGrid::fill(
   for (int c = 0; c < n_cells; c++)
     offsets[c + 1] += offsets[c];
   items.resize(offsets[n_cells]);
-  vector<int> next(offsets.begin(), offsets.end() - 1);
+  vector<int64_t> next(offsets.begin(), offsets.end() - 1);
   for (int item = 0; item < static_cast<int>(boxes.size()); item++)
     for_cells(boxes[item], [&](int c) { items[next[c]++] = item; });
 }
@@ -4205,16 +4213,22 @@ bool LibMesh::contains(const libMesh::Elem& elem, const libMesh::Point& p) const
 
 double LibMesh::triangulated_volume(const vector<SideTriangle>& tris)
 {
-  // Divergence theorem over the closed, outward oriented surface
+  // Divergence theorem over the closed, outward oriented surface, relative to
+  // a point of the element so that the terms are not much larger than the
+  // result (they would grow with the distance from the origin)
+  if (tris.empty())
+    return 0.0;
+  const libMesh::Point origin = tris[0].a;
   double volume = 0.0;
   for (const auto& tri : tris) {
-    volume += tri.a * tri.b.cross(tri.c);
+    volume += (tri.a - origin) * (tri.b - origin).cross(tri.c - origin);
   }
   return volume / 6.0;
 }
 
 const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
-  const std::set<libMesh::subdomain_id_type>* blocks) const
+  const std::set<libMesh::subdomain_id_type>* blocks,
+  const libMesh::Elem* exclude) const
 {
   // The active elements are binned by bounding box on a grid and the
   // decision is made with classify(), the geometry bins_crossed() walks
@@ -4226,11 +4240,11 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   if (cell < 0)
     return nullptr;
   static thread_local vector<SideTriangle> tris;
-  for (int k = elem_grid_.offsets[cell]; k < elem_grid_.offsets[cell + 1];
+  for (int64_t k = elem_grid_.offsets[cell]; k < elem_grid_.offsets[cell + 1];
        k++) {
     const int i = elem_grid_.items[k];
     const libMesh::Elem* elem = grid_elems_[i];
-    if (blocks && !blocks->count(elem->subdomain_id()))
+    if (elem == exclude || (blocks && !blocks->count(elem->subdomain_id())))
       continue;
     if (!grid_bboxes_[i].contains_point(p))
       continue;
@@ -4593,9 +4607,8 @@ const libMesh::Elem* LibMesh::find_entry(const libMesh::Point& p0,
   std::array<int, 3> ijk, step;
   std::array<double, 3> t_next, t_delta;
   for (int d = 0; d < 3; d++) {
-    ijk[d] = std::clamp(
-      static_cast<int>(std::floor((start(d) - grid.lower(d)) / grid.width(d))),
-      0, grid.shape[d] - 1);
+    ijk[d] = grid_index(
+      (start(d) - grid.lower(d)) / grid.width(d), grid.shape[d], true);
     if (dir(d) > 0.0) {
       step[d] = 1;
       t_next[d] =
@@ -4619,7 +4632,7 @@ const libMesh::Elem* LibMesh::find_entry(const libMesh::Point& p0,
   double t_cell = t_min; // distance at which the current cell was entered
   while (t_cell < t_entry) {
     const int cell = ijk[0] + grid.shape[0] * (ijk[1] + grid.shape[1] * ijk[2]);
-    for (int k = grid.offsets[cell]; k < grid.offsets[cell + 1]; k++) {
+    for (int64_t k = grid.offsets[cell]; k < grid.offsets[cell + 1]; k++) {
       const auto& tri = boundary_tris_[grid.items[k]];
       if (dir * tri.normal >= 0.0)
         continue;
@@ -4680,12 +4693,43 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // March from element to element. Outside of the mesh, the boundary
   // triangles give the (re-)entry point.
   static thread_local vector<SideTriangle> tris;
-  static thread_local vector<SideTriangle> owner_tris;
   const double step = probe_step_;
-  int n_steps = 0;
+  // Point a short step ahead of distance s along the track, short of its end
+  auto ahead = [&](double s) {
+    return p0 + (s + std::min(step, 0.5 * (track_len - s))) * dir;
+  };
+  // Look for the mesh a short way along the track after a gap between
+  // elements whose sides do not quite meet (such as curved second-order
+  // elements in an adaptively refined mesh), up to a distance h. Returns the
+  // element found, if any, and moves s to where it was found.
+  auto resume_after_gap = [&](double& s, double h) -> const libMesh::Elem* {
+    for (int k = 0; k <= 16; k++) {
+      const double s_k = s + k * h / 16.0;
+      if (s_k >= track_len)
+        break;
+      if (const libMesh::Elem* found = locate(ahead(s_k))) {
+        s = s_k;
+        return found;
+      }
+    }
+    return nullptr;
+  };
+  int64_t n_steps = 0;
   int n_stalled = 0;
+  int n_redone = 0;
   double t = t_lo;
-  const libMesh::Elem* elem = locate(p0 + (t + step) * dir);
+  // The walk starts in the element the track moves into, if the start of the
+  // track is in it; otherwise in the element that does contain the start (the
+  // track leaves it within a step), or, if the track starts outside of the
+  // mesh, where it enters the mesh
+  const libMesh::Elem* elem = locate(ahead(t));
+  if (elem) {
+    side_triangles(*elem, tris);
+    if (classify(tris, p0 + t * dir, surface_tol_) < 0)
+      elem = nullptr;
+  }
+  if (!elem)
+    elem = locate(p0 + t * dir);
   while (t < track_len) {
     if (++n_steps > max_track_steps_) {
       // The random ray solver would silently lose transport, so stop; a
@@ -4710,6 +4754,7 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
       if (!elem)
         return;
       t = t_entry;
+      n_redone = 0;
     }
 
     side_triangles(*elem, tris);
@@ -4721,8 +4766,7 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // exit at (almost) zero distance for a track that stays inside the
     // element. If the point just ahead is still inside, the real exit is the
     // first one beyond that point.
-    if (t_exit - t <= step &&
-        classify(tris, p0 + (t + step) * dir, surface_tol_) >= 0) {
+    if (t_exit - t <= step && classify(tris, ahead(t), surface_tol_) >= 0) {
       t_exit = std::min(
         t + exit_distance(tris, p0 + t * dir, dir, exit_side, step), track_len);
     }
@@ -4733,32 +4777,39 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // midpoint strictly inside the walked element is in no other element, so
     // the search is only needed otherwise. If the element found is not the
     // one being walked (the walk strayed at an edge, a vertex or a warped
-    // side, or the midpoint is on a side), the step is redone from it, as
-    // long as that advances the walk; otherwise the segment is just scored to
-    // it. A midpoint outside the mesh means the track left the mesh before
-    // the exit found here: the walk then resumes from where the track enters
-    // the mesh again.
+    // side, or the midpoint is on a side), the step is redone from it, a
+    // couple of times at most; after that the segment is just scored to it.
     const libMesh::Elem* scored = elem;
     if (t_exit > t) {
       const libMesh::Point midpoint = p0 + 0.5 * (t + t_exit) * dir;
       if (classify(tris, midpoint, surface_tol_) <= 0) {
         const libMesh::Elem* owner = locate(midpoint);
         if (!owner) {
-          elem = nullptr;
+          // The midpoint is in no element: the track left the mesh, or
+          // crossed a gap between elements whose sides do not quite meet.
+          // Continue where it enters the mesh again within the segment, or
+          // else after the segment if the mesh continues there.
+          double t_entry;
+          const libMesh::Elem* entered =
+            find_entry(p0, dir, t, t_exit, t_entry);
+          if (entered) {
+            elem = entered;
+            t = t_entry;
+          } else {
+            const double h = elem->hmax();
+            t = t_exit;
+            elem = resume_after_gap(t, h);
+          }
+          n_redone = 0;
           continue;
         }
         if (owner != elem) {
-          side_triangles(*owner, owner_tris);
-          unsigned int owner_side;
-          const double t_exit_owner = std::min(
-            t + exit_distance(owner_tris, p0 + t * dir, dir, owner_side),
-            track_len);
-          scored = owner;
-          if (t_exit_owner - t > step) {
+          if (n_redone < 2) {
             elem = owner;
-            exit_side = owner_side;
-            t_exit = t_exit_owner;
+            n_redone++;
+            continue;
           }
+          scored = owner;
         }
       }
       if (is_bin_element(scored)) {
@@ -4770,14 +4821,15 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
       return;
     const bool progressed = t_exit - t > step;
     t = t_exit;
+    n_redone = 0;
 
     // A walk that keeps making no progress is stuck where several elements
     // meet: step past the point, giving up a negligible length of track
     n_stalled = progressed ? 0 : n_stalled + 1;
     if (n_stalled > 4) {
       n_stalled = 0;
-      t += step;
-      elem = locate(p0 + t * dir);
+      t = std::min(t + step, track_len);
+      elem = t < track_len ? locate(p0 + t * dir) : nullptr;
       continue;
     }
 
@@ -4786,18 +4838,28 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // or a refined neighbor), or if the step was too short to trust the exit
     // side (a point on an edge or vertex, or marginally outside the element),
     // the point just ahead on the track is located instead. If that still
-    // yields the current element, the track is grazing the exit side: it
-    // continues in the neighbor if there is one and has otherwise left the
-    // mesh here.
-    const libMesh::Elem* neighbor =
+    // yields the current element, either the exit was false (the point ahead
+    // is inside the element, and the walk continues in it) or the track
+    // grazes the exit side (the point is on the element's surface): it then
+    // continues in the neighbor, or else in another element that the point
+    // ahead touches, if any.
+    // If the track left through an interior side (one with a neighbor) but
+    // the point ahead is in no element, it is in a gap between elements whose
+    // sides do not quite meet, and the walk resumes a short way along.
+    const libMesh::Elem* side_neighbor =
       exit_side < elem->n_sides() ? elem->neighbor_ptr(exit_side) : nullptr;
-    if (neighbor && !neighbor->active())
-      neighbor = nullptr;
+    const libMesh::Elem* neighbor =
+      side_neighbor && side_neighbor->active() ? side_neighbor : nullptr;
     const libMesh::Elem* next = neighbor;
     if (!progressed || !neighbor) {
-      next = locate(p0 + (t + step) * dir);
-      if (next == elem)
+      const libMesh::Point point_ahead = ahead(t);
+      next = locate(point_ahead);
+      if (next == elem && classify(tris, point_ahead, surface_tol_) <= 0)
+        next = neighbor ? neighbor : locate(point_ahead, nullptr, elem);
+      if (!next)
         next = neighbor;
+      if (!next && side_neighbor)
+        next = resume_after_gap(t, elem->hmax());
     }
     elem = next;
   }
@@ -4841,9 +4903,17 @@ double LibMesh::volume(int bin) const
 {
   // The volume of the element with flat (triangulated) sides, which is what
   // the track-length and point lookups of this class see
+  // (a lower-dimensional element, which is never scored, keeps libMesh's
+  // measure)
   static thread_local vector<SideTriangle> tris;
-  side_triangles(this->get_element_from_bin(bin), tris);
-  double volume = triangulated_volume(tris);
+  const libMesh::Elem& elem = this->get_element_from_bin(bin);
+  double volume;
+  if (elem.dim() < 3) {
+    volume = elem.volume();
+  } else {
+    side_triangles(elem, tris);
+    volume = triangulated_volume(tris);
+  }
   if (length_multiplier_ > 0.0) {
     volume *= length_multiplier_ * length_multiplier_ * length_multiplier_;
   }

@@ -297,7 +297,8 @@ def interior_edge(mesh_file):
 # neighbor information across the interface. The beams run along the x = y = 0
 # edge line of the non-conforming mesh and out of its (0, 0, 0) vertex, or
 # along an interior edge of the warped mesh, so that tracks and collision sites
-# lie exactly on element edges and vertices. In the 'shell' geometry the mesh
+# lie exactly on element edges and vertices; the grazing beam crosses the
+# non-conforming interface at x = 0 at an angle of 1e-5. In the 'shell' geometry the mesh
 # cube is a cell inside a larger box, so tracks enter and leave the mesh across
 # a cell boundary that coincides with the mesh boundary. The HEX20 and TET10
 # meshes have straight sides and mid-side nodes.
@@ -315,6 +316,8 @@ def interior_edge(mesh_file):
     ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'edge', 'tracklength', 'cube'),
     ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'edge', 'collision', 'cube'),
     ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'vertex', 'tracklength',
+     'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'grazing', 'tracklength',
      'cube'),
     ("test_mesh_hexes_nonconforming_scaled.e", 1000, 0.001, 'edge',
      'tracklength', 'cube'),
@@ -356,6 +359,11 @@ def test_unstructured_mesh_conservation(model, mesh_filename, mesh_half_width,
     elif source == 'vertex':
         space = openmc.stats.Point((0.0, 0.0, 0.0))
         angle = openmc.stats.Monodirectional((1.0, 1.0, 1.0))
+    elif source == 'grazing':
+        tilt = 1e-5
+        space = openmc.stats.Point(
+            (-0.5*tilt*half_width, 0.3*half_width, -0.95*half_width))
+        angle = openmc.stats.Monodirectional((tilt, 0.0, 1.0))
     else:
         start, end = interior_edge(mesh_file)
         space = openmc.stats.Point(tuple(length_multiplier*start))
