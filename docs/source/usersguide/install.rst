@@ -347,9 +347,10 @@ Prerequisites
 
       This optional dependency enables support for unstructured mesh tally
       filters using libMesh meshes. Any 3D element type supported by libMesh can
-      be used. In addition to turning this option on, the path to the libMesh
-      installation should be specified as part of the ``CMAKE_PREFIX_PATH``
-      variable::
+      be used, although mesh sources (:class:`openmc.stats.MeshSpatial`)
+      require tetrahedra. In addition to turning this option on, the path to
+      the libMesh installation should be specified as part of the
+      ``CMAKE_PREFIX_PATH`` variable::
 
           cmake -DOPENMC_USE_LIBMESH=on -DOPENMC_USE_MPI=on -DCMAKE_PREFIX_PATH=/path/to/libmesh/installation ..
 

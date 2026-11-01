@@ -25,6 +25,7 @@
 
 #include "libmesh/elem.h"
 #include "libmesh/enum_to_string.h"
+#include "libmesh/exodusII_io.h"
 #include "libmesh/libmesh.h"
 #include "libmesh/mesh_generation.h"
 #include "libmesh/mesh_modification.h"
@@ -32,6 +33,7 @@
 #include "libmesh/replicated_mesh.h"
 
 #include "openmc/position.h"
+#include "openmc/settings.h"
 #endif
 
 using namespace openmc;
@@ -434,8 +436,10 @@ namespace {
 
 //! Initialize libMesh once for the test cases that need it, unless something
 //! else (such as XDG) already has. Stdout is kept synchronized, or the test
-//! report written to it can be lost. The communicator is also set as OpenMC's
-//! libMesh communicator, until the returned guard goes out of scope.
+//! report written to it can be lost. Until the guard below goes out of scope,
+//! the communicator is OpenMC's libMesh communicator and the solver is random
+//! ray, in which a track-length traversal that does not terminate is a fatal
+//! error (rather than a warning).
 const libMesh::Parallel::Communicator& init_libmesh()
 {
   static const char* argv[] = {"test_mesh", "--sync-with-stdio"};
@@ -453,9 +457,18 @@ const libMesh::Parallel::Communicator& init_libmesh()
 }
 
 struct LibMeshComm {
-  LibMeshComm() : comm(init_libmesh()) { settings::libmesh_comm = &comm; }
-  ~LibMeshComm() { settings::libmesh_comm = nullptr; }
+  LibMeshComm() : comm(init_libmesh()), solver_type(settings::solver_type)
+  {
+    settings::libmesh_comm = &comm;
+    settings::solver_type = SolverType::RANDOM_RAY;
+  }
+  ~LibMeshComm()
+  {
+    settings::libmesh_comm = nullptr;
+    settings::solver_type = solver_type;
+  }
   const libMesh::Parallel::Communicator& comm;
+  const SolverType solver_type;
 };
 
 //! Distances along the segment from r0 to r1 at which it enters and leaves
@@ -710,35 +723,55 @@ TEST_CASE("Track-length traversal of a refined libMesh mesh with warped sides")
 
 TEST_CASE("Track-length traversal of refined curved libMesh meshes")
 {
-  // Second-order elements with interior nodes displaced, so that their edges
-  // are curved, refined for x > 0: the descendants' vertices include
-  // mid-edge nodes, which are off the coarse elements' straight edges
+  // Second-order elements with interior nodes displaced at random, or
+  // smoothly bulged, so that their edges and sides are curved, refined for
+  // x > 0: the descendants' vertices include mid-edge (and, for HEX20,
+  // interpolated mid-side) nodes, which are off the coarse elements' flat
+  // sides and outside of their nodes' bounding box
   for (auto type : {libMesh::HEX20, libMesh::HEX27, libMesh::TET10}) {
-    DYNAMIC_SECTION(libMesh::Utility::enum_to_string(type))
-    {
-      LibMeshComm libmesh;
-      libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
-      libMesh::MeshTools::Generation::build_cube(
-        mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, type);
-      libMesh::MeshTools::Modification::distort(mesh, 0.15, false);
-      refine_beyond(mesh, 0.0);
-      AdaptiveLibMesh umesh(mesh);
+    for (std::string shape : {"distorted", "bulged"}) {
+      DYNAMIC_SECTION(libMesh::Utility::enum_to_string(type) << " " << shape)
+      {
+        LibMeshComm libmesh;
+        libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+        libMesh::MeshTools::Generation::build_cube(
+          mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, type);
+        if (shape == "distorted") {
+          libMesh::MeshTools::Modification::distort(mesh, 0.15, false);
+        } else {
+          for (auto* node : mesh.node_ptr_range()) {
+            const double x = (*node)(0);
+            const double y = (*node)(1);
+            const double z = (*node)(2);
+            (*node)(0) += 0.3 * (1.0 - x * x) * (1.0 - y * y) * (1.0 - z * z);
+          }
+        }
+        refine_beyond(mesh, 0.0);
+        AdaptiveLibMesh umesh(mesh);
 
-      // The element volumes add up to the cube's, with no gaps along the
-      // curved edges, and every element's vertex average lies in its own bin
-      double total_volume = 0.0;
-      for (int bin = 0; bin < umesh.n_bins(); bin++) {
-        total_volume += umesh.volume(bin);
-        REQUIRE(umesh.get_bin(umesh.centroid(bin)) == bin);
+        // The element volumes add up to the cube's, with no gaps along the
+        // curved edges, every element's vertex average lies in its own bin,
+        // and every point of the cube is in one
+        double total_volume = 0.0;
+        for (int bin = 0; bin < umesh.n_bins(); bin++) {
+          total_volume += umesh.volume(bin);
+          REQUIRE(umesh.get_bin(umesh.centroid(bin)) == bin);
+        }
+        REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
+        std::mt19937_64 rng(12);
+        std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+        for (int i = 0; i < 50000; i++) {
+          const Position r {uniform(rng), uniform(rng), uniform(rng)};
+          REQUIRE(umesh.get_bin(r) >= 0);
+        }
+
+        const Position lo {-1.0, -1.0, -1.0};
+        const Position hi {1.0, 1.0, 1.0};
+        for (const auto& [r0, r1] : make_tracks(lo, hi, 1.0 / 3.0, 1000, 3))
+          check_track(umesh, lo, hi, r0, r1, 1e-7);
+        for (const auto& [r0, r1] : node_tracks(mesh, 500, 7))
+          check_track(umesh, lo, hi, r0, r1, 1e-7);
       }
-      REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
-
-      const Position lo {-1.0, -1.0, -1.0};
-      const Position hi {1.0, 1.0, 1.0};
-      for (const auto& [r0, r1] : make_tracks(lo, hi, 1.0 / 3.0, 1000, 3))
-        check_track(umesh, lo, hi, r0, r1, 1e-7);
-      for (const auto& [r0, r1] : node_tracks(mesh, 500, 7))
-        check_track(umesh, lo, hi, r0, r1, 1e-7);
     }
   }
 }
@@ -809,6 +842,64 @@ TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
       }
     }
   }
+}
+
+TEST_CASE("Track-length traversal of an irregular libMesh tet mesh")
+{
+  // Two patches of a Delaunay tetrahedralization of random points in
+  // [-1, 1]^3 (made with scipy): one along the box edge x = 1, y = -1, and
+  // one around a node on the side x = -1. A track along the edge, and one
+  // along an element edge out through the node, leave the mesh through a
+  // vertex at the end of the element grid, where a walk once went back and
+  // forth until it reached its bound on element crossings.
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  const auto mesh_dir = std::filesystem::path(__FILE__).parent_path() /
+                        "../regression_tests/unstructured_mesh";
+  libMesh::ExodusII_IO(mesh).read(
+    (mesh_dir / "test_mesh_delaunay_patches.e").string());
+  mesh.prepare_for_use();
+  LibMesh umesh(mesh);
+
+  REQUIRE(scored_length(umesh, {1.0, -1.0, -1.0}, {1.0, -1.0, 5.0}) ==
+          Catch::Approx(2.0).epsilon(0.0).margin(1e-9));
+  const Position r0 {
+    -0.8674586439034242, -0.7078393627538262, -0.90425434128714843};
+  const Position r1 {
+    -1.2650827121931516, -0.81757977145240668, -0.80931922034290471};
+  REQUIRE(scored_length(umesh, r0, r1) ==
+          Catch::Approx((r1 - r0).norm() / 3.0).epsilon(0.0).margin(1e-9));
+
+  // Tracks along the elements' edges and through their vertices
+  for (const auto& [a, b] : node_tracks(mesh, 2000, 13))
+    REQUIRE(scored_length(umesh, a, b) >= 0.0);
+}
+
+TEST_CASE("libMesh point lookup past an acute vertex")
+{
+  // A tetrahedron with a corner of about half a degree at the origin: points
+  // past the corner by more than the tolerance (1e-12 of the mesh's size)
+  // are outside of it, however far they are from the lines of its edges
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  mesh.add_point(libMesh::Point(0.0, 0.0, 0.0), 0);
+  mesh.add_point(libMesh::Point(1.0, 0.0, 0.0), 1);
+  mesh.add_point(libMesh::Point(1.0, 0.01, 0.0), 2);
+  mesh.add_point(libMesh::Point(0.9, 0.005, -0.5), 3);
+  auto tet = libMesh::Elem::build(libMesh::TET4);
+  for (int i = 0; i < 4; i++)
+    tet->set_node(i) = mesh.node_ptr(i);
+  tet->set_id(0);
+  mesh.add_elem(std::move(tet));
+  mesh.prepare_for_use();
+  LibMesh umesh(mesh);
+
+  Position bisector {1.0, 0.005, 0.0};
+  bisector /= bisector.norm();
+  REQUIRE(umesh.get_bin(1e-3 * bisector) == 0);
+  REQUIRE(umesh.get_bin(-1e-13 * bisector) == 0);
+  REQUIRE(umesh.get_bin(-3e-12 * bisector) == -1);
+  REQUIRE(umesh.get_bin(-1e-10 * bisector) == -1);
 }
 
 TEST_CASE("libMesh mesh far from the origin")

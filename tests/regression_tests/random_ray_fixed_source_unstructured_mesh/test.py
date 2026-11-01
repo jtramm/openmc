@@ -31,7 +31,7 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 
 def make_model(library, mesh_path, case, x_max=0.5):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
-    by the tet mesh of [-0.5, 0.5]^3"""
+    by the mesh in mesh_path"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -116,17 +116,32 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
         harness.main()
 
 
-@pytest.mark.parametrize("library", ['moab', 'libmesh'])
-def test_random_ray_unstructured_mesh_coverage_warning(library, tmp_path):
-    """A mesh covering only half of the cell it subdivides is reported"""
+@pytest.mark.parametrize("library,mesh_file,x_max", [
+    # The cell is twice as long as the mesh
+    ('moab', MESH_FILES['moab'], 1.5),
+    ('libmesh', MESH_FILES['libmesh'], 1.5),
+    # The mesh covers the cell: the 24-tet mesh tiles it, the others tile
+    # [-1, 1]^3 with other element types
+    ('moab', MESH_FILES['moab'], 0.5),
+    ('libmesh', MESH_FILES['libmesh'], 0.5),
+    ('libmesh', 'test_mesh_hexes_warped.e', 0.5),
+    ('libmesh', 'test_mesh_hexes_nonconforming.e', 0.5),
+    ('libmesh', 'test_mesh_hexes20.e', 0.5),
+    ('libmesh', 'test_mesh_tets10.e', 0.5),
+    ('libmesh', 'test_mesh_prisms.e', 0.5),
+    ('libmesh', 'test_mesh_pyramids.e', 0.5),
+])
+def test_random_ray_unstructured_mesh_coverage_warning(
+        library, mesh_file, x_max, tmp_path):
+    """A mesh covering only half of the cell it subdivides is reported, and
+    one covering all of it is not"""
     if not openmc.lib.feature_enabled(FEATURES[library]):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
-    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
-                 MESH_FILES[library])
+    mesh_path = Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
     with change_directory(tmp_path):
-        model = make_model(library, mesh_path, 'subdivision_only', x_max=1.5)
+        model = make_model(library, mesh_path, 'subdivision_only', x_max=x_max)
         model.export_to_model_xml()
 
     if config['build_inputs']:
@@ -138,7 +153,9 @@ def test_random_ray_unstructured_mesh_coverage_warning(library, tmp_path):
                             text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     n_warnings = (result.stdout + result.stderr).count('does not cover')
-    if config['mpi']:
+    if x_max <= 0.5:
+        assert n_warnings == 0
+    elif config['mpi']:
         assert n_warnings >= 1
     else:
         assert n_warnings == 1

@@ -1307,7 +1307,8 @@ private:
 //! The element data gathered when the object is constructed (the bin maps,
 //! the element and boundary grids, and the sides that refinement changes)
 //! refer to the mesh as it is then: if the application refines or coarsens
-//! the mesh afterwards, the object has to be constructed again.
+//! the mesh, or moves its nodes, afterwards, the object has to be constructed
+//! again.
 class AdaptiveLibMesh : public LibMesh {
 public:
   // Constructor

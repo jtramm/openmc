@@ -3965,23 +3965,33 @@ bool ray_triangle(const libMesh::Point& origin, const libMesh::Point& dir,
   return true;
 }
 
-//! Whether a point in the plane of a triangle (to within tol) lies within tol
-//! of the triangle
+//! Whether a point within tol of the plane of a triangle lies within tol of
+//! the triangle
 bool near_triangle(const libMesh::Point& p, const libMesh::Point& a,
   const libMesh::Point& b, const libMesh::Point& c,
   const libMesh::Point& normal, double tol)
 {
-  // Signed distance (times |normal| |edge|) of p from each edge, positive on
-  // the triangle's side
-  const double tol_sq = tol * tol * normal.norm_sq();
+  // A point on the triangle's side of each edge projects into the triangle
+  // (a sign test that stays reliable for slivers); otherwise the closest
+  // point of the triangle is on an edge it is beyond. Testing only the
+  // distance from the edges' lines would put points well past an acute
+  // corner on the triangle.
   const libMesh::Point* corners[4] = {&a, &b, &c, &a};
+  bool inside = true;
+  for (int i = 0; i < 3 && inside; i++) {
+    const libMesh::Point edge = *corners[i + 1] - *corners[i];
+    inside = edge.cross(p - *corners[i]) * normal >= 0.0;
+  }
+  if (inside)
+    return true;
   for (int i = 0; i < 3; i++) {
     const libMesh::Point edge = *corners[i + 1] - *corners[i];
-    const double s = edge.cross(p - *corners[i]) * normal;
-    if (s < 0.0 && s * s > tol_sq * edge.norm_sq())
-      return false;
+    const double f =
+      std::clamp(((p - *corners[i]) * edge) / edge.norm_sq(), 0.0, 1.0);
+    if ((p - (*corners[i] + f * edge)).norm_sq() <= tol * tol)
+      return true;
   }
-  return true;
+  return false;
 }
 
 //! Number of corner nodes of side s of an element of the given type, or 0 if
@@ -4021,20 +4031,50 @@ int grid_index(double x, int n, bool clamp)
   return f >= n ? n - 1 : 0;
 }
 
+//! Corner nodes (local indices) of side s of an element, in order around it.
+//! They come first in a side's node list, so for the standard element types
+//! no search is needed.
+void side_corner_nodes(
+  const libMesh::Elem& elem, unsigned int s, vector<unsigned int>& corners)
+{
+  corners.clear();
+  const int n = side_corners(elem.type(), s);
+  if (n > 0) {
+    for (int i = 0; i < n; i++)
+      corners.push_back(elem.local_side_node(s, i));
+  } else {
+    for (auto node : elem.nodes_on_side(s)) {
+      if (elem.is_vertex(node))
+        corners.push_back(node);
+    }
+  }
+}
+
+//! Whether side s is in a bit mask of sides (only sides below 32, which all
+//! but polyhedra have, can be)
+bool in_side_mask(unsigned int mask, unsigned int s)
+{
+  return s < 32 && ((mask >> s) & 1u);
+}
+
 //! Whether two elements that share a side list its corners in the same
 //! direction around it, which they do if one of them is mirrored relative to
 //! the other
 bool same_sense(const libMesh::Elem& a, unsigned int side_a,
   const libMesh::Elem& b, unsigned int side_b)
 {
-  const int n = side_corners(a.type(), side_a);
-  if (n == 0 || side_corners(b.type(), side_b) != n)
+  vector<unsigned int> corners_a;
+  vector<unsigned int> corners_b;
+  side_corner_nodes(a, side_a, corners_a);
+  side_corner_nodes(b, side_b, corners_b);
+  const size_t n = corners_a.size();
+  if (n < 3 || corners_b.size() != n)
     return false;
-  const auto first = a.node_id(a.local_side_node(side_a, 0));
-  const auto second = a.node_id(a.local_side_node(side_a, 1));
-  for (int j = 0; j < n; j++) {
-    if (b.node_id(b.local_side_node(side_b, j)) == first)
-      return b.node_id(b.local_side_node(side_b, (j + 1) % n)) == second;
+  const auto first = a.node_id(corners_a[0]);
+  const auto second = a.node_id(corners_a[1]);
+  for (size_t j = 0; j < n; j++) {
+    if (b.node_id(corners_b[j]) == first)
+      return b.node_id(corners_b[(j + 1) % n]) == second;
   }
   return false;
 }
@@ -4145,19 +4185,7 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
   };
 
   for (auto s : elem.side_index_range()) {
-    // Corner nodes of the side, in order around it; they come first in a
-    // side's node list, so for the standard element types no search is needed
-    corners.clear();
-    const int n_corners = side_corners(elem.type(), s);
-    if (n_corners > 0) {
-      for (int i = 0; i < n_corners; i++)
-        corners.push_back(elem.local_side_node(s, i));
-    } else {
-      for (auto n : elem.nodes_on_side(s)) {
-        if (elem.is_vertex(n))
-          corners.push_back(n);
-      }
-    }
+    side_corner_nodes(elem, s, corners);
     const int n = corners.size();
     if (n < 3)
       continue;
@@ -4178,8 +4206,10 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
     for (int i = 0; i < n; i++) {
       const unsigned int a = corners[(first + i) % n];
       polygon.push_back(elem.node_ptr(a));
-      if (splits && append_splits(append_splits, elem.node_id(a),
-                      elem.node_id(corners[(first + i + 1) % n]), 0))
+      const bool split =
+        splits && append_splits(append_splits, elem.node_id(a),
+                    elem.node_id(corners[(first + i + 1) % n]), 0);
+      if (split && s < 32)
         split_sides |= 1u << s;
     }
     auto add_triangle = [&](const libMesh::Point& a, const libMesh::Point& b,
@@ -4231,7 +4261,7 @@ void LibMesh::side_triangles(
   const RefinedSides& refined = it->second;
   tris.erase(std::remove_if(tris.begin(), tris.end(),
                [&](const SideTriangle& tri) {
-                 return (refined.sides >> tri.side) & 1u;
+                 return in_side_mask(refined.sides, tri.side);
                }),
     tris.end());
   tris.insert(tris.end(), refined.tris.begin(), refined.tris.end());
@@ -4299,8 +4329,8 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   // tolerance of it, so that a point just past a side is placed in the
   // element it is in. Otherwise, as the lists are in id order, the lowest id
   // of the elements whose surface the point is on wins, which does not
-  // depend on roundoff; a folded element only counts if it contains the
-  // point.
+  // depend on roundoff. A folded element only counts if it contains the
+  // point by more than the tolerance, as the traversal requires.
   const int cell = elem_grid_.cell(p);
   if (cell < 0)
     return nullptr;
@@ -4318,10 +4348,10 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
     const int position = classify(tris, p, surface_tol_);
     if (position > 0)
       return elem;
-    if (position == 0) {
+    if (position == 0 && !is_folded(elem)) {
       if (classify(tris, p, roundoff_tol_) > 0)
         return elem;
-      if (!on_surface && !is_folded(elem))
+      if (!on_surface)
         on_surface = elem;
     }
   }
@@ -4378,19 +4408,22 @@ void LibMesh::find_inverted_elements()
     }
     const int flip = total < 0.0 ? -1 : 1;
     for (size_t i = 0; i < group.size(); i++) {
-      const int orientation = flip * sense[group[i]->id()];
+      const libMesh::Elem* elem = group[i];
+      const int orientation = flip * sense[elem->id()];
       if (orientation < 0)
-        inverted_.insert(group[i]->id());
+        inverted_.insert(elem->id());
       if (orientation * volumes[i] < 0.0)
-        folded_.insert(group[i]->id());
+        folded_.insert(elem->id());
     }
   }
-  if (!folded_.empty()) {
-    warning(fmt::format("{} elements of unstructured mesh {} are inverted when "
-                        "their sides are taken to be flat. Their volumes are "
-                        "negative, and tallies in and around them are "
-                        "unreliable.",
-      folded_.size(), id_));
+  // (A mesh made by another application has no id yet)
+  if (!folded_.empty() && mpi::master) {
+    warning(fmt::format("{} elements of {} are inverted when their sides are "
+                        "taken to be flat. Their volumes are negative, and "
+                        "tallies in and around them are unreliable.",
+      folded_.size(),
+      id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
+               : std::string("an unstructured mesh")));
   }
 }
 
@@ -4434,10 +4467,11 @@ void LibMesh::build_refined_sides()
   for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
     if (elem->dim() < 3)
       continue;
-    // Sides facing refined neighbors
+    // Sides facing refined neighbors (other than sides past the 32nd, which
+    // only polyhedra have)
     for (auto s : elem->side_index_range()) {
       const libMesh::Elem* neighbor = elem->neighbor_ptr(s);
-      if (!neighbor || neighbor->active())
+      if (!neighbor || neighbor->active() || s >= 32)
         continue;
       neighbor->active_family_tree_by_neighbor(family, elem);
       if (family.empty())
@@ -4476,7 +4510,7 @@ void LibMesh::build_refined_sides()
     refined.sides |= new_sides;
     const bool inverted = inverted_.count(elem->id()) > 0;
     for (const auto& tri : tris) {
-      if (!((new_sides >> tri.side) & 1u))
+      if (!in_side_mask(new_sides, tri.side))
         continue;
       if (inverted)
         refined.tris.push_back(
@@ -4490,12 +4524,21 @@ void LibMesh::build_refined_sides()
 void LibMesh::build_element_grid()
 {
   // Active 3D elements in id order, with bounding boxes enlarged by the
-  // surface tolerance
+  // surface tolerance. A box also covers the side triangles, whose vertices
+  // include nodes of finer neighbors (which can lie outside of a curved
+  // element's own nodes' box) where the sides were replaced.
   vector<std::pair<const libMesh::Elem*, libMesh::BoundingBox>> elems;
+  vector<SideTriangle> tris;
   for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
     if (elem->dim() < 3)
       continue;
     libMesh::BoundingBox box = elem->loose_bounding_box();
+    side_triangles(*elem, tris);
+    for (const auto& tri : tris) {
+      box.union_with(tri.a);
+      box.union_with(tri.b);
+      box.union_with(tri.c);
+    }
     const libMesh::Point margin = 1e-9 * (box.max() - box.min()) +
                                   libMesh::Point(2.0 * surface_tol_,
                                     2.0 * surface_tol_, 2.0 * surface_tol_);
@@ -4900,8 +4943,13 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // elements whose sides do not quite meet (such as curved second-order
   // elements in an adaptively refined mesh) within a distance h, located by
   // bisection, or else where the track enters the mesh through its boundary.
-  // Moves s to a point in the element returned.
+  // Moves s to a point in the element returned. Nothing is past the end of
+  // the element grid.
   auto resume = [&](double& s, double h) -> const libMesh::Elem* {
+    if (s >= t_hi) {
+      s = track_len;
+      return nullptr;
+    }
     if (const libMesh::Elem* found = locate(point(ahead(s)))) {
       s = ahead(s);
       return found;
@@ -4936,10 +4984,11 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     return entered;
   };
 
-  // March from element to element. Outside of the mesh, the boundary
-  // triangles give the (re-)entry point.
+  // March from element to element, up to the end of the element grid.
+  // Outside of the mesh, the boundary triangles give the (re-)entry point.
   int64_t n_steps = 0;
   int n_stalled = 0;
+  int n_skips = 0;
   int n_redone = 0;
   double redo_exit = 0.0;
   double t = t_lo;
@@ -4955,7 +5004,27 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   }
   if (!elem)
     elem = locate(point(t));
-  while (t < track_len) {
+
+  // A walk that keeps making no progress is stuck where several elements
+  // meet, or along their surfaces: it steps past the point, scoring that step
+  // as any other part. The step doubles each time the walk gets stuck again
+  // before it has made progress, so that it gets past any stretch of track.
+  auto step_past = [&]() {
+    const double t_past =
+      std::min(t + std::ldexp(step, std::min(n_skips++, 60)), track_len);
+    score(t, t_past, nullptr);
+    const double h = elem->hmax();
+    t = t_past;
+    n_stalled = 0;
+    n_redone = 0;
+    if (t < t_hi) {
+      elem = locate(point(t));
+      if (!elem)
+        elem = resume(t, h);
+    }
+  };
+
+  while (t < t_hi) {
     if (++n_steps > max_track_steps_) {
       // The random ray solver would silently lose transport, so stop; a
       // Monte Carlo tally drops the rest of the track and reports it once
@@ -4988,12 +5057,19 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // can be skipped), strictly so for a folded element (on whose surface
     // the walk would stall). Otherwise the walk has strayed, into a gap
     // between elements or out of the mesh, and continues where the track is.
+    // Relocating at the same point counts as a step without progress.
     const int not_in = is_folded(elem) ? 0 : -1;
     if (classify(tris, point(t), surface_tol_) <= not_in &&
         classify(tris, point(ahead(t)), surface_tol_) <= not_in) {
-      const libMesh::Elem* found = locate(point(t));
-      elem = found ? found : resume(t, elem->hmax());
+      const libMesh::Elem* found = locate(point(t), nullptr, elem);
       n_redone = 0;
+      if (found) {
+        elem = found;
+        if (++n_stalled > 4)
+          step_past();
+      } else {
+        elem = resume(t, elem->hmax());
+      }
       continue;
     }
 
@@ -5102,21 +5178,11 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     const bool progressed = t_exit - t > step;
     t = t_exit;
     n_redone = 0;
-
-    // A walk that keeps making no progress is stuck where several elements
-    // meet: it steps past the point, scoring that step as any other part
+    if (progressed)
+      n_skips = 0;
     n_stalled = progressed ? 0 : n_stalled + 1;
     if (n_stalled > 4) {
-      n_stalled = 0;
-      const double t_past = std::min(t + step, track_len);
-      score(t, t_past, nullptr);
-      const double h = elem->hmax();
-      t = t_past;
-      if (t >= track_len)
-        return;
-      elem = locate(point(t));
-      if (!elem)
-        elem = resume(t, h);
+      step_past();
       continue;
     }
 
@@ -5193,7 +5259,7 @@ double LibMesh::volume(int bin) const
   // The volume of the element with flat (triangulated) sides, which is what
   // the track-length and point lookups of this class see
   // (a lower-dimensional element, which is never scored, keeps libMesh's
-  // measure)
+  // measure, its area or length)
   static thread_local vector<SideTriangle> tris;
   const libMesh::Elem& elem = this->get_element_from_bin(bin);
   double volume;
@@ -5204,7 +5270,7 @@ double LibMesh::volume(int bin) const
     volume = triangulated_volume(tris);
   }
   if (length_multiplier_ > 0.0) {
-    volume *= length_multiplier_ * length_multiplier_ * length_multiplier_;
+    volume *= std::pow(length_multiplier_, elem.dim());
   }
   return volume;
 }

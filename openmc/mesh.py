@@ -2766,7 +2766,8 @@ class UnstructuredMesh(MeshBase):
         Curved sides of second-order elements are therefore approximated.
         Small gaps can remain between elements across a non-conforming
         interface between warped sides, and a strongly curved element can turn
-        inside out, which OpenMC warns about.
+        inside out, wholly (which OpenMC warns about) or in part, and overlap
+        its neighbors.
 
     Parameters
     ----------
