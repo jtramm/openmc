@@ -1126,8 +1126,9 @@ protected:
   //! \param[in] p Point in mesh coordinates
   //! \param[in] blocks Subdomains to restrict the search to, if any
   //! \param[in] exclude An element not to consider, if any
-  //! \return Element containing the point (the one with the lowest id if the
-  //!   point is on the surface of several), or nullptr if outside the mesh
+  //! \return Element containing the point: one that contains it by more than
+  //!   roundoff if there is one, or else the one with the lowest id among
+  //!   those whose surface it is on; nullptr if it is outside the mesh
   const libMesh::Elem* locate(const libMesh::Point& p,
     const std::set<libMesh::subdomain_id_type>* blocks = nullptr,
     const libMesh::Elem* exclude = nullptr) const;
@@ -1139,8 +1140,9 @@ protected:
 
 private:
   //! Triangle of an element side. Sides are triangulated from the corner
-  //! with the lowest node id, so that the two elements sharing a side use the
-  //! same triangles for it and agree on where it is even when it is warped.
+  //! with the smallest coordinates, so that the two elements on either side of
+  //! a side use the same triangles for it and agree on where it is even when
+  //! it is warped (and even if they do not share its nodes).
   struct SideTriangle {
     libMesh::Point a, b, c; //!< vertices
     libMesh::Point normal;  //!< (b - a) x (c - a), pointing out of the element
@@ -1248,7 +1250,8 @@ private:
   //! \param[in] dir Unit direction of travel
   //! \param[out] exit_side Side the track leaves through, or the largest
   //!   unsigned int if none is found
-  //! \param[in] min_distance Exits closer than this are ignored
+  //! \param[in] min_distance If positive, exits closer than this are ignored;
+  //!   otherwise an exit up to a probe step behind p is at distance 0
   //! \param[in] planes Whether to fall back on the nearest outward plane when
   //!   no side triangle is hit (p marginally outside the element)
   //! \return Distance to the exit side, or INFTY if none is found

@@ -149,7 +149,13 @@ void XDGMesh::initialize()
 
 void XDGMesh::prepare_for_point_location()
 {
+  // A mesh can be used by several mesh filters, weight windows and random ray
+  // subdivision, which each prepare it; preparing XDG again would register
+  // its volumes and build its trees again
+  if (prepared_)
+    return;
   xdg_->prepare_raytracer();
+  prepared_ = true;
 }
 
 Position XDGMesh::sample_element(int32_t bin, uint64_t* seed) const

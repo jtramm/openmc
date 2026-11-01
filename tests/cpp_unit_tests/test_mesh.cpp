@@ -532,6 +532,44 @@ void check_track(const Mesh& umesh, Position lo, Position hi, Position r0,
   REQUIRE(t - t_in == Catch::Approx(t_out - t_in).epsilon(0.0).margin(margin));
 }
 
+//! Check that the length scored to each bin along the track from r0 to r1 is,
+//! to within the resolution of n samples, the length over which get_bin()
+//! finds that bin along the track
+void check_bins_along(const Mesh& umesh, Position r0, Position r1, int n)
+{
+  const double length = (r1 - r0).norm();
+  const Direction u = (r1 - r0) / length;
+  vector<int> bins;
+  vector<double> lengths;
+  umesh.bins_crossed(r0, r1, u, bins, lengths);
+  std::map<int, double> scored;
+  for (int k = 0; k < bins.size(); k++)
+    scored[bins[k]] += lengths[k] * length;
+
+  // A bin's samples can be off by one at either end of each stretch of track
+  // in which get_bin() finds it
+  std::map<int, double> sampled;
+  std::map<int, int> stretches;
+  int previous = -2;
+  for (int i = 0; i < n; i++) {
+    const int bin = umesh.get_bin(r0 + ((i + 0.5) / n * length) * u);
+    if (bin != previous)
+      stretches[bin]++;
+    previous = bin;
+    if (bin >= 0)
+      sampled[bin] += length / n;
+  }
+  for (const auto& [bin, scored_length] : scored) {
+    const double margin = 2.0 * std::max(stretches[bin], 1) * length / n;
+    REQUIRE(
+      scored_length == Catch::Approx(sampled[bin]).epsilon(0.0).margin(margin));
+  }
+  for (const auto& [bin, sampled_length] : sampled) {
+    if (!scored.count(bin))
+      REQUIRE(sampled_length <= 2.0 * stretches[bin] * length / n);
+  }
+}
+
 //! Tracks with endpoints uniform in the box [lo, hi] enlarged by a quarter of
 //! its width on every side, and tracks crossing the plane x = x0 inside the
 //! box at grazing angles (with x components of 1e-3, 1e-5 and 1e-7)
@@ -771,6 +809,18 @@ TEST_CASE("Track-length traversal of refined curved libMesh meshes")
           check_track(umesh, lo, hi, r0, r1, 1e-7);
         for (const auto& [r0, r1] : node_tracks(mesh, 500, 7))
           check_track(umesh, lo, hi, r0, r1, 1e-7);
+
+        // The length scored to each element along tracks through nodes, one
+        // of which once had a whole step scored to an element it touches at
+        // a vertex
+        for (const auto& [r0, r1] : node_tracks(mesh, 100, 8))
+          check_bins_along(umesh, r0, r1, 300);
+        if (type == libMesh::HEX20 && shape == "distorted") {
+          check_bins_along(umesh,
+            {0.34158934319871492, 0.379957863431448, -0.52764749616872364},
+            {0.3250773234679516, 0.28670880323521852, 2.5276474961687234},
+            3000);
+        }
       }
     }
   }

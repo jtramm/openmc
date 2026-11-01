@@ -4077,6 +4077,18 @@ void side_corner_nodes(
   }
 }
 
+//! Order of nodes by their coordinates (lexicographically), and by their ids
+//! where those are the same: it does not depend on which element lists them,
+//! nor, for nodes at the same positions, on whether elements share them
+bool node_before(const libMesh::Node* a, const libMesh::Node* b)
+{
+  for (int d = 0; d < 3; d++) {
+    if ((*a)(d) != (*b)(d))
+      return (*a)(d) < (*b)(d);
+  }
+  return a->id() < b->id();
+}
+
 //! Whether side s is in a bit mask of sides (only sides below 32, which all
 //! but polyhedra have, can be)
 bool in_side_mask(unsigned int mask, unsigned int s)
@@ -4219,14 +4231,15 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
 
     // The polygon of the side's corners and of the nodes splitting the edges
     // between them (the same nodes for every element around an edge),
-    // starting from the corner with the lowest node id, which is the same
-    // corner for the element on the other side of this side. libMesh lists a
-    // side's nodes counterclockwise as seen from outside the element (for an
-    // element that is not inverted) and a rotation of that cyclic order keeps
-    // the sense, so the triangles' normals point outward.
+    // starting from the first corner in node_before() order, which is the
+    // same corner for any element whose side has these corners, even one that
+    // does not share their nodes. libMesh lists a side's nodes
+    // counterclockwise as seen from outside the element (for an element that
+    // is not inverted) and a rotation of that cyclic order keeps the sense, so
+    // the triangles' normals point outward.
     int first = 0;
     for (int i = 1; i < n; i++) {
-      if (elem.node_id(corners[i]) < elem.node_id(corners[first]))
+      if (node_before(elem.node_ptr(corners[i]), elem.node_ptr(corners[first])))
         first = i;
     }
     polygon.clear();
@@ -4250,15 +4263,13 @@ unsigned int LibMesh::own_side_triangles(const libMesh::Elem& elem,
       for (int i = 1; i + 1 < n; i++)
         add_triangle(*polygon[0], *polygon[i], *polygon[i + 1]);
     } else {
-      // Fan around the average of the polygon's nodes, summed in id order so
-      // that both elements sharing the side find the same point. A fan from a
-      // corner would run along the chord of a split edge, which cuts into the
-      // finer elements on the other side of the edge where it bends outward.
+      // Fan around the average of the polygon's nodes, summed in
+      // node_before() order so that both elements sharing the side find the
+      // same point. A fan from a corner would run along the chord of a split
+      // edge, which cuts into the finer elements on the other side of the
+      // edge where it bends outward.
       sorted.assign(polygon.begin(), polygon.end());
-      std::sort(sorted.begin(), sorted.end(),
-        [](const libMesh::Node* a, const libMesh::Node* b) {
-          return a->id() < b->id();
-        });
+      std::sort(sorted.begin(), sorted.end(), node_before);
       libMesh::Point center;
       for (const libMesh::Node* node : sorted)
         center += *node;
@@ -4642,11 +4653,15 @@ void LibMesh::check_elements() const
   // wholly or in part, and overlap its neighbors. Elements sharing a side
   // agree on its triangles, but elements that touch without being libMesh
   // neighbors (at a non-conforming interface, such as one with hanging nodes
-  // that are not from refinement) do not: their sides there have to be flat
-  // (with all their nodes in a plane), or they leave gaps and overlaps.
+  // that are not from refinement) only do if their sides have the same
+  // corners: other sides there have to be flat (with all their nodes in a
+  // plane, to within the surface tolerance), or they leave gaps and overlaps.
   vector<SideTriangle> tris;
   vector<libMesh::dof_id_type> inverted;
   vector<libMesh::dof_id_type> warped;
+  vector<const libMesh::Elem*> touching;
+  vector<unsigned int> corners;
+  vector<unsigned int> other_corners;
   for (const libMesh::Elem* elem : grid_elems_) {
     side_triangles(*elem, tris);
     if (!valid_polyhedron(tris, elem->vertex_average()))
@@ -4654,10 +4669,10 @@ void LibMesh::check_elements() const
     for (auto s : elem->side_index_range()) {
       if (elem->neighbor_ptr(s))
         continue;
-      // A side touches another element if a point just past one of its
-      // triangles is in one
+      // The side touches the elements that points just past its triangles
+      // are in
       libMesh::Point normal;
-      bool touches = false;
+      touching.clear();
       for (const auto& tri : tris) {
         if (tri.side != s)
           continue;
@@ -4667,24 +4682,51 @@ void LibMesh::check_elements() const
         const libMesh::Point probe =
           (tri.a + tri.b + tri.c) / 3.0 +
           std::max(1e-6 * length, 10.0 * surface_tol_) * tri.normal.unit();
-        touches = touches || locate(probe, nullptr, elem);
+        const libMesh::Elem* other = locate(probe, nullptr, elem);
+        if (other && std::find(touching.begin(), touching.end(), other) ==
+                       touching.end())
+          touching.push_back(other);
       }
-      if (!touches || normal.norm_sq() == 0.0)
+      if (touching.empty() || normal.norm_sq() == 0.0)
         continue;
-      // Distances of the side's nodes from the plane through their average
+      // A side with the same corners (at exactly the same positions) as a
+      // side of an element it touches is triangulated the same way by both,
+      // which leaves no gap. Corners that are only close could be ordered
+      // differently by node_before() and split a warped side along the other
+      // diagonal.
+      side_corner_nodes(*elem, s, corners);
+      bool coincident = false;
+      for (const libMesh::Elem* other : touching) {
+        for (auto t : other->side_index_range()) {
+          side_corner_nodes(*other, t, other_corners);
+          coincident = other_corners.size() == corners.size();
+          for (size_t i = 0; i < corners.size() && coincident; i++) {
+            coincident = std::any_of(other_corners.begin(),
+              other_corners.end(), [&](unsigned int c) {
+                return other->point(c) == elem->point(corners[i]);
+              });
+          }
+          if (coincident)
+            break;
+        }
+        if (coincident)
+          break;
+      }
+      if (coincident)
+        continue;
+      // Otherwise, the side must be flat: all its nodes within the surface
+      // tolerance of the plane through their average
       const auto nodes = elem->nodes_on_side(s);
       libMesh::Point center;
       for (auto n : nodes)
         center += elem->point(n);
       center /= static_cast<double>(nodes.size());
-      double size = 0.0;
       double distance = 0.0;
       for (auto n : nodes) {
-        const libMesh::Point r = elem->point(n) - center;
-        size = std::max(size, r.norm());
-        distance = std::max(distance, std::abs(r * normal.unit()));
+        distance = std::max(
+          distance, std::abs((elem->point(n) - center) * normal.unit()));
       }
-      if (distance > 1e-9 * size + surface_tol_) {
+      if (distance > surface_tol_) {
         warped.push_back(elem->id());
         break;
       }
@@ -4710,10 +4752,11 @@ void LibMesh::check_elements() const
   }
   if (!warped.empty()) {
     fatal_error(fmt::format(
-      "{} have a side that is not flat and touches other elements without "
-      "being their neighbor in libMesh (a non-conforming interface). OpenMC "
-      "takes the sides of libMesh elements to be flat, so such sides would "
-      "leave gaps and overlaps; they have to be flat.",
+      "{} have a side at a non-conforming interface (one touching other "
+      "elements that are not its neighbors in libMesh, and whose corners are "
+      "not those of one of their sides) that is not flat to within 1e-12 of "
+      "the mesh's size. OpenMC takes the sides of libMesh elements to be flat, "
+      "so such sides would leave gaps and overlaps.",
       describe(warped)));
   }
 }
@@ -4908,8 +4951,9 @@ double LibMesh::exit_distance(const vector<SideTriangle>& tris,
   double min_distance, bool planes) const
 {
   // The exit side is the first side whose triangle the track hits moving
-  // along dir, beyond min_distance. Only outward-facing triangles can be
-  // exited through, which also excludes the side the track entered through.
+  // along dir, beyond min_distance if that is positive. Only outward-facing
+  // triangles can be exited through, which also excludes the side the track
+  // entered through.
   double distance = INFTY;
   exit_side = std::numeric_limits<unsigned int>::max();
   for (const auto& tri : tris) {
@@ -4917,10 +4961,10 @@ double LibMesh::exit_distance(const vector<SideTriangle>& tris,
       continue;
     double d;
     if (!ray_triangle(p, dir, tri.a, tri.b, tri.c, d) || d < -probe_step_ ||
-        d < min_distance)
+        (min_distance > 0.0 && d < min_distance))
       continue;
-    // A slightly negative value means the track is already marginally past
-    // this side due to roundoff
+    // A hit (up to a probe step) behind p means that the track is already
+    // marginally past this side, due to roundoff: it leaves right away
     d = std::max(d, 0.0);
     if (d < distance) {
       distance = d;
@@ -5282,7 +5326,9 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // element, so the search is only needed otherwise. If the element found
     // is not the one being walked but contains the point the walk is at (the
     // walk strayed at an edge, a vertex or a warped side, or the track lies
-    // in a side), the step is redone from it, a couple of times at most.
+    // in a side), the step is redone from it, a couple of times at most;
+    // otherwise the step, which can then run through several elements, is
+    // scored to the elements found along it.
     const libMesh::Elem* owner = elem;
     if (t_exit > t) {
       const double t_mid = 0.5 * (t + t_exit);
@@ -5318,7 +5364,10 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
           }
         }
       }
-      score(t, t_exit, owner);
+      if (owner == elem)
+        score(t, t_exit, owner);
+      else
+        score_located(score_located, t, t_exit);
     }
     if (t_exit >= track_len)
       return;

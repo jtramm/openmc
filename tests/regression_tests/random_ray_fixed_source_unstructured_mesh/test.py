@@ -31,7 +31,7 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 
 def make_model(library, mesh_path, case, x_max=0.5):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
-    by the mesh in mesh_path"""
+    by the mesh in mesh_path, or by a regular mesh of [-0.5, 0.5]^3"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -63,7 +63,13 @@ def make_model(library, mesh_path, case, x_max=0.5):
     geometry = openmc.Geometry(root)
 
     # The tet mesh subdivides the single cell into 24 source regions
-    umesh = openmc.UnstructuredMesh(mesh_path, library=library)
+    if library == 'regular':
+        umesh = openmc.RegularMesh()
+        umesh.lower_left = (-0.5, -0.5, -0.5)
+        umesh.upper_right = (0.5, 0.5, 0.5)
+        umesh.dimension = (3, 3, 3)
+    else:
+        umesh = openmc.UnstructuredMesh(mesh_path, library=library)
 
     settings = openmc.Settings()
     settings.energy_mode = 'multi-group'
@@ -120,8 +126,10 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     # The cell is twice as long as the mesh
     ('moab', MESH_FILES['moab'], 1.5),
     ('libmesh', MESH_FILES['libmesh'], 1.5),
-    # The mesh covers the cell: the 24-tet mesh tiles it, the others tile
-    # [-1, 1]^3 with other element types
+    ('regular', None, 1.5),
+    # The mesh covers the cell: the 24-tet mesh and the regular mesh tile it,
+    # the others tile [-1, 1]^3 with other element types
+    ('regular', None, 0.5),
     ('moab', MESH_FILES['moab'], 0.5),
     ('libmesh', MESH_FILES['libmesh'], 0.5),
     ('libmesh', 'test_mesh_hexes_warped.e', 0.5),
@@ -135,11 +143,13 @@ def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
     """A run with a mesh covering only half of the cell it subdivides stops
     with an error, and one with a mesh covering all of it does not"""
-    if not openmc.lib.feature_enabled(FEATURES[library]):
+    if (library != 'regular' and
+            not openmc.lib.feature_enabled(FEATURES[library])):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
-    mesh_path = Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
+                 if mesh_file else None)
     with change_directory(tmp_path):
         model = make_model(library, mesh_path, 'subdivision_only', x_max=x_max)
         model.export_to_model_xml()

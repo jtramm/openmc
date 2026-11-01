@@ -2439,9 +2439,9 @@ void FlatSourceDomain::apply_meshes()
       continue;
 
     // Ray tracing through the mesh and locating source regions within it
-    // require the mesh's point-location acceleration structures, which
-    // unstructured meshes only build on request (normally triggered by a mesh
-    // filter or weight windows referencing the mesh).
+    // require the mesh's point-location acceleration structures, which some
+    // unstructured meshes (MOAB and XDG) only build on request (normally
+    // triggered by a mesh filter or weight windows referencing the mesh).
     mesh->prepare_for_point_location();
 
     // Loop over domains associated with the mesh

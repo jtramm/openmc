@@ -2765,9 +2765,11 @@ class UnstructuredMesh(MeshBase):
         mesh lookups, and reports the volumes of these flat-sided elements.
         Curved sides of second-order elements are therefore approximated. The
         elements must be valid polyhedra with flat sides (not inverted, wholly
-        or in part, as strongly curved elements can be), and sides where
+        or in part, as strongly curved elements can be), and a side where
         elements touch without being neighbors in libMesh (at a non-conforming
-        interface) must be flat. OpenMC checks both when it loads the mesh.
+        interface, such as one with hanging nodes) must be flat, to within
+        1e-12 of the mesh's size, unless the side on the other side has the
+        same corners. OpenMC checks both when it loads the mesh.
 
     Parameters
     ----------

@@ -117,6 +117,7 @@ private:
   std::shared_ptr<xdg::XDG> xdg_; //!< XDG instance
   xdg::MeshLibrary mesh_library_ {
     xdg::MeshLibrary::LIBMESH}; //!< Mesh library type
+  bool prepared_ {false};       //!< Whether the ray tracer has been prepared
 };
 
 } // namespace openmc

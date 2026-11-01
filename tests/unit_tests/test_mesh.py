@@ -1330,6 +1330,8 @@ volume_tests = [
     (UMESH_DIR / "test_mesh_dagmc_tets.vtk", "moab", 1.0),
     (UMESH_DIR / "test_mesh_hexes_warped.e", "libmesh", 8.0),
     (UMESH_DIR / "test_mesh_hexes20.e", "libmesh", 8.0),
+    # Two hexes touching across a warped side without sharing its nodes
+    (UMESH_DIR / "test_mesh_hexes_warped_interface.e", "libmesh", 8.0),
 ]
 @pytest.mark.parametrize('mesh_file, mesh_library, total', volume_tests)
 def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
@@ -1364,8 +1366,8 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
     # A hex with its top turned 150 degrees from its bottom (its sides cross)
     ("test_mesh_hex_twisted.e", "are inverted, wholly or in part"),
-    # Two hexes that touch across a warped side without sharing its nodes
-    ("test_mesh_hexes_warped_interface.e", "have a side that is not flat"),
+    # A hex whose warped side meets four smaller hexes at hanging nodes
+    ("test_mesh_hexes_warped_hanging.e", "is not flat to within"),
 ])
 def test_umesh_invalid_elements(mesh_file, message, run_in_tmpdir):
     """A libMesh mesh that is not valid with flat element sides is refused"""
