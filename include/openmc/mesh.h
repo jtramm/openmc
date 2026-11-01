@@ -1181,10 +1181,11 @@ private:
   //! \param[in] p Starting point, in mesh coordinates
   //! \param[in] dir Unit direction of travel
   //! \param[out] exit_side Side of elem the track leaves through
+  //! \param[in] min_distance Exits closer than this are ignored
   //! \return Distance to the exit side
   static double exit_distance(const libMesh::Elem& elem,
-    const libMesh::Point& p, const libMesh::Point& dir,
-    unsigned int& exit_side);
+    const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
+    double min_distance = 0.0);
 
   //! Find where a track that is outside of the mesh enters it
   //
@@ -1219,6 +1220,13 @@ private:
     false}; //!< whether a track that exceeded the bound was reported
 };
 
+//! libMesh mesh owned by another application, possibly refined and restricted
+//! to a set of subdomains
+//
+//! The element data gathered when the object is constructed (the bin maps,
+//! the boundary triangles and the point locators) refer to the mesh as it is
+//! then: if the application refines or coarsens the mesh afterwards, the
+//! object has to be constructed again.
 class AdaptiveLibMesh : public LibMesh {
 public:
   // Constructor

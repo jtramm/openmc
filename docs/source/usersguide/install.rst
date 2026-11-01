@@ -347,10 +347,12 @@ Prerequisites
 
       This optional dependency enables support for unstructured mesh tally
       filters using libMesh meshes. Any 3D element type supported by libMesh can
-      be used; for track-length estimators, element sides are treated as flat
-      (a quadrilateral side as two triangles), so curved sides of second-order
-      elements are approximated by their corner nodes. In addition to turning
-      this option on, the path to the libMesh
+      be used. Element sides are treated as flat in all mesh lookups (a
+      quadrilateral side as two triangles), so curved sides of second-order
+      elements are approximated by their corner nodes, and a non-conforming
+      interface between warped sides can leave small gaps between the two
+      sides' triangulations. In addition to turning this option on, the path
+      to the libMesh
       installation should be specified as part of the ``CMAKE_PREFIX_PATH``
       variable::
 

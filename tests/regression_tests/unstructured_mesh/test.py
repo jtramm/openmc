@@ -278,18 +278,23 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
     run_and_check(model, tmp_path, filename, elements_per_voxel=1)
 
 
-# Meshes that tile the cube [-1, 1]^3 exactly, so that the track-length flux
-# summed over the mesh must equal that of a cell with the same extent. The
-# warped hexes have non-planar sides; the non-conforming mesh has a coarse
-# block next to a fine one, with hanging nodes and no neighbor information
-# across the interface.
-@pytest.mark.parametrize("mesh_filename,length_multiplier", [
-    ("test_mesh_hexes_warped.e", 1.0),
-    ("test_mesh_hexes_warped.e", 2.0),
-    ("test_mesh_hexes_nonconforming.e", 1.0),
+# Meshes that tile the cube [-1, 1]^3 exactly, so that the flux summed over
+# the mesh must equal that of a cell with the same extent. The warped hexes
+# have non-planar sides; the non-conforming mesh has a coarse block next to a
+# fine one, with hanging nodes and no neighbor information across the
+# interface. The beams run along the x = y = 0 edge line of the non-conforming
+# mesh and out of its (0, 0, 0) vertex, so tracks and collision sites lie
+# exactly on element edges and vertices.
+@pytest.mark.parametrize("mesh_filename,length_multiplier,source,estimator", [
+    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength'),
+    ("test_mesh_hexes_warped.e", 2.0, 'box', 'tracklength'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'tracklength'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'collision'),
+    ("test_mesh_hexes_nonconforming.e", 1.0, 'vertex', 'tracklength'),
 ])
-def test_unstructured_mesh_tracklength_conservation(
-        model, mesh_filename, length_multiplier, tmp_path):
+def test_unstructured_mesh_conservation(
+        model, mesh_filename, length_multiplier, source, estimator, tmp_path):
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh is not enabled in this build.")
 
@@ -301,9 +306,17 @@ def test_unstructured_mesh_tracklength_conservation(
         half_width, boundary_type='vacuum')
     cell = openmc.Cell(fill=water, region=-box)
     model.geometry = openmc.Geometry([cell])
+    if source == 'box':
+        space = openmc.stats.Box(3*[-0.9*half_width], 3*[0.9*half_width])
+        angle = None
+    elif source == 'edge':
+        space = openmc.stats.Point((0.0, 0.0, -0.9*half_width))
+        angle = openmc.stats.Monodirectional((0.0, 0.0, 1.0))
+    else:
+        space = openmc.stats.Point((0.0, 0.0, 0.0))
+        angle = openmc.stats.Monodirectional((1.0, 1.0, 1.0))
     model.settings.source = openmc.IndependentSource(
-        space=openmc.stats.Box(3*[-0.9*half_width], 3*[0.9*half_width]),
-        energy=openmc.stats.delta_function(15e6))
+        space=space, angle=angle, energy=openmc.stats.delta_function(15e6))
     model.settings.particles = 500
     model.settings.batches = 5
 
@@ -313,11 +326,11 @@ def test_unstructured_mesh_tracklength_conservation(
     mesh_tally = openmc.Tally(name="unstructured mesh tally")
     mesh_tally.filters = [openmc.MeshFilter(uscd_mesh)]
     mesh_tally.scores = ['flux']
-    mesh_tally.estimator = 'tracklength'
+    mesh_tally.estimator = estimator
     cell_tally = openmc.Tally(name="cell tally")
     cell_tally.filters = [openmc.CellFilter(cell)]
     cell_tally.scores = ['flux']
-    cell_tally.estimator = 'tracklength'
+    cell_tally.estimator = estimator
     model.tallies = openmc.Tallies([mesh_tally, cell_tally])
 
     if config['build_inputs']:

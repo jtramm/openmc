@@ -1,7 +1,10 @@
 #include "openmc/random_ray/random_ray.h"
 
+#include <fmt/core.h>
+
 #include "openmc/cell.h"
 #include "openmc/constants.h"
+#include "openmc/error.h"
 #include "openmc/geometry.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
@@ -404,6 +407,25 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh_bins_.resize(0);
     mesh_fractional_lengths_.resize(0);
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
+
+    // Portions of the segment outside the mesh are not returned, and are
+    // therefore neither attenuated nor tallied. Report once if that happens,
+    // as it means the mesh does not cover the cell it subdivides.
+    if (reduced_distance > 10.0 * TINY_BIT &&
+        std::accumulate(mesh_fractional_lengths_.begin(),
+          mesh_fractional_lengths_.end(), 0.0) < 1.0 - 1e-6) {
+      static bool warned = false;
+#pragma omp critical(random_ray_mesh_coverage)
+      if (!warned) {
+        warned = true;
+        warning(fmt::format(
+          "Source region mesh {} does not cover all of the cells it is "
+          "applied to. Ray segments outside the mesh are neither attenuated "
+          "nor tallied, and the positions recorded for the source regions "
+          "after such a gap are shifted along the ray.",
+          mesh->id()));
+      }
+    }
 
     // Loop over all mesh bins and attenuate flux
     for (int b = 0; b < mesh_bins_.size(); b++) {
