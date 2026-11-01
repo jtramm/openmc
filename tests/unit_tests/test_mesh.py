@@ -1324,3 +1324,37 @@ def test_SphericalMesh_get_indices_at_coords():
     assert result[0] == 1  # r=6 in second bin [5, 10]
     assert result[1] == 1  # theta=arccos(1/sqrt(3))~0.955, in (pi/4, pi/2)
     assert result[2] == 0  # phi=pi/4, in [0, pi/2)
+
+
+volume_tests = [
+    (UMESH_DIR / "test_mesh_dagmc_tets.vtk", "moab", 1.0),
+    (UMESH_DIR / "test_mesh_hexes_warped.e", "libmesh", 8.0),
+    (UMESH_DIR / "test_mesh_hexes20.e", "libmesh", 8.0),
+]
+@pytest.mark.parametrize('mesh_file, mesh_library, total', volume_tests)
+def test_umesh_volumes(mesh_file, mesh_library, total, request, run_in_tmpdir):
+    """The element volumes written to a statepoint are positive and sum to
+    the volume of the cube the mesh tiles"""
+    if mesh_library == 'moab' and not openmc.lib.feature_enabled('dagmc'):
+        pytest.skip("DAGMC not enabled.")
+    if mesh_library == 'libmesh' and not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+
+    model = openmc.Model()
+    surf = openmc.Sphere(r=1000.0, boundary_type="vacuum")
+    model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
+    umesh = openmc.UnstructuredMesh(request.path.parent / mesh_file,
+                                    mesh_library)
+    tally = openmc.Tally()
+    tally.filters = [openmc.MeshFilter(umesh)]
+    tally.scores = ["flux"]
+    model.tallies = [tally]
+    model.settings.run_mode = "fixed source"
+    model.settings.batches = 2
+    model.settings.particles = 10
+    sp_file = model.run()
+
+    with openmc.StatePoint(sp_file) as sp:
+        volumes = sp.meshes[umesh.id].volumes
+    assert np.all(volumes > 0)
+    assert np.sum(volumes) == pytest.approx(total, rel=1e-12)

@@ -1130,8 +1130,6 @@ protected:
   // Data members
   libMesh::MeshBase* m_; //!< pointer to libMesh MeshBase instance, always set
                          //!< during intialization
-  vector<unique_ptr<libMesh::PointLocatorBase>>
-    pl_;                      //!< per-thread point locators
   libMesh::BoundingBox bbox_; //!< bounding box of the mesh
 
 private:
@@ -1150,12 +1148,20 @@ private:
     const libMesh::Elem* elem; //!< element the triangle is a side of
   };
 
-  //! Uniform grid over the boundary triangles for ray queries
-  struct BoundaryGrid {
+  //! Uniform grid over the bounding box of the mesh, binning items (elements
+  //! or boundary triangles) by their bounding boxes
+  struct UniformGrid {
     libMesh::Point lower;      //!< lower corner, in mesh coordinates
     libMesh::Point width;      //!< cell width in each direction
     std::array<int, 3> shape;  //!< number of cells in each direction
-    vector<vector<int>> cells; //!< indices into boundary_tris_, per cell
+    vector<vector<int>> cells; //!< item indices per cell
+
+    //! Size the grid for n_items over a bounding box
+    void build(const libMesh::BoundingBox& bbox, int n_items);
+    //! Index of the cell containing a point, or -1 if outside the grid
+    int cell(const libMesh::Point& p) const;
+    //! Add an item to every cell its bounding box overlaps
+    void insert(const libMesh::Point& lo, const libMesh::Point& hi, int item);
   };
 
   // Methods
@@ -1176,6 +1182,12 @@ private:
   //! triangles are given
   static bool within_roundoff(
     const vector<SideTriangle>& tris, const libMesh::Point& p, double tol);
+
+  //! Signed volume enclosed by an element's side triangles
+  static double triangulated_volume(const vector<SideTriangle>& tris);
+
+  //! Bin the active elements on a grid by their bounding boxes
+  void build_element_grid();
 
   //! Collect the triangles making up the boundary of the mesh and bin them
   //! on a grid
@@ -1221,8 +1233,11 @@ private:
                    //!< variable numbers
   libMesh::dof_id_type
     first_element_id_; //!< id of the first element in the mesh
-  vector<BoundaryTriangle> boundary_tris_; //!< triangulated mesh boundary
-  BoundaryGrid boundary_grid_;             //!< grid over boundary_tris_
+  vector<const libMesh::Elem*> grid_elems_;  //!< active elements, by id
+  vector<libMesh::BoundingBox> grid_bboxes_; //!< their bounding boxes
+  UniformGrid elem_grid_;                    //!< grid over grid_elems_
+  vector<BoundaryTriangle> boundary_tris_;   //!< triangulated mesh boundary
+  UniformGrid boundary_grid_;                //!< grid over boundary_tris_
   int max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {
     false}; //!< whether a track that exceeded the bound was reported

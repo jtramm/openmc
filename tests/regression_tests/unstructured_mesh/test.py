@@ -286,7 +286,8 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
 # mesh and out of its (0, 0, 0) vertex, so tracks and collision sites lie
 # exactly on element edges and vertices. In the 'shell' geometry the mesh cube
 # is a cell inside a larger box, so tracks enter and leave the mesh across a
-# cell boundary that coincides with the mesh boundary.
+# cell boundary that coincides with the mesh boundary. The HEX20 mesh has
+# straight sides and mid-side nodes.
 @pytest.mark.parametrize(
     "mesh_filename,length_multiplier,source,estimator,geometry", [
     ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'cube'),
@@ -297,6 +298,7 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
     ("test_mesh_hexes_nonconforming.e", 1.0, 'vertex', 'tracklength', 'cube'),
     ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'shell'),
     ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength', 'shell'),
+    ("test_mesh_hexes20.e", 1.0, 'box', 'tracklength', 'cube'),
 ])
 def test_unstructured_mesh_conservation(model, mesh_filename,
         length_multiplier, source, estimator, geometry, tmp_path):

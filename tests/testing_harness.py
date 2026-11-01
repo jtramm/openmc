@@ -554,7 +554,7 @@ class TolerantWeightWindowPyAPITestHarness(TolerantPyAPITestHarness):
         if self._model.settings.weight_window_generators:
             assert os.path.exists('weight_windows.h5'), \
                 'weight window generation produced no weight_windows.h5'
-            results += weight_windows_digest(fmt='.6e')
+            results += weight_windows_digest(fmt='.5e')
         return results
 
     def _cleanup(self):

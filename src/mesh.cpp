@@ -3890,12 +3890,6 @@ void LibMesh::initialize()
       filename_));
   }
 
-  for (int i = 0; i < num_threads(); i++) {
-    pl_.emplace_back(m_->sub_point_locator());
-    pl_.back()->set_contains_point_tol(FP_COINCIDENT);
-    pl_.back()->enable_out_of_mesh_mode();
-  }
-
   // store first element in the mesh to use as an offset for bin indices
   auto first_elem = *m_->elements_begin();
   first_element_id_ = first_elem->id();
@@ -3914,20 +3908,23 @@ void LibMesh::initialize()
     upper_right_ = {ur(0), ur(1), ur(2)};
   }
 
-  // Track-length traversal takes the sides' outward orientation from the
-  // element's node order, which an inverted element gets wrong
+  build_element_grid();
+  build_boundary_triangles();
+
+  // The sides' outward orientation is taken from the elements' node order,
+  // which is wrong for an inverted element
   int n_inverted = 0;
-  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
-    if (elem->volume() <= 0.0)
+  vector<SideTriangle> tris;
+  for (const libMesh::Elem* elem : grid_elems_) {
+    side_triangles(*elem, tris);
+    if (triangulated_volume(tris) <= 0.0)
       n_inverted++;
   }
   if (n_inverted > 0) {
-    warning(fmt::format("Unstructured mesh {} has {} elements with a "
+    warning(fmt::format("Unstructured mesh file {} has {} elements with a "
                         "non-positive volume; tallies on them are unreliable.",
-      id_, n_inverted));
+      filename_, n_inverted));
   }
-
-  build_boundary_triangles();
 
   // A track can cross every active element at most twice (once more after
   // re-entering a non-convex mesh); counting the elements is O(n) in libMesh
@@ -3965,21 +3962,92 @@ bool ray_triangle(const libMesh::Point& origin, const libMesh::Point& dir,
   return true;
 }
 
+//! Number of corner nodes of side s of an element of the given type, or 0 if
+//! the type is not one of the standard 3D types
+int side_corners(libMesh::ElemType type, unsigned int s)
+{
+  switch (type) {
+  case libMesh::TET4:
+  case libMesh::TET10:
+    return 3;
+  case libMesh::HEX8:
+  case libMesh::HEX20:
+  case libMesh::HEX27:
+    return 4;
+  case libMesh::PRISM6:
+  case libMesh::PRISM15:
+  case libMesh::PRISM18:
+    return (s == 0 || s == 4) ? 3 : 4;
+  case libMesh::PYRAMID5:
+  case libMesh::PYRAMID13:
+  case libMesh::PYRAMID14:
+    return s == 4 ? 4 : 3;
+  default:
+    return 0;
+  }
+}
+
 } // namespace
+
+void LibMesh::UniformGrid::build(const libMesh::BoundingBox& bbox, int n_items)
+{
+  // About two items per cell, covering the box with a small margin
+  const int n = std::clamp(static_cast<int>(std::cbrt(n_items / 2.0)), 1, 128);
+  shape = {n, n, n};
+  for (int d = 0; d < 3; d++) {
+    const double extent = bbox.max()(d) - bbox.min()(d);
+    const double margin = std::max(1e-9 * extent, 1e-12);
+    lower(d) = bbox.min()(d) - margin;
+    width(d) = (extent + 2.0 * margin) / n;
+  }
+  cells.assign(n * n * n, {});
+}
+
+int LibMesh::UniformGrid::cell(const libMesh::Point& p) const
+{
+  int index = 0;
+  int stride = 1;
+  for (int d = 0; d < 3; d++) {
+    const int i = static_cast<int>(std::floor((p(d) - lower(d)) / width(d)));
+    if (i < 0 || i >= shape[d])
+      return -1;
+    index += stride * i;
+    stride *= shape[d];
+  }
+  return index;
+}
+
+void LibMesh::UniformGrid::insert(
+  const libMesh::Point& lo, const libMesh::Point& hi, int item)
+{
+  std::array<int, 3> ilo, ihi;
+  for (int d = 0; d < 3; d++) {
+    ilo[d] = std::clamp(
+      static_cast<int>((lo(d) - lower(d)) / width(d)), 0, shape[d] - 1);
+    ihi[d] = std::clamp(
+      static_cast<int>((hi(d) - lower(d)) / width(d)), 0, shape[d] - 1);
+  }
+  for (int k = ilo[2]; k <= ihi[2]; k++) {
+    for (int j = ilo[1]; j <= ihi[1]; j++) {
+      for (int i = ilo[0]; i <= ihi[0]; i++) {
+        cells[i + shape[0] * (j + shape[1] * k)].push_back(item);
+      }
+    }
+  }
+}
 
 void LibMesh::side_triangles(
   const libMesh::Elem& elem, vector<SideTriangle>& tris)
 {
   tris.clear();
-  const bool is_tet =
-    elem.type() == libMesh::TET4 || elem.type() == libMesh::TET10;
   static thread_local vector<unsigned int> corners;
   for (auto s : elem.side_index_range()) {
-    // Corner nodes of the side, in order around it (they come first in a
-    // side's node list, so a tet side needs no search)
+    // Corner nodes of the side, in order around it; they come first in a
+    // side's node list, so for the standard element types no search is needed
     corners.clear();
-    if (is_tet) {
-      for (unsigned int i = 0; i < 3; i++)
+    const int n_corners = side_corners(elem.type(), s);
+    if (n_corners > 0) {
+      for (int i = 0; i < n_corners; i++)
         corners.push_back(elem.local_side_node(s, i));
     } else {
       for (auto n : elem.nodes_on_side(s)) {
@@ -4018,11 +4086,13 @@ bool LibMesh::contains(
   // Solid angle subtended by the (outward oriented) side triangles at p: 4 pi
   // inside the element and 0 outside. This is the same geometry that
   // bins_crossed() walks through, and it is consistent between the two
-  // elements sharing a side even when that side is warped. The test is not
-  // reliable for a point on the surface: a point on a side gets 4 pi or 0
-  // depending on the sign of a roundoff-sized numerator, and a point on an
-  // edge or a vertex only the dihedral or corner angle, so such a point may
-  // be rejected by every element sharing it. locate() handles that case.
+  // elements sharing a side even when that side is warped. A triangle that
+  // the point lies on (or on an edge of) has a numerator of roundoff size and
+  // a negative denominator; it is given +2 pi so that a point on the surface
+  // counts as inside for every element sharing that surface, the lowest id
+  // of which locate() then picks.
+  if (tris.empty())
+    return false;
   double solid_angle = 0.0;
   for (const auto& tri : tris) {
     const libMesh::Point a = tri.a - p;
@@ -4031,7 +4101,9 @@ bool LibMesh::contains(
     const double la = a.norm();
     const double lb = b.norm();
     const double lc = c.norm();
-    const double numerator = a * b.cross(c);
+    double numerator = a * b.cross(c);
+    if (std::abs(numerator) <= FP_COINCIDENT * la * lb * lc)
+      numerator = 0.0;
     const double denominator =
       la * lb * lc + (a * b) * lc + (a * c) * lb + (b * c) * la;
     solid_angle += 2.0 * std::atan2(numerator, denominator);
@@ -4050,6 +4122,8 @@ bool LibMesh::within_roundoff(
   const vector<SideTriangle>& tris, const libMesh::Point& p, double tol)
 {
   // The point is not beyond the plane of any side triangle by more than tol
+  if (tris.empty())
+    return false;
   for (const auto& tri : tris) {
     const libMesh::Point normal = (tri.b - tri.a).cross(tri.c - tri.a);
     if ((p - tri.a) * normal > tol * normal.norm())
@@ -4058,66 +4132,76 @@ bool LibMesh::within_roundoff(
   return true;
 }
 
+double LibMesh::triangulated_volume(const vector<SideTriangle>& tris)
+{
+  // Divergence theorem over the closed, outward oriented surface
+  double volume = 0.0;
+  for (const auto& tri : tris) {
+    volume += tri.a * tri.b.cross(tri.c);
+  }
+  return volume / 6.0;
+}
+
 const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   const std::set<libMesh::subdomain_id_type>* blocks) const
 {
-  // The point locator works with the elements' true (possibly warped) sides
-  // and accepts an element that contains the point to within a tolerance, so
-  // near a side it can name either of the elements sharing that side (and its
-  // single-element lookup prefers the element of its previous query, which
-  // differs between threads). The decision is made with contains(), the
-  // geometry bins_crossed() uses, taking the lowest id when more than one
-  // element qualifies.
-  std::set<const libMesh::Elem*> candidates;
-  (*pl_.at(thread_num()))(p, candidates, blocks);
-
-  auto lowest_containing = [&](const std::set<const libMesh::Elem*>& elems) {
-    const libMesh::Elem* best = nullptr;
-    for (const libMesh::Elem* elem : elems) {
-      if (!elem->active() || (best && elem->id() > best->id()))
-        continue;
-      if (contains(*elem, p))
-        best = elem;
-    }
-    return best;
-  };
-  if (const libMesh::Elem* best = lowest_containing(candidates))
-    return best;
-
-  // A warped side bulges past its triangles, so the point may lie in a
-  // neighbor of the locator's candidates instead
-  std::set<const libMesh::Elem*> neighbors;
-  for (const libMesh::Elem* elem : candidates) {
-    for (const libMesh::Elem* neighbor : elem->neighbor_ptr_range()) {
-      if (neighbor && neighbor->active() &&
-          (!blocks || blocks->count(neighbor->subdomain_id())))
-        neighbors.insert(neighbor);
-    }
-  }
-  if (const libMesh::Elem* best = lowest_containing(neighbors))
-    return best;
-
-  // No element contains the point by its triangles: it is on a side, an edge
-  // or a vertex (see contains()), or it is outside the mesh but within the
-  // locator's tolerance (about 1e-6 of the element size). Take the lowest-id
-  // candidate that the point is within roundoff of, if there is one.
+  // The active elements are binned by bounding box on a grid and the
+  // decision is made with contains(), the geometry bins_crossed() walks
+  // through, so the result does not depend on libMesh's point locator (which
+  // works with the true, possibly curved, sides and caches its previous
+  // answer per thread). The lists are in id order, so the lowest id wins for
+  // a point on a side, an edge or a vertex. A point that no element contains
+  // but that is within roundoff of one (just outside the mesh, or in a gap
+  // between triangulated sides) is assigned to that element.
+  const int cell = elem_grid_.cell(p);
+  if (cell < 0)
+    return nullptr;
   static thread_local vector<SideTriangle> tris;
-  const libMesh::Elem* best = nullptr;
-  for (const libMesh::Elem* elem : candidates) {
-    if (!elem->active() || (best && elem->id() > best->id()))
+  const libMesh::Elem* near = nullptr;
+  for (int i : elem_grid_.cells[cell]) {
+    const libMesh::Elem* elem = grid_elems_[i];
+    if (blocks && !blocks->count(elem->subdomain_id()))
+      continue;
+    if (!grid_bboxes_[i].contains_point(p))
       continue;
     side_triangles(*elem, tris);
-    if (within_roundoff(tris, p, 1e-10 * elem->hmax()))
-      best = elem;
+    if (contains(tris, p))
+      return elem;
+    if (!near && within_roundoff(tris, p, 1e-10 * elem->hmax()))
+      near = elem;
   }
-  return best;
+  return near;
+}
+
+void LibMesh::build_element_grid()
+{
+  // Active elements in id order, with slightly enlarged bounding boxes
+  vector<std::pair<const libMesh::Elem*, libMesh::BoundingBox>> elems;
+  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
+    libMesh::BoundingBox box = elem->loose_bounding_box();
+    const libMesh::Point margin = 1e-9 * (box.max() - box.min());
+    box.min() -= margin;
+    box.max() += margin;
+    elems.emplace_back(elem, box);
+  }
+  std::sort(elems.begin(), elems.end(),
+    [](const auto& a, const auto& b) { return a.first->id() < b.first->id(); });
+
+  grid_elems_.clear();
+  grid_bboxes_.clear();
+  elem_grid_.build(bbox_, elems.size());
+  for (const auto& [elem, box] : elems) {
+    elem_grid_.insert(box.min(), box.max(), grid_elems_.size());
+    grid_elems_.push_back(elem);
+    grid_bboxes_.push_back(box);
+  }
 }
 
 void LibMesh::build_boundary_triangles()
 {
   boundary_tris_.clear();
   vector<SideTriangle> tris;
-  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
+  for (const libMesh::Elem* elem : grid_elems_) {
     side_triangles(*elem, tris);
     for (const auto& tri : tris) {
       if (!elem->neighbor_ptr(tri.side))
@@ -4125,37 +4209,15 @@ void LibMesh::build_boundary_triangles()
     }
   }
 
-  // Bin the triangles on a grid covering the bounding box of the mesh (with
-  // a small margin), with about two triangles per cell
-  const int n =
-    std::clamp(static_cast<int>(std::cbrt(boundary_tris_.size() / 2.0)), 1, 64);
-  auto& grid = boundary_grid_;
-  grid.shape = {n, n, n};
-  for (int d = 0; d < 3; d++) {
-    const double extent = bbox_.max()(d) - bbox_.min()(d);
-    const double margin = std::max(1e-9 * extent, 1e-12);
-    grid.lower(d) = bbox_.min()(d) - margin;
-    grid.width(d) = (extent + 2.0 * margin) / n;
-  }
-  grid.cells.assign(n * n * n, {});
+  boundary_grid_.build(bbox_, boundary_tris_.size());
   for (int i = 0; i < boundary_tris_.size(); i++) {
     const auto& tri = boundary_tris_[i];
-    std::array<int, 3> lo, hi;
+    libMesh::Point lo, hi;
     for (int d = 0; d < 3; d++) {
-      const double tmin = std::min({tri.a(d), tri.b(d), tri.c(d)});
-      const double tmax = std::max({tri.a(d), tri.b(d), tri.c(d)});
-      lo[d] = std::clamp(
-        static_cast<int>((tmin - grid.lower(d)) / grid.width(d)), 0, n - 1);
-      hi[d] = std::clamp(
-        static_cast<int>((tmax - grid.lower(d)) / grid.width(d)), 0, n - 1);
+      lo(d) = std::min({tri.a(d), tri.b(d), tri.c(d)});
+      hi(d) = std::max({tri.a(d), tri.b(d), tri.c(d)});
     }
-    for (int k = lo[2]; k <= hi[2]; k++) {
-      for (int j = lo[1]; j <= hi[1]; j++) {
-        for (int ii = lo[0]; ii <= hi[0]; ii++) {
-          grid.cells[ii + n * (j + n * k)].push_back(i);
-        }
-      }
-    }
+    boundary_grid_.insert(lo, hi, i);
   }
 }
 
@@ -4525,37 +4587,33 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
         track_len);
     }
 
-    // As in MOABMesh, the segment is scored to the element containing its
-    // midpoint, so that the bin agrees with a later get_bin() lookup of that
-    // midpoint (the random ray solver relies on this). If that is not the
-    // element being walked (the walk strayed at an edge, a vertex or a warped
-    // side), the step is redone from the element that does contain it, as
-    // long as that advances the walk; otherwise the segment is just scored to
-    // it, and its start may then lie in the walked element, a roundoff-level
-    // inconsistency with get_bin() of that start. A midpoint outside the mesh
-    // means the track left the mesh before the exit found here: the walk
-    // then resumes from where the track enters the mesh again.
+    // As in MOABMesh, the segment is scored to the element that locate()
+    // finds at its midpoint, so that the bin is the one a later get_bin() of
+    // that midpoint returns (the random ray solver relies on this). If that is
+    // not the element being walked (the walk strayed at an edge, a vertex or a
+    // warped side, or the midpoint is on a side), the step is redone from the
+    // element found, as long as that advances the walk; otherwise the segment
+    // is just scored to it. A midpoint outside the mesh means the track left
+    // the mesh before the exit found here: the walk then resumes from where
+    // the track enters the mesh again.
     const libMesh::Elem* scored = elem;
     if (t_exit > t) {
-      const libMesh::Point midpoint = p0 + 0.5 * (t + t_exit) * dir;
-      if (!contains(tris, midpoint)) {
-        const libMesh::Elem* owner = locate(midpoint);
-        if (!owner) {
-          elem = nullptr;
-          continue;
-        }
-        if (owner != elem) {
-          side_triangles(*owner, owner_tris);
-          unsigned int owner_side;
-          double t_exit_owner = std::min(
-            t + exit_distance(owner_tris, p0 + t * dir, dir, owner_side),
+      const libMesh::Elem* owner = locate(p0 + 0.5 * (t + t_exit) * dir);
+      if (!owner) {
+        elem = nullptr;
+        continue;
+      }
+      if (owner != elem) {
+        side_triangles(*owner, owner_tris);
+        unsigned int owner_side;
+        double t_exit_owner =
+          std::min(t + exit_distance(owner_tris, p0 + t * dir, dir, owner_side),
             track_len);
-          scored = owner;
-          if (t_exit_owner - t > TINY_BIT) {
-            elem = owner;
-            exit_side = owner_side;
-            t_exit = t_exit_owner;
-          }
+        scored = owner;
+        if (t_exit_owner - t > TINY_BIT) {
+          elem = owner;
+          exit_side = owner_side;
+          t_exit = t_exit_owner;
         }
       }
       if (is_bin_element(scored)) {
@@ -4631,7 +4689,11 @@ const libMesh::Elem& LibMesh::get_element_from_bin(int bin) const
 
 double LibMesh::volume(int bin) const
 {
-  double volume = this->get_element_from_bin(bin).volume();
+  // The volume of the element with flat (triangulated) sides, which is what
+  // the track-length and point lookups of this class see
+  static thread_local vector<SideTriangle> tris;
+  side_triangles(this->get_element_from_bin(bin), tris);
+  double volume = triangulated_volume(tris);
   if (length_multiplier_ > 0.0) {
     volume *= length_multiplier_ * length_multiplier_ * length_multiplier_;
   }
