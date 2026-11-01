@@ -1,4 +1,6 @@
+import glob
 import os
+from itertools import product
 
 import numpy as np
 import openmc
@@ -8,12 +10,13 @@ import pytest
 
 from tests.testing_harness import TolerantPyAPITestHarness
 
-pytestmark = pytest.mark.skipif(
-    not openmc.lib.feature_enabled('dagmc'),
-    reason="DAGMC is not enabled.")
-
-# Canonical 24-tet MOAB mesh of the unit cube, relative to the case directory
-MESH_FILE = '../../unstructured_mesh/test_mesh_dagmc_tets.vtk'
+# The same 24-tet mesh of the unit cube, as the canonical MOAB (.vtk) and
+# libMesh (.e) assets; paths are relative to the case directory
+MESH_FILES = {
+    'moab': '../../unstructured_mesh/test_mesh_dagmc_tets.vtk',
+    'libmesh': '../../unstructured_mesh/test_mesh_dagmc_tets.e',
+}
+FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh'}
 
 
 class UnstructuredMeshTestHarness(TolerantPyAPITestHarness):
@@ -31,14 +34,19 @@ class UnstructuredMeshTestHarness(TolerantPyAPITestHarness):
 
     def _cleanup(self):
         super()._cleanup()
-        for f in ('mgxs.h5', 'weight_windows.h5'):
+        # libMesh also writes the mesh tally to an Exodus file
+        for f in ['mgxs.h5', 'weight_windows.h5'] + glob.glob('tally_*.e'):
             if os.path.exists(f):
                 os.remove(f)
 
 
-@pytest.mark.parametrize("case", ["tally_and_ww", "subdivision_only"])
-def test_random_ray_fixed_source_unstructured_mesh(case):
-    with change_directory(case):
+@pytest.mark.parametrize("library,case", product(
+    ['moab', 'libmesh'], ['tally_and_ww', 'subdivision_only']))
+def test_random_ray_fixed_source_unstructured_mesh(library, case):
+    if not openmc.lib.feature_enabled(FEATURES[library]):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
+
+    with change_directory(f'{library}_{case}'):
         openmc.reset_auto_ids()
 
         # One-group material with half scattering
@@ -71,7 +79,7 @@ def test_random_ray_fixed_source_unstructured_mesh(case):
         geometry = openmc.Geometry(root)
 
         # The tet mesh subdivides the single cell into 24 source regions
-        umesh = openmc.UnstructuredMesh(MESH_FILE, library='moab')
+        umesh = openmc.UnstructuredMesh(MESH_FILES[library], library=library)
 
         settings = openmc.Settings()
         settings.energy_mode = 'multi-group'

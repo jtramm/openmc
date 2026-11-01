@@ -1115,6 +1115,18 @@ protected:
   //! Translate an element pointer to a bin index
   virtual int get_bin_from_element(const libMesh::Elem* elem) const;
 
+  //! Whether an element is one of the mesh bins (as opposed to an element
+  //! that is only traversed, e.g., outside of a block restriction)
+  virtual bool is_bin_element(const libMesh::Elem* elem) const { return true; }
+
+  //! Find the active element containing a point
+  //
+  //! \param[in] p Point in mesh coordinates
+  //! \param[in] blocks Subdomains to restrict the search to, if any
+  //! \return Element containing the point, or nullptr if outside the mesh
+  const libMesh::Elem* locate(const libMesh::Point& p,
+    const std::set<libMesh::subdomain_id_type>* blocks = nullptr) const;
+
   // Data members
   libMesh::MeshBase* m_; //!< pointer to libMesh MeshBase instance, always set
                          //!< during intialization
@@ -1123,10 +1135,44 @@ protected:
   libMesh::BoundingBox bbox_; //!< bounding box of the mesh
 
 private:
+  //! Planar triangle on the boundary of the mesh, used to find where a track
+  //! that is outside of the mesh enters it
+  struct BoundaryTriangle {
+    libMesh::Point a, b, c;    //!< vertices
+    libMesh::Point normal;     //!< outward normal (not normalized)
+    const libMesh::Elem* elem; //!< element the triangle is a side of
+  };
+
   // Methods
   void initialize() override;
   void set_mesh_pointer_from_filename(const std::string& filename);
   void build_eqn_sys();
+
+  //! Collect the triangles making up the boundary of the mesh
+  void build_boundary_triangles();
+
+  //! Distance along dir from p (inside elem) to the side through which the
+  //! track leaves elem
+  //
+  //! \param[in] elem Element containing p
+  //! \param[in] p Starting point, in mesh coordinates
+  //! \param[in] dir Unit direction of travel
+  //! \param[out] exit_side Side of elem the track leaves through
+  //! \return Distance to the exit side
+  double exit_distance(const libMesh::Elem& elem, const libMesh::Point& p,
+    const libMesh::Point& dir, unsigned int& exit_side) const;
+
+  //! Find where a track that is outside of the mesh enters it
+  //
+  //! \param[in] p0 Starting point of the track, in mesh coordinates
+  //! \param[in] dir Unit direction of travel
+  //! \param[in] t_min Distance along the track to start searching from
+  //! \param[in] t_max Distance along the track to stop searching at
+  //! \param[out] t_entry Distance along the track at which the mesh is entered
+  //! \return Element entered, or nullptr if the track does not enter the mesh
+  const libMesh::Elem* find_entry(const libMesh::Point& p0,
+    const libMesh::Point& dir, double t_min, double t_max,
+    double& t_entry) const;
 
   // Data members
   unique_ptr<libMesh::MeshBase> unique_m_ =
@@ -1142,6 +1188,8 @@ private:
                    //!< variable numbers
   libMesh::dof_id_type
     first_element_id_; //!< id of the first element in the mesh
+  vector<BoundaryTriangle> boundary_tris_; //!< triangulated mesh boundary
+  int max_track_steps_; //!< bound on element crossings for a single track
 };
 
 class AdaptiveLibMesh : public LibMesh {
@@ -1168,6 +1216,11 @@ protected:
   int get_bin_from_element(const libMesh::Elem* elem) const override;
 
   const libMesh::Elem& get_element_from_bin(int bin) const override;
+
+  bool is_bin_element(const libMesh::Elem* elem) const override
+  {
+    return elem_to_bin_map_[elem->id()] >= 0;
+  }
 
 private:
   // Data members

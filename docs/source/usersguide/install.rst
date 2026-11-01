@@ -347,8 +347,7 @@ Prerequisites
 
       This optional dependency enables support for unstructured mesh tally
       filters using libMesh meshes. Any 3D element type supported by libMesh can
-      be used, but the implementation is currently restricted to collision
-      estimators. In addition to turning this option on, the path to the libMesh
+      be used. In addition to turning this option on, the path to the libMesh
       installation should be specified as part of the ``CMAKE_PREFIX_PATH``
       variable::
 

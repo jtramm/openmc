@@ -1320,7 +1320,7 @@ void StructuredMesh::raytrace_mesh(
 
   // Compute the length of the entire track.
   double total_distance = (r1 - r0).norm();
-  if (total_distance == 0.0 && settings::solver_type != SolverType::RANDOM_RAY)
+  if (total_distance == 0.0)
     return;
 
   // keep a copy of the original global position to pass to get_indices,
@@ -3307,30 +3307,18 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   moab::CartVect dir(u.x, u.y, u.z);
   dir.normalize();
 
-  bins.clear();
-  lengths.clear();
-
   double track_len = (end - start).length();
-  if (track_len == 0.0) {
-    // In random ray mode, source regions are mapped onto mesh tally bins with
-    // a zero-length track located at a point inside the source region (see
-    // FlatSourceDomain::convert_source_regions_to_tallies). Score the whole
-    // track to the bin containing that point, as StructuredMesh does.
-    if (settings::solver_type == SolverType::RANDOM_RAY) {
-      int bin = this->get_bin(r0);
-      if (bin != -1) {
-        bins.push_back(bin);
-        lengths.push_back(1.0);
-      }
-    }
+  if (track_len == 0.0)
     return;
-  }
 
   start -= TINY_BIT * dir;
   end += TINY_BIT * dir;
 
   vector<double> hits;
   intersect_track(start, dir, track_len, hits);
+
+  bins.clear();
+  lengths.clear();
 
   // if there are no intersections the track may lie entirely
   // within a single tet. If this is the case, apply entire
@@ -3925,6 +3913,100 @@ void LibMesh::initialize()
     lower_left_ = {ll(0), ll(1), ll(2)};
     upper_right_ = {ur(0), ur(1), ur(2)};
   }
+
+  build_boundary_triangles();
+
+  // A track can cross every active element at most twice (once more after
+  // re-entering a non-convex mesh); counting the elements is O(n) in libMesh
+  max_track_steps_ = 2 * m_->n_active_elem() + 2;
+}
+
+namespace {
+
+//! Plane through the first three corner nodes of side s of a 3D element
+//
+//! \param[in] elem Element
+//! \param[in] s Side index
+//! \param[in] center A point inside the element, used to orient the normal
+//! \param[out] origin A point on the plane
+//! \param[out] normal Outward normal of the plane (not normalized)
+void side_plane(const libMesh::Elem& elem, unsigned int s,
+  const libMesh::Point& center, libMesh::Point& origin, libMesh::Point& normal)
+{
+  origin = elem.point(elem.local_side_node(s, 0));
+  normal = (elem.point(elem.local_side_node(s, 1)) - origin)
+             .cross(elem.point(elem.local_side_node(s, 2)) - origin);
+  if (normal * (origin - center) < 0.0)
+    normal *= -1.0;
+}
+
+} // namespace
+
+const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
+  const std::set<libMesh::subdomain_id_type>* blocks) const
+{
+  const auto& point_locator = pl_.at(thread_num());
+  const libMesh::Elem* elem = (*point_locator)(p, blocks);
+  if (!elem)
+    return nullptr;
+
+  // The point locator accepts an element that contains the point to within a
+  // tolerance, and it prefers the element found by its previous query, so a
+  // point just past a side can be assigned to either element sharing that
+  // side depending on the query history (which differs between threads and
+  // runs). Walk from the locator's element across every side plane the point
+  // lies beyond, so that the answer is decided by the element geometry alone,
+  // with the same side planes bins_crossed() uses.
+  for (int hop = 0; hop < 8; hop++) {
+    const libMesh::Point center = elem->vertex_average();
+    double farthest = 0.0;
+    const libMesh::Elem* beyond = nullptr;
+    for (auto s : elem->side_index_range()) {
+      libMesh::Point origin, normal;
+      side_plane(*elem, s, center, origin, normal);
+      double distance = ((p - origin) * normal) / normal.norm();
+      if (distance <= farthest)
+        continue;
+      const libMesh::Elem* neighbor = elem->neighbor_ptr(s);
+      if (neighbor && neighbor->active() &&
+          (!blocks || blocks->count(neighbor->subdomain_id()))) {
+        farthest = distance;
+        beyond = neighbor;
+      }
+    }
+    if (!beyond)
+      return elem;
+    elem = beyond;
+  }
+  return elem;
+}
+
+void LibMesh::build_boundary_triangles()
+{
+  boundary_tris_.clear();
+  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
+    const libMesh::Point center = elem->vertex_average();
+    for (auto s : elem->side_index_range()) {
+      if (elem->neighbor_ptr(s))
+        continue;
+
+      // corner nodes of the side, in order around it
+      vector<libMesh::Point> corners;
+      for (auto n : elem->nodes_on_side(s)) {
+        if (elem->is_vertex(n))
+          corners.push_back(elem->point(n));
+      }
+
+      // fan triangulation of the (planar) side
+      for (std::size_t i = 1; i + 1 < corners.size(); i++) {
+        BoundaryTriangle tri {corners[0], corners[i], corners[i + 1], {}, elem};
+        tri.normal = (tri.b - tri.a).cross(tri.c - tri.a);
+        if (tri.normal * (tri.a - center) < 0.0)
+          tri.normal *= -1.0;
+        boundary_tris_.push_back(tri);
+      }
+    }
+  }
 }
 
 // Sample position within a tet for LibMesh type tets
@@ -4107,11 +4189,161 @@ void LibMesh::write(const std::string& filename) const
     filename + ".e", *equation_systems_, &systems_out);
 }
 
+double LibMesh::exit_distance(const libMesh::Elem& elem,
+  const libMesh::Point& p, const libMesh::Point& dir,
+  unsigned int& exit_side) const
+{
+  // Sides are treated as planes through their first three corner nodes; the
+  // exit side is the first one crossed when moving along dir. Only sides whose
+  // outward normal has a component along dir can be exited through, which
+  // also excludes the side the track entered through.
+  const libMesh::Point center = elem.vertex_average();
+  double distance = INFTY;
+  exit_side = elem.n_sides();
+  for (auto s : elem.side_index_range()) {
+    libMesh::Point origin, normal;
+    side_plane(elem, s, center, origin, normal);
+
+    double along = dir * normal;
+    if (along <= 0.0)
+      continue;
+    // A slightly negative value means the track is already marginally past
+    // this side due to roundoff
+    double d = std::max(((origin - p) * normal) / along, 0.0);
+    if (d < distance) {
+      distance = d;
+      exit_side = s;
+    }
+  }
+  return distance;
+}
+
+const libMesh::Elem* LibMesh::find_entry(const libMesh::Point& p0,
+  const libMesh::Point& dir, double t_min, double t_max, double& t_entry) const
+{
+  // Moller-Trumbore intersection of the track with every boundary triangle
+  // whose outward normal faces the oncoming track; the nearest hit beyond t_min
+  // is where the track enters the mesh
+  constexpr double tol = 1e-9;
+  const libMesh::Elem* entry_elem = nullptr;
+  t_entry = t_max;
+  for (const auto& tri : boundary_tris_) {
+    if (dir * tri.normal >= 0.0)
+      continue;
+    const libMesh::Point e1 = tri.b - tri.a;
+    const libMesh::Point e2 = tri.c - tri.a;
+    const libMesh::Point pvec = dir.cross(e2);
+    const double det = e1 * pvec;
+    if (det == 0.0)
+      continue;
+    const double inv_det = 1.0 / det;
+    const libMesh::Point tvec = p0 - tri.a;
+    const double bu = (tvec * pvec) * inv_det;
+    if (bu < -tol || bu > 1.0 + tol)
+      continue;
+    const libMesh::Point qvec = tvec.cross(e1);
+    const double bv = (dir * qvec) * inv_det;
+    if (bv < -tol || bu + bv > 1.0 + tol)
+      continue;
+    const double t = (e2 * qvec) * inv_det;
+    if (t <= t_min || t >= t_entry)
+      continue;
+    t_entry = t;
+    entry_elem = tri.elem;
+  }
+  return entry_elem;
+}
+
 void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
-  // TODO: Implement triangle crossings here
-  fatal_error("Tracklength tallies on libMesh instances are not implemented.");
+  // Work in mesh coordinates; fractions of the track are scale invariant
+  libMesh::Point p0(r0.x, r0.y, r0.z);
+  libMesh::Point p1(r1.x, r1.y, r1.z);
+  if (length_multiplier_ > 0.0) {
+    p0 /= length_multiplier_;
+    p1 /= length_multiplier_;
+  }
+  const libMesh::Point dir(u.x, u.y, u.z);
+  const double track_len = (p1 - p0).norm();
+  if (track_len == 0.0)
+    return;
+
+  // Portion of the track that lies within the bounding box of the mesh
+  double t_lo = 0.0;
+  double t_hi = track_len;
+  for (int i = 0; i < 3; i++) {
+    if (dir(i) == 0.0) {
+      if (p0(i) < bbox_.min()(i) || p0(i) > bbox_.max()(i))
+        return;
+      continue;
+    }
+    double ta = (bbox_.min()(i) - p0(i)) / dir(i);
+    double tb = (bbox_.max()(i) - p0(i)) / dir(i);
+    t_lo = std::max(t_lo, std::min(ta, tb));
+    t_hi = std::min(t_hi, std::max(ta, tb));
+  }
+  if (t_lo >= t_hi)
+    return;
+
+  // March from element to element. Outside of the mesh, the boundary
+  // triangles give the (re-)entry point.
+  int n_steps = 0;
+  double t = t_lo;
+  const libMesh::Elem* elem = locate(p0 + (t + TINY_BIT) * dir);
+  while (t < track_len) {
+    if (++n_steps > max_track_steps_) {
+      fatal_error(fmt::format("Track through unstructured mesh {} did not "
+                              "terminate after {} element crossings.",
+        id_, n_steps));
+    }
+    if (!elem) {
+      double t_entry;
+      elem = find_entry(p0, dir, t, t_hi, t_entry);
+      if (!elem)
+        return;
+      t = t_entry;
+    }
+
+    unsigned int exit_side;
+    double t_exit = std::min(
+      t + exit_distance(*elem, p0 + t * dir, dir, exit_side), track_len);
+
+    // As in MOABMesh, the segment is scored to the element containing its
+    // midpoint, so that the bin agrees with a later get_bin() lookup of that
+    // midpoint (the random ray solver relies on this). The two only differ
+    // when the walk has strayed at an edge or vertex.
+    if (t_exit > t) {
+      const libMesh::Elem* owner = locate(p0 + 0.5 * (t + t_exit) * dir);
+      if (owner && is_bin_element(owner)) {
+        bins.push_back(get_bin_from_element(owner));
+        lengths.push_back((t_exit - t) / track_len);
+      }
+    }
+    if (t_exit >= track_len)
+      return;
+    bool progressed = t_exit - t > TINY_BIT;
+    t = t_exit;
+
+    // The next element is normally the active neighbor across the exit side.
+    // If there is none (the mesh boundary, a hole, or a refined neighbor), or
+    // if the step was too short to trust the exit side (a point on an edge or
+    // vertex, or marginally outside the element), the point just ahead on the
+    // track is located instead. If that still yields the current element, the
+    // track is grazing the exit side: it continues in the neighbor if there is
+    // one and has otherwise left the mesh here.
+    const libMesh::Elem* neighbor =
+      exit_side < elem->n_sides() ? elem->neighbor_ptr(exit_side) : nullptr;
+    if (neighbor && !neighbor->active())
+      neighbor = nullptr;
+    const libMesh::Elem* next = neighbor;
+    if (!progressed || !neighbor) {
+      next = locate(p0 + (t + TINY_BIT) * dir);
+      if (next == elem)
+        next = neighbor;
+    }
+    elem = next;
+  }
 }
 
 int LibMesh::get_bin(Position r) const
@@ -4129,9 +4361,7 @@ int LibMesh::get_bin(Position r) const
     return -1;
   }
 
-  const auto& point_locator = pl_.at(thread_num());
-
-  const auto elem_ptr = (*point_locator)(p);
+  const auto elem_ptr = locate(p);
   return elem_ptr ? get_bin_from_element(elem_ptr) : -1;
 }
 
@@ -4157,8 +4387,11 @@ const libMesh::Elem& LibMesh::get_element_from_bin(int bin) const
 
 double LibMesh::volume(int bin) const
 {
-  return this->get_element_from_bin(bin).volume() * length_multiplier_ *
-         length_multiplier_ * length_multiplier_;
+  double volume = this->get_element_from_bin(bin).volume();
+  if (length_multiplier_ > 0.0) {
+    volume *= length_multiplier_ * length_multiplier_ * length_multiplier_;
+  }
+  return volume;
 }
 
 AdaptiveLibMesh::AdaptiveLibMesh(libMesh::MeshBase& input_mesh,
@@ -4230,9 +4463,7 @@ int AdaptiveLibMesh::get_bin(Position r) const
     return -1;
   }
 
-  const auto& point_locator = pl_.at(thread_num());
-
-  const auto elem_ptr = (*point_locator)(p, &block_ids_);
+  const auto elem_ptr = locate(p, &block_ids_);
   return elem_ptr ? get_bin_from_element(elem_ptr) : -1;
 }
 
