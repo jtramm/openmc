@@ -215,6 +215,7 @@ Regression tests compare OpenMC output against reference data. **Prefer using ex
 - **TolerantPyAPITestHarness**: For tests with floating-point non-associativity (e.g., random ray solver with single precision). Uses relative tolerance comparisons.
 - **VTKTestHarness**: Like TolerantPyAPITestHarness but keeps one voxel plot and also compares the flux and source arrays of the random ray VTK files
 - **WeightWindowPyAPITestHarness**: Compares weight window bounds from `weight_windows.h5`
+- **TolerantWeightWindowPyAPITestHarness**: Like TolerantPyAPITestHarness but also compares the weight window bounds from `weight_windows.h5` (random ray weight window generation)
 - **CollisionTrackTestHarness**: Compares collision track data from `collision_track.h5` against `collision_track_true.h5`
 - **TestHarness**: Base harness for XML-based tests (no Python model building)
 - **PlotTestHarness**: Compares plot output files (PNG or voxel HDF5)

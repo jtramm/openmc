@@ -1,4 +1,3 @@
-import glob
 import os
 from itertools import product
 
@@ -8,7 +7,7 @@ import openmc.lib
 from openmc.utility_funcs import change_directory
 import pytest
 
-from tests.testing_harness import TolerantPyAPITestHarness
+from tests.testing_harness import TolerantWeightWindowPyAPITestHarness
 
 # The same 24-tet mesh of the unit cube, as the canonical MOAB (.vtk) and
 # libMesh (.e) assets; paths are relative to the case directory
@@ -19,25 +18,12 @@ MESH_FILES = {
 FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh'}
 
 
-class UnstructuredMeshTestHarness(TolerantPyAPITestHarness):
-    """Compare the statepoint tallies and, if generated, the weight windows."""
-
-    def _get_results(self):
-        results = super()._get_results()
-        if os.path.exists('weight_windows.h5'):
-            ww = openmc.WeightWindowsList.from_hdf5()[0]
-            lower = [f'{x:.2e}' for x in ww.lower_ww_bounds.flatten()]
-            upper = [f'{x:.2e}' for x in ww.upper_ww_bounds.flatten()]
-            results += '\n'.join([str(ww.mesh), 'Lower Bounds'] + lower +
-                                 ['Upper Bounds'] + upper)
-        return results
-
+class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
     def _cleanup(self):
         super()._cleanup()
-        # libMesh also writes the mesh tally to an Exodus file
-        for f in ['mgxs.h5', 'weight_windows.h5'] + glob.glob('tally_*.e'):
-            if os.path.exists(f):
-                os.remove(f)
+        f = 'mgxs.h5'
+        if os.path.exists(f):
+            os.remove(f)
 
 
 @pytest.mark.parametrize("library,case", product(
@@ -115,5 +101,5 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
                 mesh=umesh, method='magic', max_realizations=5)
 
         model = openmc.Model(geometry, materials, settings, tallies)
-        harness = UnstructuredMeshTestHarness('statepoint.10.h5', model)
+        harness = MGXSTestHarness('statepoint.10.h5', model)
         harness.main()
