@@ -428,8 +428,11 @@ mesh element is known as "cell-under-voxel" style geometry, although in OpenMC
 the mesh can be any kind and is not restricted to 3D regular voxels. This
 includes :class:`openmc.UnstructuredMesh` (MOAB or libMesh), although ray
 tracing through an unstructured mesh is considerably slower than through a
-structured one. An example of overlaying a simple 2D mesh over a geometry is
-given as::
+structured one. Note that a mesh must cover every cell it is applied to: the
+portions of a ray that lie inside such a cell but outside the mesh (for
+instance in a hole of the mesh, or where a faceted mesh does not quite reach a
+curved cell boundary) are neither attenuated nor tallied. An example of
+overlaying a simple 2D mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

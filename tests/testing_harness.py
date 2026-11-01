@@ -504,7 +504,7 @@ class VTKTestHarness(TolerantPyAPITestHarness):
             os.remove(f)
 
 
-def weight_windows_digest():
+def weight_windows_digest(fmt='.2e'):
     """Digest info in the weight window file and return as a string."""
     ww = openmc.WeightWindowsList.from_hdf5()[0]
 
@@ -516,9 +516,9 @@ def weight_windows_digest():
     flattened_lower_bound = lower_bound.flatten()
     flattened_upper_bound = upper_bound.flatten()
 
-    # Convert each element to a string in scientific notation with 2 decimal places
-    formatted_lower_bound = [f'{x:.2e}' for x in flattened_lower_bound]
-    formatted_upper_bound = [f'{x:.2e}' for x in flattened_upper_bound]
+    # Convert each element to a string in scientific notation
+    formatted_lower_bound = [f'{x:{fmt}}' for x in flattened_lower_bound]
+    formatted_upper_bound = [f'{x:{fmt}}' for x in flattened_upper_bound]
 
     # Concatenate the formatted arrays
     concatenated_strings = ["Lower Bounds"] + formatted_lower_bound + \
@@ -543,16 +543,18 @@ class WeightWindowPyAPITestHarness(PyAPITestHarness):
 
 
 class TolerantWeightWindowPyAPITestHarness(TolerantPyAPITestHarness):
-    """Tolerant comparison of the statepoint tallies and, if the run generated
-    weight windows, of their bounds; for weight window generation with random
-    ray.
+    """Tolerant comparison of the statepoint tallies and, if the model
+    generates weight windows, of their bounds; for weight window generation
+    with random ray.
 
     """
 
     def _get_results(self):
         results = super()._get_results()
-        if os.path.exists('weight_windows.h5'):
-            results += weight_windows_digest()
+        if self._model.settings.weight_window_generators:
+            assert os.path.exists('weight_windows.h5'), \
+                'weight window generation produced no weight_windows.h5'
+            results += weight_windows_digest(fmt='.6e')
         return results
 
     def _cleanup(self):

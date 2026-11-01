@@ -276,3 +276,59 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
     model.tallies.append(uscd_tally)
 
     run_and_check(model, tmp_path, filename, elements_per_voxel=1)
+
+
+# Meshes that tile the cube [-1, 1]^3 exactly, so that the track-length flux
+# summed over the mesh must equal that of a cell with the same extent. The
+# warped hexes have non-planar sides; the non-conforming mesh has a coarse
+# block next to a fine one, with hanging nodes and no neighbor information
+# across the interface.
+@pytest.mark.parametrize("mesh_filename,length_multiplier", [
+    ("test_mesh_hexes_warped.e", 1.0),
+    ("test_mesh_hexes_warped.e", 2.0),
+    ("test_mesh_hexes_nonconforming.e", 1.0),
+])
+def test_unstructured_mesh_tracklength_conservation(
+        model, mesh_filename, length_multiplier, tmp_path):
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh is not enabled in this build.")
+
+    # A single cube cell matching the (scaled) mesh
+    half_width = length_multiplier
+    water = model.geometry.get_materials_by_name('water')[0]
+    box = openmc.model.RectangularParallelepiped(
+        -half_width, half_width, -half_width, half_width, -half_width,
+        half_width, boundary_type='vacuum')
+    cell = openmc.Cell(fill=water, region=-box)
+    model.geometry = openmc.Geometry([cell])
+    model.settings.source = openmc.IndependentSource(
+        space=openmc.stats.Box(3*[-0.9*half_width], 3*[0.9*half_width]),
+        energy=openmc.stats.delta_function(15e6))
+    model.settings.particles = 500
+    model.settings.batches = 5
+
+    uscd_mesh = openmc.UnstructuredMesh(
+        Path(__file__).with_name(mesh_filename), 'libmesh',
+        length_multiplier=length_multiplier)
+    mesh_tally = openmc.Tally(name="unstructured mesh tally")
+    mesh_tally.filters = [openmc.MeshFilter(uscd_mesh)]
+    mesh_tally.scores = ['flux']
+    mesh_tally.estimator = 'tracklength'
+    cell_tally = openmc.Tally(name="cell tally")
+    cell_tally.filters = [openmc.CellFilter(cell)]
+    cell_tally.scores = ['flux']
+    cell_tally.estimator = 'tracklength'
+    model.tallies = openmc.Tallies([mesh_tally, cell_tally])
+
+    if config['build_inputs']:
+        model.export_to_model_xml(tmp_path / 'model.xml')
+        return
+
+    mpi_args = ([config['mpiexec'], '-n', config['mpi_np']]
+                if config['mpi'] else None)
+    statepoint = model.run(cwd=tmp_path, openmc_exec=config['exe'],
+                           mpi_args=mpi_args, event_based=config['event'])
+    with openmc.StatePoint(statepoint) as sp:
+        mesh_flux = sp.tallies[mesh_tally.id].mean.sum()
+        cell_flux = sp.tallies[cell_tally.id].mean.ravel()[0]
+    assert mesh_flux == pytest.approx(cell_flux, rel=1e-10)

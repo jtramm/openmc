@@ -1135,12 +1135,27 @@ protected:
   libMesh::BoundingBox bbox_; //!< bounding box of the mesh
 
 private:
-  //! Planar triangle on the boundary of the mesh, used to find where a track
-  //! that is outside of the mesh enters it
+  //! Triangle of an element side. Sides are triangulated from the corner
+  //! with the lowest node id, so that the two elements sharing a side use the
+  //! same triangles for it and agree on where it is even when it is warped.
+  struct SideTriangle {
+    libMesh::Point a, b, c; //!< vertices; (b - a) x (c - a) points outward
+    unsigned int side;      //!< side of the element the triangle belongs to
+  };
+
+  //! Triangle on the boundary of the mesh, used to find where a track that
+  //! is outside of the mesh enters it
   struct BoundaryTriangle {
-    libMesh::Point a, b, c;    //!< vertices
-    libMesh::Point normal;     //!< outward normal (not normalized)
+    libMesh::Point a, b, c;    //!< vertices; (b - a) x (c - a) points outward
     const libMesh::Elem* elem; //!< element the triangle is a side of
+  };
+
+  //! Uniform grid over the boundary triangles for ray queries
+  struct BoundaryGrid {
+    libMesh::Point lower;      //!< lower corner, in mesh coordinates
+    libMesh::Point width;      //!< cell width in each direction
+    std::array<int, 3> shape;  //!< number of cells in each direction
+    vector<vector<int>> cells; //!< indices into boundary_tris_, per cell
   };
 
   // Methods
@@ -1148,7 +1163,15 @@ private:
   void set_mesh_pointer_from_filename(const std::string& filename);
   void build_eqn_sys();
 
-  //! Collect the triangles making up the boundary of the mesh
+  //! Triangulate the sides of an element
+  static void side_triangles(
+    const libMesh::Elem& elem, vector<SideTriangle>& tris);
+
+  //! Whether a point is inside an element, judged by its side triangles
+  static bool contains(const libMesh::Elem& elem, const libMesh::Point& p);
+
+  //! Collect the triangles making up the boundary of the mesh and bin them
+  //! on a grid
   void build_boundary_triangles();
 
   //! Distance along dir from p (inside elem) to the side through which the
@@ -1159,8 +1182,9 @@ private:
   //! \param[in] dir Unit direction of travel
   //! \param[out] exit_side Side of elem the track leaves through
   //! \return Distance to the exit side
-  double exit_distance(const libMesh::Elem& elem, const libMesh::Point& p,
-    const libMesh::Point& dir, unsigned int& exit_side) const;
+  static double exit_distance(const libMesh::Elem& elem,
+    const libMesh::Point& p, const libMesh::Point& dir,
+    unsigned int& exit_side);
 
   //! Find where a track that is outside of the mesh enters it
   //
@@ -1189,7 +1213,10 @@ private:
   libMesh::dof_id_type
     first_element_id_; //!< id of the first element in the mesh
   vector<BoundaryTriangle> boundary_tris_; //!< triangulated mesh boundary
+  BoundaryGrid boundary_grid_;             //!< grid over boundary_tris_
   int max_track_steps_; //!< bound on element crossings for a single track
+  mutable bool warned_unterminated_ {
+    false}; //!< whether a track that exceeded the bound was reported
 };
 
 class AdaptiveLibMesh : public LibMesh {
@@ -1219,7 +1246,8 @@ protected:
 
   bool is_bin_element(const libMesh::Elem* elem) const override
   {
-    return elem_to_bin_map_[elem->id()] >= 0;
+    return elem->id() < elem_to_bin_map_.size() &&
+           elem_to_bin_map_[elem->id()] >= 0;
   }
 
 private:
