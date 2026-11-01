@@ -19,9 +19,12 @@
 #ifdef OPENMC_LIBMESH_ENABLED
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <map>
 #include <random>
 
 #include "libmesh/elem.h"
+#include "libmesh/enum_to_string.h"
 #include "libmesh/libmesh.h"
 #include "libmesh/mesh_generation.h"
 #include "libmesh/mesh_modification.h"
@@ -431,19 +434,29 @@ namespace {
 
 //! Initialize libMesh once for the test cases that need it, unless something
 //! else (such as XDG) already has. Stdout is kept synchronized, or the test
-//! report written to it can be lost.
-const libMesh::Parallel::Communicator& libmesh_comm()
+//! report written to it can be lost. The communicator is also set as OpenMC's
+//! libMesh communicator, until the returned guard goes out of scope.
+const libMesh::Parallel::Communicator& init_libmesh()
 {
   static const char* argv[] = {"test_mesh", "--sync-with-stdio"};
   static std::unique_ptr<libMesh::LibMeshInit> init;
   static libMesh::Parallel::Communicator serial_comm;
-  if (!init && !libMesh::initialized())
+  if (!init && !libMesh::initialized()) {
     init = std::make_unique<libMesh::LibMeshInit>(2, argv);
+    // Finalize libMesh at exit before the static objects it created during
+    // initialization are destroyed (they would be destroyed first otherwise)
+    std::atexit([] { init.reset(); });
+  }
   const libMesh::Parallel::Communicator& comm =
     init ? init->comm() : serial_comm;
-  settings::libmesh_comm = &comm;
   return comm;
 }
+
+struct LibMeshComm {
+  LibMeshComm() : comm(init_libmesh()) { settings::libmesh_comm = &comm; }
+  ~LibMeshComm() { settings::libmesh_comm = nullptr; }
+  const libMesh::Parallel::Communicator& comm;
+};
 
 //! Distances along the segment from r0 to r1 at which it enters and leaves
 //! the box [lo, hi] (equal if it misses the box)
@@ -503,7 +516,7 @@ void check_track(const Mesh& umesh, Position lo, Position hi, Position r0,
       REQUIRE(umesh.get_bin(r0 + (t + 0.5 * segment) * u) == bins[k]);
     t += segment;
   }
-  REQUIRE(t - t_in == Catch::Approx(t_out - t_in).margin(margin));
+  REQUIRE(t - t_in == Catch::Approx(t_out - t_in).epsilon(0.0).margin(margin));
 }
 
 //! Tracks with endpoints uniform in the box [lo, hi] enlarged by a quarter of
@@ -577,14 +590,98 @@ void refine_beyond(libMesh::MeshBase& mesh, double x0)
   refinement.refine_elements();
 }
 
+//! Length of the segment from r0 to r1 inside a tetrahedron
+double tet_chord(const libMesh::Elem& tet, Position r0, Position r1)
+{
+  // Clip the segment against the half-spaces of the four faces
+  const Position d = r1 - r0;
+  double s_lo = 0.0;
+  double s_hi = 1.0;
+  for (unsigned int f = 0; f < 4; f++) {
+    Position v[3];
+    for (unsigned int i = 0; i < 3; i++) {
+      const auto& q = tet.point((f + 1 + i) % 4);
+      v[i] = {q(0), q(1), q(2)};
+    }
+    const auto& q = tet.point(f);
+    const Position opposite {q(0), q(1), q(2)};
+    Position normal = (v[1] - v[0]).cross(v[2] - v[0]);
+    if (normal.dot(opposite - v[0]) > 0.0)
+      normal *= -1.0;
+    // (r0 + s d - v0) . n <= 0
+    const double a = (r0 - v[0]).dot(normal);
+    const double b = d.dot(normal);
+    if (b == 0.0) {
+      if (a > 0.0)
+        return 0.0;
+    } else if (b > 0.0) {
+      s_hi = std::min(s_hi, -a / b);
+    } else {
+      s_lo = std::max(s_lo, -a / b);
+    }
+  }
+  return s_hi > s_lo ? (s_hi - s_lo) * d.norm() : 0.0;
+}
+
 } // namespace
+
+TEST_CASE("Track-length traversal gives every tet its exact chord")
+{
+  // Tetrahedra tiling [-1, 1]^3, whose sides lie in the planes x = 0.5, ...
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  libMesh::MeshTools::Generation::build_cube(
+    mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+  LibMesh umesh(mesh);
+
+  // Random tracks, tracks crossing the plane x = 0.5 at small angles (so
+  // that they lie within roundoff of sides for long stretches), short tracks,
+  // and a track that once had a stretch of its length given to the wrong tet
+  const Position lo {-1.0, -1.0, -1.0};
+  const Position hi {1.0, 1.0, 1.0};
+  auto tracks = make_tracks(lo, hi, 0.5, 500, 8);
+  std::mt19937_64 rng(9);
+  std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+  for (double eps : {1e-8, 1e-6}) {
+    for (int i = 0; i < 100; i++) {
+      Position u {eps, uniform(rng), uniform(rng)};
+      u /= u.norm();
+      const Position crossing {0.5, 0.9 * uniform(rng), 0.9 * uniform(rng)};
+      tracks.emplace_back(crossing - 1.5 * u, crossing + 1.5 * u);
+    }
+  }
+  for (int i = 0; i < 200; i++) {
+    const Position r0 {uniform(rng), uniform(rng), uniform(rng)};
+    const Position u {uniform(rng), uniform(rng), uniform(rng)};
+    tracks.emplace_back(r0, r0 + 1e-3 * u / u.norm());
+  }
+  tracks.emplace_back(
+    Position {0.49999998499999998, 1.5425527247460553, 0.51059367951670043},
+    Position {0.50000001500000002, -1.1317898982833219, -0.84877806310867532});
+
+  for (const auto& [r0, r1] : tracks) {
+    const double length = (r1 - r0).norm();
+    vector<int> bins;
+    vector<double> lengths;
+    umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
+    std::map<int, double> scored;
+    for (int k = 0; k < bins.size(); k++)
+      scored[bins[k]] += lengths[k] * length;
+    for (int bin = 0; bin < umesh.n_bins(); bin++) {
+      const double chord = tet_chord(mesh.elem_ref(bin), r0, r1);
+      const double found = scored.count(bin) ? scored[bin] : 0.0;
+      REQUIRE(found == Catch::Approx(chord).epsilon(0.0).margin(1e-8));
+    }
+  }
+}
 
 TEST_CASE("Track-length traversal of a refined libMesh mesh with warped sides")
 {
   // Hexes tiling [-1, 1]^3, with interior nodes displaced so that the sides
   // between them are warped, refined once for x > 0 and once more for x > 0.5
   // so that coarse elements face refined neighbors across warped sides
-  libMesh::ReplicatedMesh mesh(libmesh_comm(), 3);
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
   libMesh::MeshTools::Generation::build_cube(
     mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::HEX8);
   libMesh::MeshTools::Modification::distort(mesh, 0.1, false);
@@ -611,33 +708,115 @@ TEST_CASE("Track-length traversal of a refined libMesh mesh with warped sides")
     check_track(umesh, lo, hi, r0, r1, 1e-7);
 }
 
-TEST_CASE("Track-length traversal of a refined libMesh mesh of HEX20s")
+TEST_CASE("Track-length traversal of refined curved libMesh meshes")
 {
-  // Second-order hexes with straight sides, refined for x > 0
-  libMesh::ReplicatedMesh mesh(libmesh_comm(), 3);
-  libMesh::MeshTools::Generation::build_cube(
-    mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::HEX20);
-  refine_beyond(mesh, 0.0);
-  AdaptiveLibMesh umesh(mesh);
+  // Second-order elements with interior nodes displaced, so that their edges
+  // are curved, refined for x > 0: the descendants' vertices include
+  // mid-edge nodes, which are off the coarse elements' straight edges
+  for (auto type : {libMesh::HEX20, libMesh::HEX27, libMesh::TET10}) {
+    DYNAMIC_SECTION(libMesh::Utility::enum_to_string(type))
+    {
+      LibMeshComm libmesh;
+      libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+      libMesh::MeshTools::Generation::build_cube(
+        mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, type);
+      libMesh::MeshTools::Modification::distort(mesh, 0.15, false);
+      refine_beyond(mesh, 0.0);
+      AdaptiveLibMesh umesh(mesh);
 
-  double total_volume = 0.0;
-  for (int bin = 0; bin < umesh.n_bins(); bin++)
-    total_volume += umesh.volume(bin);
-  REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
+      // The element volumes add up to the cube's, with no gaps along the
+      // curved edges, and every element's vertex average lies in its own bin
+      double total_volume = 0.0;
+      for (int bin = 0; bin < umesh.n_bins(); bin++) {
+        total_volume += umesh.volume(bin);
+        REQUIRE(umesh.get_bin(umesh.centroid(bin)) == bin);
+      }
+      REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
 
-  const Position lo {-1.0, -1.0, -1.0};
-  const Position hi {1.0, 1.0, 1.0};
-  for (const auto& [r0, r1] : make_tracks(lo, hi, 1.0 / 3.0, 1000, 3))
-    check_track(umesh, lo, hi, r0, r1, 1e-7);
-  for (const auto& [r0, r1] : node_tracks(mesh, 500, 7))
-    check_track(umesh, lo, hi, r0, r1, 1e-7);
+      const Position lo {-1.0, -1.0, -1.0};
+      const Position hi {1.0, 1.0, 1.0};
+      for (const auto& [r0, r1] : make_tracks(lo, hi, 1.0 / 3.0, 1000, 3))
+        check_track(umesh, lo, hi, r0, r1, 1e-7);
+      for (const auto& [r0, r1] : node_tracks(mesh, 500, 7))
+        check_track(umesh, lo, hi, r0, r1, 1e-7);
+    }
+  }
+}
+
+TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
+{
+  // Tetrahedra tiling [-1, 1]^3 whose node order is mirrored for all of them,
+  // or for those with x < 0, or for none but with an interior node pushed past
+  // its neighbors, so that the tetrahedra around it fold over
+  for (std::string variant : {"mirrored", "half mirrored", "folded"}) {
+    DYNAMIC_SECTION(variant)
+    {
+      LibMeshComm libmesh;
+      libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+      libMesh::MeshTools::Generation::build_cube(
+        mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+      libMesh::MeshTools::Modification::distort(mesh, 0.1, false);
+      if (variant == "mirrored") {
+        libMesh::MeshTools::Modification::scale(mesh, -1.0, 1.0, 1.0);
+      } else if (variant == "half mirrored") {
+        for (auto* elem : mesh.active_element_ptr_range()) {
+          if (elem->vertex_average()(0) < 0.0) {
+            libMesh::Node* node = elem->node_ptr(1);
+            elem->set_node(1) = elem->node_ptr(2);
+            elem->set_node(2) = node;
+          }
+        }
+        mesh.prepare_for_use();
+      } else {
+        libMesh::Node* center = nullptr;
+        for (auto* node : mesh.node_ptr_range()) {
+          if (!center || node->norm() < center->norm())
+            center = node;
+        }
+        (*center)(0) += 0.6;
+      }
+      int n_inverted = 0;
+      for (const auto* elem : mesh.active_element_ptr_range())
+        n_inverted += elem->volume() < 0.0;
+      REQUIRE(n_inverted > 0);
+      LibMesh umesh(mesh);
+
+      // Mirrored elements are reoriented; folded ones have negative volumes
+      double total_volume = 0.0;
+      int n_negative = 0;
+      for (int bin = 0; bin < umesh.n_bins(); bin++) {
+        total_volume += umesh.volume(bin);
+        n_negative += umesh.volume(bin) < 0.0;
+      }
+      REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
+      REQUIRE((n_negative > 0) == (variant == "folded"));
+
+      // Every track is scored in full; segments are in the bin found at
+      // their midpoint, except where folded elements overlap their neighbors
+      const Position lo {-1.0, -1.0, -1.0};
+      const Position hi {1.0, 1.0, 1.0};
+      auto tracks = make_tracks(lo, hi, 0.0, 1000, 10);
+      for (const auto& track : node_tracks(mesh, 500, 11))
+        tracks.push_back(track);
+      for (const auto& [r0, r1] : tracks) {
+        if (variant == "folded") {
+          const auto [t_in, t_out] = box_crossing(lo, hi, r0, r1);
+          REQUIRE(scored_length(umesh, r0, r1) ==
+                  Catch::Approx(t_out - t_in).epsilon(0.0).margin(1e-7));
+        } else {
+          check_track(umesh, lo, hi, r0, r1, 1e-7);
+        }
+      }
+    }
+  }
 }
 
 TEST_CASE("libMesh mesh far from the origin")
 {
   // Tetrahedra tiling a cube of width 2 centered at (1e4, -2e4, 3e4), with
   // interior nodes displaced
-  libMesh::ReplicatedMesh mesh(libmesh_comm(), 3);
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
   libMesh::MeshTools::Generation::build_cube(
     mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
   libMesh::MeshTools::Modification::distort(mesh, 0.3, false);
@@ -666,7 +845,8 @@ TEST_CASE("Block-restricted libMesh meshes partition the tracks")
 {
   // Warped hexes, in subdomain 1 for x < 0 and 0 otherwise, refined for x > 0,
   // with coordinates scaled by 2
-  libMesh::ReplicatedMesh mesh(libmesh_comm(), 3);
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
   libMesh::MeshTools::Generation::build_cube(
     mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::HEX8);
   libMesh::MeshTools::Modification::distort(mesh, 0.1, false);
@@ -684,7 +864,7 @@ TEST_CASE("Block-restricted libMesh meshes partition the tracks")
   for (const auto& [r0, r1] : make_tracks(lo, hi, 0.0, 1000, 6)) {
     const auto [t_in, t_out] = box_crossing(lo, hi, r0, r1);
     REQUIRE(scored_length(low, r0, r1) + scored_length(high, r0, r1) ==
-            Catch::Approx(t_out - t_in).margin(1e-7));
+            Catch::Approx(t_out - t_in).epsilon(0.0).margin(1e-7));
   }
 }
 #endif

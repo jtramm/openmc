@@ -4,6 +4,7 @@
 #ifndef OPENMC_MESH_H
 #define OPENMC_MESH_H
 
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -1154,12 +1155,20 @@ private:
     const libMesh::Elem* elem; //!< element the triangle is a side of
   };
 
-  //! Triangles replacing the sides of an element that face a refined
-  //! neighbor: the sides of the neighbor's active descendants
+  //! Triangles replacing the sides of an element that refinement changes: a
+  //! side facing a refined neighbor is made of the sides of the neighbor's
+  //! active descendants, and a side with an edge that refinement splits is
+  //! triangulated with the nodes splitting the edge
   struct RefinedSides {
     unsigned int sides {0};    //!< bit mask of the replaced sides
     vector<SideTriangle> tris; //!< replacement triangles
   };
+
+  //! Node splitting each edge of a refined second-order element (its
+  //! mid-edge node, a vertex of the descendants), by the edge's end vertices
+  using EdgeSplits =
+    std::map<std::pair<libMesh::dof_id_type, libMesh::dof_id_type>,
+      const libMesh::Node*>;
 
   //! Uniform grid over the bounding box of the mesh, binning items (elements
   //! or boundary triangles) by their bounding boxes. The item lists are
@@ -1187,9 +1196,12 @@ private:
   void set_mesh_pointer_from_filename(const std::string& filename);
   void build_eqn_sys();
 
-  //! Triangulate the sides of an element from its own nodes
-  static void own_side_triangles(
-    const libMesh::Elem& elem, vector<SideTriangle>& tris);
+  //! Triangulate the sides of an element from its own corner nodes and, if
+  //! splits are given, the nodes splitting its edges
+  //
+  //! \return Bit mask of the sides with a split edge
+  static unsigned int own_side_triangles(const libMesh::Elem& elem,
+    vector<SideTriangle>& tris, const EdgeSplits* splits = nullptr);
 
   //! Triangulate the sides of an element as used for traversal: oriented
   //! outward even for an inverted element, and with the sides that face a
@@ -1202,16 +1214,20 @@ private:
   static int classify(
     const vector<SideTriangle>& tris, const libMesh::Point& p, double tol);
 
-  //! Whether a point is inside an element or on its surface
-  bool contains(const libMesh::Elem& elem, const libMesh::Point& p) const;
-
   //! Signed volume enclosed by an element's side triangles
   static double triangulated_volume(const vector<SideTriangle>& tris);
 
-  //! Find the elements whose node order is inverted
+  //! Whether an element is folded: inverted when its sides are taken to be
+  //! flat, although its node order is not
+  bool is_folded(const libMesh::Elem* elem) const
+  {
+    return !folded_.empty() && folded_.count(elem->id());
+  }
+
+  //! Find the elements whose node order is inverted, and the folded ones
   void find_inverted_elements();
 
-  //! Collect the triangles replacing the sides that face refined neighbors
+  //! Collect the triangles replacing the sides that refinement changes
   void build_refined_sides();
 
   //! Bin the active elements on a grid by their bounding boxes
@@ -1230,10 +1246,12 @@ private:
   //! \param[out] exit_side Side the track leaves through, or the largest
   //!   unsigned int if none is found
   //! \param[in] min_distance Exits closer than this are ignored
-  //! \return Distance to the exit side
+  //! \param[in] planes Whether to fall back on the nearest outward plane when
+  //!   no side triangle is hit (p marginally outside the element)
+  //! \return Distance to the exit side, or INFTY if none is found
   double exit_distance(const vector<SideTriangle>& tris,
     const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
-    double min_distance = 0.0) const;
+    double min_distance = 0.0, bool planes = true) const;
 
   //! Find where a track that is outside of the mesh enters it
   //
@@ -1260,15 +1278,19 @@ private:
     variable_map_; //!< mapping of variable names (tally scores) to libMesh
                    //!< variable numbers
   libMesh::dof_id_type
-    first_element_id_; //!< id of the first element in the mesh
-  double surface_tol_; //!< distance within which a point is on an element's
-                       //!< surface, in mesh coordinates
-  double probe_step_;  //!< step past an exit point at which the next element
-                       //!< is located, in mesh coordinates
+    first_element_id_;  //!< id of the first element in the mesh
+  double surface_tol_;  //!< distance within which a point is on an element's
+                        //!< surface, in mesh coordinates
+  double probe_step_;   //!< step past an exit point at which the next element
+                        //!< is located, in mesh coordinates
+  double roundoff_tol_; //!< distance from an element's surface within which
+                        //!< roundoff decides the side, in mesh coordinates
   std::unordered_set<libMesh::dof_id_type>
     inverted_; //!< ids of elements whose node order is inverted
+  std::unordered_set<libMesh::dof_id_type>
+    folded_; //!< ids of elements that are inverted with flat sides
   std::unordered_map<libMesh::dof_id_type, RefinedSides>
-    refined_sides_; //!< sides facing refined neighbors, by element id
+    refined_sides_; //!< sides that refinement changes, by element id
   vector<const libMesh::Elem*> grid_elems_;  //!< active 3D elements, by id
   vector<libMesh::BoundingBox> grid_bboxes_; //!< their bounding boxes
   UniformGrid elem_grid_;                    //!< grid over grid_elems_
@@ -1283,7 +1305,7 @@ private:
 //! to a set of subdomains
 //
 //! The element data gathered when the object is constructed (the bin maps,
-//! the element and boundary grids, and the sides facing refined neighbors)
+//! the element and boundary grids, and the sides that refinement changes)
 //! refer to the mesh as it is then: if the application refines or coarsens
 //! the mesh afterwards, the object has to be constructed again.
 class AdaptiveLibMesh : public LibMesh {

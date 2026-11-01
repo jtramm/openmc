@@ -433,8 +433,9 @@ portions of a ray that lie inside such a cell but outside the mesh (for
 instance in a hole of the mesh, or where a faceted mesh does not quite reach a
 curved cell boundary) are neither attenuated nor tallied, and the positions
 recorded for the source regions beyond such a gap are shifted along the ray.
-OpenMC warns when this happens. An example of overlaying a simple 2D mesh
-over a geometry is given as::
+OpenMC warns when this happens. To subdivide a cell with curved boundaries,
+use a mesh that extends beyond the cell. An example of overlaying a simple 2D
+mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

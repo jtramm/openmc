@@ -283,8 +283,11 @@ def interior_edge(mesh_file):
     (0, 0, 0.5), in mesh coordinates"""
     from scipy.io import netcdf_file
     with netcdf_file(mesh_file, 'r', mmap=False) as f:
-        xyz = np.column_stack(
-            [f.variables[f'coord{c}'][:].copy() for c in 'xyz'])
+        if 'coordx' in f.variables:
+            xyz = np.column_stack(
+                [f.variables[f'coord{c}'][:].copy() for c in 'xyz'])
+        else:
+            xyz = f.variables['coord'][:].copy().T
     start = xyz[np.argmin(np.linalg.norm(xyz, axis=1))]
     end = xyz[np.argmin(np.linalg.norm(xyz - (0.0, 0.0, 0.5), axis=1))]
     return start, end
@@ -292,16 +295,25 @@ def interior_edge(mesh_file):
 
 # Meshes that tile the cube [-w, w]^3 exactly (w = 1, or 1000 for the scaled
 # mesh), so that the flux summed over the mesh must equal that of a cell with
-# the same extent. The warped hexes have non-planar sides; the non-conforming
-# mesh has a coarse block next to a fine one, with hanging nodes and no
-# neighbor information across the interface. The beams run along the x = y = 0
-# edge line of the non-conforming mesh and out of its (0, 0, 0) vertex, or
-# along an interior edge of the warped mesh, so that tracks and collision sites
-# lie exactly on element edges and vertices; the grazing beam crosses the
-# non-conforming interface at x = 0 at an angle of 1e-5. In the 'shell' geometry the mesh
-# cube is a cell inside a larger box, so tracks enter and leave the mesh across
-# a cell boundary that coincides with the mesh boundary. The HEX20 and TET10
-# meshes have straight sides and mid-side nodes.
+# the same extent. They were written with libMesh: test_mesh_hexes_warped.e is
+# build_cube(4, 4, 4, HEX8) with its interior nodes displaced by
+# MeshTools::Modification::distort(0.3); test_mesh_hexes_nonconforming.e is a
+# 2x2x2 block of hexes on x < 0 next to a 4x4x4 block on x > 0, with nodes not
+# merged across x = 0 (and _scaled the same with coordinates times 1000);
+# test_mesh_hexes20.e, test_mesh_prisms.e, test_mesh_pyramids.e and
+# test_mesh_tets10.e are build_cube(3, 3, 3, HEX20) and build_cube(2, 2, 2,
+# ...) of the other element types; test_mesh_dagmc_tets.e is
+# test_mesh_dagmc_tets.vtk with the same node and element order. The warped
+# hexes have non-planar sides; the non-conforming mesh has a coarse block next
+# to a fine one, with hanging nodes and no neighbor information across the
+# interface. The beams run along the x = y = 0 edge line of the non-conforming
+# mesh and out of its (0, 0, 0) vertex, or along an interior edge of the warped
+# mesh, so that tracks and collision sites lie exactly on element edges and
+# vertices; the grazing beam crosses the non-conforming interface at x = 0 at
+# an angle of 1e-5. In the 'shell' geometry the mesh cube is a cell inside a
+# larger box, so tracks enter and leave the mesh across a cell boundary that
+# coincides with the mesh boundary. The HEX20 and TET10 meshes have straight
+# sides and mid-side nodes.
 @pytest.mark.parametrize(
     "mesh_filename,mesh_half_width,length_multiplier,source,estimator,geometry",
     [

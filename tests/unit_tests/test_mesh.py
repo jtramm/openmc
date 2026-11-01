@@ -1332,7 +1332,7 @@ volume_tests = [
     (UMESH_DIR / "test_mesh_hexes20.e", "libmesh", 8.0),
 ]
 @pytest.mark.parametrize('mesh_file, mesh_library, total', volume_tests)
-def test_umesh_volumes(mesh_file, mesh_library, total, request, run_in_tmpdir):
+def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     """The element volumes written to a statepoint are positive and sum to
     the volume of the cube the mesh tiles"""
     if mesh_library == 'moab' and not openmc.lib.feature_enabled('dagmc'):
@@ -1343,8 +1343,7 @@ def test_umesh_volumes(mesh_file, mesh_library, total, request, run_in_tmpdir):
     model = openmc.Model()
     surf = openmc.Sphere(r=1000.0, boundary_type="vacuum")
     model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
-    umesh = openmc.UnstructuredMesh(request.path.parent / mesh_file,
-                                    mesh_library)
+    umesh = openmc.UnstructuredMesh(mesh_file, mesh_library)
     tally = openmc.Tally()
     tally.filters = [openmc.MeshFilter(umesh)]
     tally.scores = ["flux"]
@@ -1358,3 +1357,18 @@ def test_umesh_volumes(mesh_file, mesh_library, total, request, run_in_tmpdir):
         volumes = sp.meshes[umesh.id].volumes
     assert np.all(volumes > 0)
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
+
+
+def test_umesh_material_volumes(sphere_model):
+    """Material volumes on a libMesh mesh, found by tracing rays through it:
+    each element of the mesh lies in one material region"""
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+    mesh = openmc.UnstructuredMesh(
+        UMESH_DIR / "test_mesh_hexes_nonconforming.e", 'libmesh')
+    volumes = mesh.material_volumes(sphere_model, (10, 10, 10))
+    mats = sphere_model.materials
+    for mat, total in zip(mats, (2.0, 2.0, 4.0)):
+        assert volumes[mat.id].sum() == pytest.approx(total)
+    for i in range(volumes.num_elements):
+        assert len(volumes.by_element(i)) == 1
