@@ -245,7 +245,6 @@ unique_ptr<Source> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 RandomRayGeomDim RandomRay::geom_dim_ {RandomRayGeomDim::THREE_DIM};
 RandomRaySampleMethod RandomRay::sample_method_ {RandomRaySampleMethod::PRNG};
-vector<int> RandomRay::uncovered_meshes_;
 
 RandomRay::RandomRay()
   : angular_flux_(data::mg.num_energy_groups_),
@@ -409,31 +408,17 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh_fractional_lengths_.resize(0);
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
-    // Portions of the segment outside the mesh are not returned, and are
-    // therefore neither attenuated nor tallied. Report it (once per mesh), as
-    // it means the mesh does not cover the cell it subdivides.
+    // Portions of the segment outside the mesh are not returned, so they
+    // could be neither attenuated nor tallied: the mesh has to cover the
+    // cells it subdivides
     if (reduced_distance > 10.0 * TINY_BIT &&
         std::accumulate(mesh_fractional_lengths_.begin(),
           mesh_fractional_lengths_.end(), 0.0) < 1.0 - 1e-6) {
-      int reported;
-#pragma omp atomic read
-      reported = uncovered_meshes_[mesh_idx];
-      if (!reported) {
-#pragma omp atomic capture
-        {
-          reported = uncovered_meshes_[mesh_idx];
-          uncovered_meshes_[mesh_idx] = 1;
-        }
-        if (!reported) {
 #pragma omp critical(random_ray_mesh_coverage)
-          warning(fmt::format(
-            "Source region mesh {} does not cover all of the cells it is "
-            "applied to. Ray segments outside the mesh are neither "
-            "attenuated nor tallied, and the positions recorded for the "
-            "source regions after such a gap are shifted along the ray.",
-            mesh->id()));
-        }
-      }
+      fatal_error(fmt::format(
+        "Source region mesh {} does not cover all of the cells it is "
+        "applied to: a ray crosses part of such a cell outside of the mesh.",
+        mesh->id()));
     }
 
     // Loop over all mesh bins and attenuate flux

@@ -131,10 +131,10 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     ('libmesh', 'test_mesh_prisms.e', 0.5),
     ('libmesh', 'test_mesh_pyramids.e', 0.5),
 ])
-def test_random_ray_unstructured_mesh_coverage_warning(
+def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
-    """A mesh covering only half of the cell it subdivides is reported, and
-    one covering all of it is not"""
+    """A run with a mesh covering only half of the cell it subdivides stops
+    with an error, and one with a mesh covering all of it does not"""
     if not openmc.lib.feature_enabled(FEATURES[library]):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -151,11 +151,9 @@ def test_random_ray_unstructured_mesh_coverage_warning(
         args = [config['mpiexec'], '-n', config['mpi_np']] + args
     result = subprocess.run(args, cwd=tmp_path, capture_output=True,
                             text=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    n_warnings = (result.stdout + result.stderr).count('does not cover')
+    output = result.stdout + result.stderr
     if x_max <= 0.5:
-        assert n_warnings == 0
-    elif config['mpi']:
-        assert n_warnings >= 1
+        assert result.returncode == 0, output
     else:
-        assert n_warnings == 1
+        assert result.returncode != 0
+        assert 'does not cover' in output

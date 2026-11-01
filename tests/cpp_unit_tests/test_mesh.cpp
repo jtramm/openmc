@@ -776,12 +776,11 @@ TEST_CASE("Track-length traversal of refined curved libMesh meshes")
   }
 }
 
-TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
+TEST_CASE("Track-length traversal of mirrored libMesh meshes")
 {
   // Tetrahedra tiling [-1, 1]^3 whose node order is mirrored for all of them,
-  // or for those with x < 0, or for none but with an interior node pushed past
-  // its neighbors, so that the tetrahedra around it fold over
-  for (std::string variant : {"mirrored", "half mirrored", "folded"}) {
+  // or for those with x < 0
+  for (std::string variant : {"mirrored", "half mirrored"}) {
     DYNAMIC_SECTION(variant)
     {
       LibMeshComm libmesh;
@@ -791,7 +790,7 @@ TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
       libMesh::MeshTools::Modification::distort(mesh, 0.1, false);
       if (variant == "mirrored") {
         libMesh::MeshTools::Modification::scale(mesh, -1.0, 1.0, 1.0);
-      } else if (variant == "half mirrored") {
+      } else {
         for (auto* elem : mesh.active_element_ptr_range()) {
           if (elem->vertex_average()(0) < 0.0) {
             libMesh::Node* node = elem->node_ptr(1);
@@ -800,13 +799,6 @@ TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
           }
         }
         mesh.prepare_for_use();
-      } else {
-        libMesh::Node* center = nullptr;
-        for (auto* node : mesh.node_ptr_range()) {
-          if (!center || node->norm() < center->norm())
-            center = node;
-        }
-        (*center)(0) += 0.6;
       }
       int n_inverted = 0;
       for (const auto* elem : mesh.active_element_ptr_range())
@@ -814,32 +806,20 @@ TEST_CASE("Track-length traversal of mirrored and folded libMesh meshes")
       REQUIRE(n_inverted > 0);
       LibMesh umesh(mesh);
 
-      // Mirrored elements are reoriented; folded ones have negative volumes
+      // Mirrored elements are reoriented
       double total_volume = 0.0;
-      int n_negative = 0;
       for (int bin = 0; bin < umesh.n_bins(); bin++) {
+        REQUIRE(umesh.volume(bin) > 0.0);
         total_volume += umesh.volume(bin);
-        n_negative += umesh.volume(bin) < 0.0;
       }
       REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
-      REQUIRE((n_negative > 0) == (variant == "folded"));
 
-      // Every track is scored in full; segments are in the bin found at
-      // their midpoint, except where folded elements overlap their neighbors
       const Position lo {-1.0, -1.0, -1.0};
       const Position hi {1.0, 1.0, 1.0};
-      auto tracks = make_tracks(lo, hi, 0.0, 1000, 10);
-      for (const auto& track : node_tracks(mesh, 500, 11))
-        tracks.push_back(track);
-      for (const auto& [r0, r1] : tracks) {
-        if (variant == "folded") {
-          const auto [t_in, t_out] = box_crossing(lo, hi, r0, r1);
-          REQUIRE(scored_length(umesh, r0, r1) ==
-                  Catch::Approx(t_out - t_in).epsilon(0.0).margin(1e-7));
-        } else {
-          check_track(umesh, lo, hi, r0, r1, 1e-7);
-        }
-      }
+      for (const auto& [r0, r1] : make_tracks(lo, hi, 0.0, 1000, 10))
+        check_track(umesh, lo, hi, r0, r1, 1e-7);
+      for (const auto& [r0, r1] : node_tracks(mesh, 500, 11))
+        check_track(umesh, lo, hi, r0, r1, 1e-7);
     }
   }
 }

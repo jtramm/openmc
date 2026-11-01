@@ -1217,14 +1217,12 @@ private:
   //! Signed volume enclosed by an element's side triangles
   static double triangulated_volume(const vector<SideTriangle>& tris);
 
-  //! Whether an element is folded: inverted when its sides are taken to be
-  //! flat, although its node order is not
-  bool is_folded(const libMesh::Elem* elem) const
-  {
-    return !folded_.empty() && folded_.count(elem->id());
-  }
+  //! Whether an element's side triangles bound a polyhedron that is not
+  //! inverted, wholly or in part
+  static bool valid_polyhedron(
+    const vector<SideTriangle>& tris, const libMesh::Point& center);
 
-  //! Find the elements whose node order is inverted, and the folded ones
+  //! Find the elements whose node order is inverted
   void find_inverted_elements();
 
   //! Collect the triangles replacing the sides that refinement changes
@@ -1236,6 +1234,11 @@ private:
   //! Collect the triangles making up the boundary of the mesh and bin them
   //! on a grid
   void build_boundary_triangles();
+
+  //! Stop with an error if the elements, with flat sides, are not valid
+  //! polyhedra, or if a side that touches other elements without being their
+  //! neighbor (at a non-conforming interface) is not flat
+  void check_elements() const;
 
   //! Distance along dir from p (inside the element) to the side through
   //! which the track leaves the element
@@ -1287,8 +1290,6 @@ private:
                         //!< roundoff decides the side, in mesh coordinates
   std::unordered_set<libMesh::dof_id_type>
     inverted_; //!< ids of elements whose node order is inverted
-  std::unordered_set<libMesh::dof_id_type>
-    folded_; //!< ids of elements that are inverted with flat sides
   std::unordered_map<libMesh::dof_id_type, RefinedSides>
     refined_sides_; //!< sides that refinement changes, by element id
   vector<const libMesh::Elem*> grid_elems_;  //!< active 3D elements, by id

@@ -293,7 +293,6 @@ void openmc_finalize_random_ray()
   RandomRay::source_shape_ = RandomRaySourceShape::FLAT;
   RandomRay::geom_dim_ = RandomRayGeomDim::THREE_DIM;
   RandomRay::sample_method_ = RandomRaySampleMethod::PRNG;
-  RandomRay::uncovered_meshes_.clear();
 }
 
 //==============================================================================

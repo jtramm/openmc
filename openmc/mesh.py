@@ -2763,11 +2763,11 @@ class UnstructuredMesh(MeshBase):
         For libMesh meshes, OpenMC treats element sides as flat (a
         quadrilateral side as two triangles through its corner nodes) in all
         mesh lookups, and reports the volumes of these flat-sided elements.
-        Curved sides of second-order elements are therefore approximated.
-        Small gaps can remain between elements across a non-conforming
-        interface between warped sides, and a strongly curved element can turn
-        inside out, wholly (which OpenMC warns about) or in part, and overlap
-        its neighbors.
+        Curved sides of second-order elements are therefore approximated. The
+        elements must be valid polyhedra with flat sides (not inverted, wholly
+        or in part, as strongly curved elements can be), and sides where
+        elements touch without being neighbors in libMesh (at a non-conforming
+        interface) must be flat. OpenMC checks both when it loads the mesh.
 
     Parameters
     ----------

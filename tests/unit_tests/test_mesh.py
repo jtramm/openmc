@@ -1359,6 +1359,34 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
+@pytest.mark.parametrize('mesh_file, message', [
+    # Tets around a node pushed past its neighbors (some are inverted)
+    ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
+    # A hex with its top turned 150 degrees from its bottom (its sides cross)
+    ("test_mesh_hex_twisted.e", "are inverted, wholly or in part"),
+    # Two hexes that touch across a warped side without sharing its nodes
+    ("test_mesh_hexes_warped_interface.e", "have a side that is not flat"),
+])
+def test_umesh_invalid_elements(mesh_file, message, run_in_tmpdir):
+    """A libMesh mesh that is not valid with flat element sides is refused"""
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+
+    model = openmc.Model()
+    surf = openmc.Sphere(r=10.0, boundary_type="vacuum")
+    model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
+    tally = openmc.Tally()
+    tally.filters = [openmc.MeshFilter(
+        openmc.UnstructuredMesh(UMESH_DIR / mesh_file, 'libmesh'))]
+    tally.scores = ["flux"]
+    model.tallies = [tally]
+    model.settings.run_mode = "fixed source"
+    model.settings.batches = 1
+    model.settings.particles = 10
+    with pytest.raises(RuntimeError, match=message):
+        model.run()
+
+
 def test_umesh_material_volumes(sphere_model):
     """Material volumes on a libMesh mesh, found by tracing rays through it:
     each element of the mesh lies in one material region"""

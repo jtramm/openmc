@@ -428,14 +428,12 @@ mesh element is known as "cell-under-voxel" style geometry, although in OpenMC
 the mesh can be any kind and is not restricted to 3D regular voxels. This
 includes :class:`openmc.UnstructuredMesh` (MOAB or libMesh), although ray
 tracing through an unstructured mesh is considerably slower than through a
-structured one. Note that a mesh must cover every cell it is applied to: the
-portions of a ray that lie inside such a cell but outside the mesh (for
-instance in a hole of the mesh, or where a faceted mesh does not quite reach a
-curved cell boundary) are neither attenuated nor tallied, and the positions
-recorded for the source regions beyond such a gap are shifted along the ray.
-OpenMC warns when this happens. To subdivide a cell with curved boundaries,
-use a mesh that extends beyond the cell. An example of overlaying a simple 2D
-mesh over a geometry is given as::
+structured one. A mesh must cover every cell it is applied to, and OpenMC
+stops with an error when a ray crosses part of such a cell outside of the mesh
+(for instance in a hole of the mesh, or where a faceted mesh does not quite
+reach a curved cell boundary). To subdivide a cell with curved boundaries, use
+a mesh that extends beyond the cell. An example of overlaying a simple 2D mesh
+over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

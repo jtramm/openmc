@@ -2429,11 +2429,6 @@ void FlatSourceDomain::apply_meshes()
   if (mesh_domain_map_.empty())
     return;
 
-  // Flags for reporting meshes that do not cover the cells they subdivide,
-  // sized here as they are updated during transport
-  if (RandomRay::uncovered_meshes_.size() < model::meshes.size())
-    RandomRay::uncovered_meshes_.resize(model::meshes.size(), 0);
-
   // Loop over meshes
   for (int mesh_idx = 0; mesh_idx < model::meshes.size(); mesh_idx++) {
     Mesh* mesh = model::meshes[mesh_idx].get();

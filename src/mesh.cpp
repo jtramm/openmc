@@ -3927,6 +3927,7 @@ void LibMesh::initialize()
   build_refined_sides();
   build_element_grid();
   build_boundary_triangles();
+  check_elements();
 
   // A generous bound on the element crossings of a single straight track,
   // which enters a (non-convex) element at most a few times; counting the
@@ -3992,6 +3993,32 @@ bool near_triangle(const libMesh::Point& p, const libMesh::Point& a,
       return true;
   }
   return false;
+}
+
+//! Whether the segment from p to q passes through the triangle (a, b, c),
+//! away from the ends of the segment and from the edges of the triangle
+bool segment_crosses(const libMesh::Point& p, const libMesh::Point& q,
+  const libMesh::Point& a, const libMesh::Point& b, const libMesh::Point& c)
+{
+  constexpr double margin = 1e-9;
+  const libMesh::Point d = q - p;
+  const libMesh::Point e1 = b - a;
+  const libMesh::Point e2 = c - a;
+  const libMesh::Point pvec = d.cross(e2);
+  const double det = e1 * pvec;
+  // A segment (nearly) parallel to the triangle does not pass through it
+  if (det * det <= 1e-24 * e1.cross(e2).norm_sq() * d.norm_sq())
+    return false;
+  const libMesh::Point tvec = p - a;
+  const double u = (tvec * pvec) / det;
+  if (u <= margin || u >= 1.0 - margin)
+    return false;
+  const libMesh::Point qvec = tvec.cross(e1);
+  const double v = (d * qvec) / det;
+  if (v <= margin || u + v >= 1.0 - margin)
+    return false;
+  const double s = (e2 * qvec) / det;
+  return s > margin && s < 1.0 - margin;
 }
 
 //! Number of corner nodes of side s of an element of the given type, or 0 if
@@ -4329,8 +4356,7 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   // tolerance of it, so that a point just past a side is placed in the
   // element it is in. Otherwise, as the lists are in id order, the lowest id
   // of the elements whose surface the point is on wins, which does not
-  // depend on roundoff. A folded element only counts if it contains the
-  // point by more than the tolerance, as the traversal requires.
+  // depend on roundoff.
   const int cell = elem_grid_.cell(p);
   if (cell < 0)
     return nullptr;
@@ -4348,7 +4374,7 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
     const int position = classify(tris, p, surface_tol_);
     if (position > 0)
       return elem;
-    if (position == 0 && !is_folded(elem)) {
+    if (position == 0) {
       if (classify(tris, p, roundoff_tol_) > 0)
         return elem;
       if (!on_surface)
@@ -4365,22 +4391,17 @@ void LibMesh::find_inverted_elements()
   // directions unless one is mirrored relative to the other, which orients
   // the elements connected through shared sides relative to one another; such
   // a group is reoriented as a whole if, so oriented, it encloses a negative
-  // volume. An element that is inverted within its group keeps its
-  // orientation, so that its sides still match its neighbors': it is folded
-  // when its sides are taken to be flat (as strongly curved elements can be),
-  // and the elements overlapping it cover the space it should enclose.
+  // volume. (An element of a group that is still inverted is turned inside
+  // out by its flat sides, which check_elements() reports.)
   inverted_.clear();
-  folded_.clear();
   vector<int8_t> sense(m_->max_elem_id(), 0);
   vector<const libMesh::Elem*> group;
   vector<const libMesh::Elem*> stack;
-  vector<double> volumes;
   vector<SideTriangle> tris;
   for (const libMesh::Elem* seed : m_->active_element_ptr_range()) {
     if (seed->dim() < 3 || sense[seed->id()] != 0)
       continue;
     group.clear();
-    volumes.clear();
     double total = 0.0;
     sense[seed->id()] = 1;
     stack.push_back(seed);
@@ -4389,8 +4410,7 @@ void LibMesh::find_inverted_elements()
       stack.pop_back();
       own_side_triangles(*elem, tris);
       group.push_back(elem);
-      volumes.push_back(triangulated_volume(tris));
-      total += sense[elem->id()] * volumes.back();
+      total += sense[elem->id()] * triangulated_volume(tris);
       for (auto s : elem->side_index_range()) {
         const libMesh::Elem* neighbor = elem->neighbor_ptr(s);
         if (!neighbor || !neighbor->active() || neighbor->dim() < 3 ||
@@ -4407,23 +4427,10 @@ void LibMesh::find_inverted_elements()
       }
     }
     const int flip = total < 0.0 ? -1 : 1;
-    for (size_t i = 0; i < group.size(); i++) {
-      const libMesh::Elem* elem = group[i];
-      const int orientation = flip * sense[elem->id()];
-      if (orientation < 0)
+    for (const libMesh::Elem* elem : group) {
+      if (flip * sense[elem->id()] < 0)
         inverted_.insert(elem->id());
-      if (orientation * volumes[i] < 0.0)
-        folded_.insert(elem->id());
     }
-  }
-  // (A mesh made by another application has no id yet)
-  if (!folded_.empty() && mpi::master) {
-    warning(fmt::format("{} elements of {} are inverted when their sides are "
-                        "taken to be flat. Their volumes are negative, and "
-                        "tallies in and around them are unreliable.",
-      folded_.size(),
-      id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
-               : std::string("an unstructured mesh")));
   }
 }
 
@@ -4584,6 +4591,131 @@ void LibMesh::build_boundary_triangles()
   }
   boundary_grid_.build(bbox_, boxes.size(), 4.0 * surface_tol_);
   boundary_grid_.fill(boxes);
+}
+
+bool LibMesh::valid_polyhedron(
+  const vector<SideTriangle>& tris, const libMesh::Point& center)
+{
+  // An element that is not inverted as a whole encloses a positive volume
+  // (or one within roundoff of zero, for a degenerate element). It is not
+  // inverted in part either if every side triangle faces away from one point
+  // (it is star-shaped from there), or else if no two of its triangles cross.
+  if (tris.empty())
+    return true;
+  libMesh::BoundingBox box(tris[0].a, tris[0].a);
+  for (const auto& tri : tris) {
+    box.union_with(tri.a);
+    box.union_with(tri.b);
+    box.union_with(tri.c);
+  }
+  const double size = (box.max() - box.min()).norm();
+  if (triangulated_volume(tris) < -1e-12 * size * size * size)
+    return false;
+  bool star = true;
+  for (const auto& tri : tris) {
+    if ((tri.a - center) * (tri.b - center).cross(tri.c - center) <= 0.0) {
+      star = false;
+      break;
+    }
+  }
+  if (star)
+    return true;
+  for (size_t i = 0; i < tris.size(); i++) {
+    for (size_t j = 0; j < tris.size(); j++) {
+      const SideTriangle& edges = tris[i];
+      const SideTriangle& other = tris[j];
+      if (i != j &&
+          (segment_crosses(edges.a, edges.b, other.a, other.b, other.c) ||
+            segment_crosses(edges.b, edges.c, other.a, other.b, other.c) ||
+            segment_crosses(edges.c, edges.a, other.a, other.b, other.c)))
+        return false;
+    }
+  }
+  return true;
+}
+
+void LibMesh::check_elements() const
+{
+  // The traversal and the point lookup take the sides of the elements to be
+  // flat (with the side triangles), so the elements have to be valid
+  // polyhedra that way: a strongly curved element can turn inside out,
+  // wholly or in part, and overlap its neighbors. Elements sharing a side
+  // agree on its triangles, but elements that touch without being libMesh
+  // neighbors (at a non-conforming interface, such as one with hanging nodes
+  // that are not from refinement) do not: their sides there have to be flat
+  // (with all their nodes in a plane), or they leave gaps and overlaps.
+  vector<SideTriangle> tris;
+  vector<libMesh::dof_id_type> inverted;
+  vector<libMesh::dof_id_type> warped;
+  for (const libMesh::Elem* elem : grid_elems_) {
+    side_triangles(*elem, tris);
+    if (!valid_polyhedron(tris, elem->vertex_average()))
+      inverted.push_back(elem->id());
+    for (auto s : elem->side_index_range()) {
+      if (elem->neighbor_ptr(s))
+        continue;
+      // A side touches another element if a point just past one of its
+      // triangles is in one
+      libMesh::Point normal;
+      bool touches = false;
+      for (const auto& tri : tris) {
+        if (tri.side != s)
+          continue;
+        normal += tri.normal;
+        const double length = std::sqrt(std::max({(tri.b - tri.a).norm_sq(),
+          (tri.c - tri.b).norm_sq(), (tri.a - tri.c).norm_sq()}));
+        const libMesh::Point probe =
+          (tri.a + tri.b + tri.c) / 3.0 +
+          std::max(1e-6 * length, 10.0 * surface_tol_) * tri.normal.unit();
+        touches = touches || locate(probe, nullptr, elem);
+      }
+      if (!touches || normal.norm_sq() == 0.0)
+        continue;
+      // Distances of the side's nodes from the plane through their average
+      const auto nodes = elem->nodes_on_side(s);
+      libMesh::Point center;
+      for (auto n : nodes)
+        center += elem->point(n);
+      center /= static_cast<double>(nodes.size());
+      double size = 0.0;
+      double distance = 0.0;
+      for (auto n : nodes) {
+        const libMesh::Point r = elem->point(n) - center;
+        size = std::max(size, r.norm());
+        distance = std::max(distance, std::abs(r * normal.unit()));
+      }
+      if (distance > 1e-9 * size + surface_tol_) {
+        warped.push_back(elem->id());
+        break;
+      }
+    }
+  }
+
+  auto describe = [&](const vector<libMesh::dof_id_type>& ids) {
+    std::string list;
+    for (size_t i = 0; i < ids.size() && i < 5; i++)
+      list += fmt::format("{}{}", i > 0 ? ", " : "", ids[i]);
+    return fmt::format("{} elements of {} (libMesh element ids {}{})",
+      ids.size(),
+      id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
+               : std::string("an unstructured mesh"),
+      list, ids.size() > 5 ? ", ..." : "");
+  };
+  if (!inverted.empty()) {
+    fatal_error(fmt::format(
+      "{} are inverted, wholly or in part, when their sides are made flat "
+      "(OpenMC takes the sides of libMesh elements to be flat). Strongly "
+      "curved elements may have to be subdivided or made less curved.",
+      describe(inverted)));
+  }
+  if (!warped.empty()) {
+    fatal_error(fmt::format(
+      "{} have a side that is not flat and touches other elements without "
+      "being their neighbor in libMesh (a non-conforming interface). OpenMC "
+      "takes the sides of libMesh elements to be flat, so such sides would "
+      "leave gaps and overlaps; they have to be flat.",
+      describe(warped)));
+  }
 }
 
 // Sample position within a tet for LibMesh type tets
@@ -4938,6 +5070,22 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     }
   };
 
+  // Score a part of the track that the walk steps past to the elements found
+  // along it, halving it until the element found at its middle is also the
+  // one found a quarter of the way from either end, or until it is no longer
+  // than a step
+  auto score_located = [&](auto&& self, double s0, double s1) -> void {
+    const double middle = 0.5 * (s0 + s1);
+    const libMesh::Elem* owner = locate(point(middle));
+    if (s1 - s0 > step && (locate(point(0.5 * (s0 + middle))) != owner ||
+                            locate(point(0.5 * (middle + s1))) != owner)) {
+      self(self, s0, middle);
+      self(self, middle, s1);
+      return;
+    }
+    score(s0, s1, owner);
+  };
+
   // Continue the walk where the track is next in the mesh, after it has left
   // every element at s: the element just ahead, or the end of a gap between
   // elements whose sides do not quite meet (such as curved second-order
@@ -5007,12 +5155,13 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 
   // A walk that keeps making no progress is stuck where several elements
   // meet, or along their surfaces: it steps past the point, scoring that step
-  // as any other part. The step doubles each time the walk gets stuck again
-  // before it has made progress, so that it gets past any stretch of track.
+  // to the elements found along it. The step doubles each time the walk gets
+  // stuck again before it has made progress, so that it gets past any stretch
+  // of track.
   auto step_past = [&]() {
     const double t_past =
       std::min(t + std::ldexp(step, std::min(n_skips++, 60)), track_len);
-    score(t, t_past, nullptr);
+    score_located(score_located, t, t_past);
     const double h = elem->hmax();
     t = t_past;
     n_stalled = 0;
@@ -5054,13 +5203,11 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 
     // Exits are only computed from an element that contains the point the
     // walk is at, or the point just ahead (an element thinner than the step
-    // can be skipped), strictly so for a folded element (on whose surface
-    // the walk would stall). Otherwise the walk has strayed, into a gap
-    // between elements or out of the mesh, and continues where the track is.
+    // can be skipped). Otherwise the walk has strayed, into a gap between
+    // elements or out of the mesh, and continues where the track is.
     // Relocating at the same point counts as a step without progress.
-    const int not_in = is_folded(elem) ? 0 : -1;
-    if (classify(tris, point(t), surface_tol_) <= not_in &&
-        classify(tris, point(ahead(t)), surface_tol_) <= not_in) {
+    if (classify(tris, point(t), surface_tol_) < 0 &&
+        classify(tris, point(ahead(t)), surface_tol_) < 0) {
       const libMesh::Elem* found = locate(point(t), nullptr, elem);
       n_redone = 0;
       if (found) {
@@ -5194,8 +5341,8 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
     // yields the current element, either the exit was false (the point ahead
     // is inside the element, and the walk continues in it) or the track
     // grazes the exit side (the point is on the element's surface): it then
-    // continues in the neighbor, unless that is folded, or else in another
-    // element that the point ahead touches, if any. If the track left through
+    // continues in the neighbor, or else in another element that the point
+    // ahead touches, if any. If the track left through
     // an interior side (one with a neighbor) or through a hole but the point
     // ahead is in no element, it is in a gap between elements whose sides do
     // not quite meet.
@@ -5208,9 +5355,7 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
       const libMesh::Point point_ahead = point(ahead(t));
       next = locate(point_ahead);
       if (next == elem && classify(tris, point_ahead, surface_tol_) <= 0)
-        next = neighbor && !is_folded(neighbor)
-                 ? neighbor
-                 : locate(point_ahead, nullptr, elem);
+        next = neighbor ? neighbor : locate(point_ahead, nullptr, elem);
       if (!next)
         next = neighbor;
       if (!next && (side_neighbor || through_hole))
