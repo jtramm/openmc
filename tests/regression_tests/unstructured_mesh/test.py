@@ -278,35 +278,61 @@ def test_unstructured_mesh_hexes(model, test_opts, tmp_path):
     run_and_check(model, tmp_path, filename, elements_per_voxel=1)
 
 
-# Meshes that tile the cube [-1, 1]^3 exactly, so that the flux summed over
-# the mesh must equal that of a cell with the same extent. The warped hexes
-# have non-planar sides; the non-conforming mesh has a coarse block next to a
-# fine one, with hanging nodes and no neighbor information across the
-# interface. The beams run along the x = y = 0 edge line of the non-conforming
-# mesh and out of its (0, 0, 0) vertex, so tracks and collision sites lie
-# exactly on element edges and vertices. In the 'shell' geometry the mesh cube
-# is a cell inside a larger box, so tracks enter and leave the mesh across a
-# cell boundary that coincides with the mesh boundary. The HEX20 mesh has
-# straight sides and mid-side nodes.
+def interior_edge(mesh_file):
+    """End points of the mesh edge between the nodes nearest (0, 0, 0) and
+    (0, 0, 0.5), in mesh coordinates"""
+    from scipy.io import netcdf_file
+    with netcdf_file(mesh_file, 'r', mmap=False) as f:
+        xyz = np.column_stack(
+            [f.variables[f'coord{c}'][:].copy() for c in 'xyz'])
+    start = xyz[np.argmin(np.linalg.norm(xyz, axis=1))]
+    end = xyz[np.argmin(np.linalg.norm(xyz - (0.0, 0.0, 0.5), axis=1))]
+    return start, end
+
+
+# Meshes that tile the cube [-w, w]^3 exactly (w = 1, or 1000 for the scaled
+# mesh), so that the flux summed over the mesh must equal that of a cell with
+# the same extent. The warped hexes have non-planar sides; the non-conforming
+# mesh has a coarse block next to a fine one, with hanging nodes and no
+# neighbor information across the interface. The beams run along the x = y = 0
+# edge line of the non-conforming mesh and out of its (0, 0, 0) vertex, or
+# along an interior edge of the warped mesh, so that tracks and collision sites
+# lie exactly on element edges and vertices. In the 'shell' geometry the mesh
+# cube is a cell inside a larger box, so tracks enter and leave the mesh across
+# a cell boundary that coincides with the mesh boundary. The HEX20 and TET10
+# meshes have straight sides and mid-side nodes.
 @pytest.mark.parametrize(
-    "mesh_filename,length_multiplier,source,estimator,geometry", [
-    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'cube'),
-    ("test_mesh_hexes_warped.e", 2.0, 'box', 'tracklength', 'cube'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength', 'cube'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'tracklength', 'cube'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'edge', 'collision', 'cube'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'vertex', 'tracklength', 'cube'),
-    ("test_mesh_hexes_warped.e", 1.0, 'box', 'tracklength', 'shell'),
-    ("test_mesh_hexes_nonconforming.e", 1.0, 'box', 'tracklength', 'shell'),
-    ("test_mesh_hexes20.e", 1.0, 'box', 'tracklength', 'cube'),
+    "mesh_filename,mesh_half_width,length_multiplier,source,estimator,geometry",
+    [
+    ("test_mesh_hexes_warped.e", 1, 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_warped.e", 1, 2.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_warped.e", 1, 1.0, 'box', 'tracklength', 'shell'),
+    ("test_mesh_hexes_warped.e", 1, 1.0, 'interior_edge', 'tracklength',
+     'cube'),
+    ("test_mesh_hexes_warped.e", 1, 1.0, 'interior_edge', 'collision', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'box', 'tracklength', 'shell'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'edge', 'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'edge', 'collision', 'cube'),
+    ("test_mesh_hexes_nonconforming.e", 1, 1.0, 'vertex', 'tracklength',
+     'cube'),
+    ("test_mesh_hexes_nonconforming_scaled.e", 1000, 0.001, 'edge',
+     'tracklength', 'cube'),
+    ("test_mesh_hexes_nonconforming_scaled.e", 1000, 0.001, 'vertex',
+     'tracklength', 'cube'),
+    ("test_mesh_hexes20.e", 1, 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_prisms.e", 1, 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_pyramids.e", 1, 1.0, 'box', 'tracklength', 'cube'),
+    ("test_mesh_tets10.e", 1, 1.0, 'box', 'tracklength', 'cube'),
 ])
-def test_unstructured_mesh_conservation(model, mesh_filename,
+def test_unstructured_mesh_conservation(model, mesh_filename, mesh_half_width,
         length_multiplier, source, estimator, geometry, tmp_path):
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh is not enabled in this build.")
 
     # A cube cell matching the (scaled) mesh, on its own or inside a larger box
-    half_width = length_multiplier
+    mesh_file = Path(__file__).with_name(mesh_filename)
+    half_width = mesh_half_width * length_multiplier
     water = model.geometry.get_materials_by_name('water')[0]
     box = openmc.model.RectangularParallelepiped(
         -half_width, half_width, -half_width, half_width, -half_width,
@@ -327,17 +353,20 @@ def test_unstructured_mesh_conservation(model, mesh_filename,
     elif source == 'edge':
         space = openmc.stats.Point((0.0, 0.0, -0.9*half_width))
         angle = openmc.stats.Monodirectional((0.0, 0.0, 1.0))
-    else:
+    elif source == 'vertex':
         space = openmc.stats.Point((0.0, 0.0, 0.0))
         angle = openmc.stats.Monodirectional((1.0, 1.0, 1.0))
+    else:
+        start, end = interior_edge(mesh_file)
+        space = openmc.stats.Point(tuple(length_multiplier*start))
+        angle = openmc.stats.Monodirectional(tuple(end - start))
     model.settings.source = openmc.IndependentSource(
         space=space, angle=angle, energy=openmc.stats.delta_function(15e6))
     model.settings.particles = 500
     model.settings.batches = 5
 
     uscd_mesh = openmc.UnstructuredMesh(
-        Path(__file__).with_name(mesh_filename), 'libmesh',
-        length_multiplier=length_multiplier)
+        mesh_file, 'libmesh', length_multiplier=length_multiplier)
     mesh_tally = openmc.Tally(name="unstructured mesh tally")
     mesh_tally.filters = [openmc.MeshFilter(uscd_mesh)]
     mesh_tally.scores = ['flux']

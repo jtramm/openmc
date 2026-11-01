@@ -6,6 +6,7 @@
 
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "hdf5.h"
 #include "openmc/tensor.h"
@@ -1137,31 +1138,45 @@ private:
   //! with the lowest node id, so that the two elements sharing a side use the
   //! same triangles for it and agree on where it is even when it is warped.
   struct SideTriangle {
-    libMesh::Point a, b, c; //!< vertices; (b - a) x (c - a) points outward
+    libMesh::Point a, b, c; //!< vertices
+    libMesh::Point normal;  //!< (b - a) x (c - a), pointing out of the element
     unsigned int side;      //!< side of the element the triangle belongs to
   };
 
   //! Triangle on the boundary of the mesh, used to find where a track that
   //! is outside of the mesh enters it
   struct BoundaryTriangle {
-    libMesh::Point a, b, c;    //!< vertices; (b - a) x (c - a) points outward
+    libMesh::Point a, b, c;    //!< vertices
+    libMesh::Point normal;     //!< (b - a) x (c - a), pointing out of the mesh
     const libMesh::Elem* elem; //!< element the triangle is a side of
   };
 
-  //! Uniform grid over the bounding box of the mesh, binning items (elements
-  //! or boundary triangles) by their bounding boxes
-  struct UniformGrid {
-    libMesh::Point lower;      //!< lower corner, in mesh coordinates
-    libMesh::Point width;      //!< cell width in each direction
-    std::array<int, 3> shape;  //!< number of cells in each direction
-    vector<vector<int>> cells; //!< item indices per cell
+  //! Triangles replacing the sides of an element that face a refined
+  //! neighbor: the sides of the neighbor's active descendants
+  struct RefinedSides {
+    unsigned int sides {0};    //!< bit mask of the replaced sides
+    vector<SideTriangle> tris; //!< replacement triangles
+  };
 
-    //! Size the grid for n_items over a bounding box
-    void build(const libMesh::BoundingBox& bbox, int n_items);
+  //! Uniform grid over the bounding box of the mesh, binning items (elements
+  //! or boundary triangles) by their bounding boxes. The item lists are
+  //! stored contiguously, in increasing item order within each cell.
+  struct UniformGrid {
+    libMesh::Point lower;     //!< lower corner, in mesh coordinates
+    libMesh::Point width;     //!< cell width in each direction
+    std::array<int, 3> shape; //!< number of cells in each direction
+    vector<int> offsets;      //!< start of each cell's list in items
+    vector<int> items;        //!< item indices
+
+    //! Size the grid for about two items per cell over a bounding box
+    void build(const libMesh::BoundingBox& bbox, int n_items, double margin);
     //! Index of the cell containing a point, or -1 if outside the grid
     int cell(const libMesh::Point& p) const;
-    //! Add an item to every cell its bounding box overlaps
-    void insert(const libMesh::Point& lo, const libMesh::Point& hi, int item);
+    //! Index range of the cells overlapped by a box
+    void cell_range(const libMesh::Point& lo, const libMesh::Point& hi,
+      std::array<int, 3>& ilo, std::array<int, 3>& ihi) const;
+    //! Fill the item lists from the items' bounding boxes
+    void fill(const vector<std::pair<libMesh::Point, libMesh::Point>>& boxes);
   };
 
   // Methods
@@ -1169,22 +1184,32 @@ private:
   void set_mesh_pointer_from_filename(const std::string& filename);
   void build_eqn_sys();
 
-  //! Triangulate the sides of an element
-  static void side_triangles(
+  //! Triangulate the sides of an element from its own nodes
+  static void own_side_triangles(
     const libMesh::Elem& elem, vector<SideTriangle>& tris);
 
-  //! Whether a point is inside an element, judged by its side triangles
-  static bool contains(
-    const vector<SideTriangle>& tris, const libMesh::Point& p);
-  static bool contains(const libMesh::Elem& elem, const libMesh::Point& p);
+  //! Triangulate the sides of an element as used for traversal: oriented
+  //! outward even for an inverted element, and with the sides that face a
+  //! refined neighbor replaced by the sides of the neighbor's descendants
+  void side_triangles(
+    const libMesh::Elem& elem, vector<SideTriangle>& tris) const;
 
-  //! Whether a point is inside, or within tol of, the element whose side
-  //! triangles are given
-  static bool within_roundoff(
+  //! Position of a point relative to an element, judged by its side
+  //! triangles: 1 inside, 0 on the surface (within tol), -1 outside
+  static int classify(
     const vector<SideTriangle>& tris, const libMesh::Point& p, double tol);
+
+  //! Whether a point is inside an element or on its surface
+  bool contains(const libMesh::Elem& elem, const libMesh::Point& p) const;
 
   //! Signed volume enclosed by an element's side triangles
   static double triangulated_volume(const vector<SideTriangle>& tris);
+
+  //! Find the elements whose node order is inverted
+  void find_inverted_elements();
+
+  //! Collect the triangles replacing the sides that face refined neighbors
+  void build_refined_sides();
 
   //! Bin the active elements on a grid by their bounding boxes
   void build_element_grid();
@@ -1203,9 +1228,9 @@ private:
   //!   unsigned int if none is found
   //! \param[in] min_distance Exits closer than this are ignored
   //! \return Distance to the exit side
-  static double exit_distance(const vector<SideTriangle>& tris,
+  double exit_distance(const vector<SideTriangle>& tris,
     const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
-    double min_distance = 0.0);
+    double min_distance = 0.0) const;
 
   //! Find where a track that is outside of the mesh enters it
   //
@@ -1233,7 +1258,15 @@ private:
                    //!< variable numbers
   libMesh::dof_id_type
     first_element_id_; //!< id of the first element in the mesh
-  vector<const libMesh::Elem*> grid_elems_;  //!< active elements, by id
+  double surface_tol_; //!< distance within which a point is on an element's
+                       //!< surface, in mesh coordinates
+  double probe_step_;  //!< step past an exit point at which the next element
+                       //!< is located, in mesh coordinates
+  std::unordered_set<libMesh::dof_id_type>
+    inverted_; //!< ids of elements whose node order is inverted
+  std::unordered_map<libMesh::dof_id_type, RefinedSides>
+    refined_sides_; //!< sides facing refined neighbors, by element id
+  vector<const libMesh::Elem*> grid_elems_;  //!< active 3D elements, by id
   vector<libMesh::BoundingBox> grid_bboxes_; //!< their bounding boxes
   UniformGrid elem_grid_;                    //!< grid over grid_elems_
   vector<BoundaryTriangle> boundary_tris_;   //!< triangulated mesh boundary
@@ -1247,9 +1280,9 @@ private:
 //! to a set of subdomains
 //
 //! The element data gathered when the object is constructed (the bin maps,
-//! the boundary triangles and the point locators) refer to the mesh as it is
-//! then: if the application refines or coarsens the mesh afterwards, the
-//! object has to be constructed again.
+//! the element and boundary grids, and the sides facing refined neighbors)
+//! refer to the mesh as it is then: if the application refines or coarsens
+//! the mesh afterwards, the object has to be constructed again.
 class AdaptiveLibMesh : public LibMesh {
 public:
   // Constructor

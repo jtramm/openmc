@@ -246,6 +246,7 @@ unique_ptr<Source> RandomRay::ray_source_;
 RandomRaySourceShape RandomRay::source_shape_ {RandomRaySourceShape::FLAT};
 RandomRayGeomDim RandomRay::geom_dim_ {RandomRayGeomDim::THREE_DIM};
 RandomRaySampleMethod RandomRay::sample_method_ {RandomRaySampleMethod::PRNG};
+std::set<int> RandomRay::uncovered_meshes_;
 
 RandomRay::RandomRay()
   : angular_flux_(data::mg.num_energy_groups_),
@@ -415,9 +416,8 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     if (reduced_distance > 10.0 * TINY_BIT &&
         std::accumulate(mesh_fractional_lengths_.begin(),
           mesh_fractional_lengths_.end(), 0.0) < 1.0 - 1e-6) {
-      static std::set<int> warned_meshes;
 #pragma omp critical(random_ray_mesh_coverage)
-      if (warned_meshes.insert(mesh->id()).second) {
+      if (uncovered_meshes_.insert(mesh->id()).second) {
         warning(fmt::format(
           "Source region mesh {} does not cover all of the cells it is "
           "applied to. Ray segments outside the mesh are neither attenuated "

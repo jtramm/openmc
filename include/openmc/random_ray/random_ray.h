@@ -1,6 +1,8 @@
 #ifndef OPENMC_RANDOM_RAY_H
 #define OPENMC_RANDOM_RAY_H
 
+#include <set>
+
 #include "openmc/memory.h"
 #include "openmc/particle.h"
 #include "openmc/random_ray/flat_source_domain.h"
@@ -137,6 +139,8 @@ public:
   static RandomRaySourceShape source_shape_; // Flag for linear source
   static RandomRayGeomDim geom_dim_;         // Flag for 2D vs 3D geometry
   static RandomRaySampleMethod sample_method_; // Flag for sampling method
+  static std::set<int>
+    uncovered_meshes_; // Source region meshes reported as not covering a cell
 
   //----------------------------------------------------------------------------
   // Public data members

@@ -16,6 +16,21 @@
 #include "xdg/config.h"
 #endif
 
+#ifdef OPENMC_LIBMESH_ENABLED
+#include <algorithm>
+#include <cmath>
+#include <random>
+
+#include "libmesh/elem.h"
+#include "libmesh/libmesh.h"
+#include "libmesh/mesh_generation.h"
+#include "libmesh/mesh_modification.h"
+#include "libmesh/mesh_refinement.h"
+#include "libmesh/replicated_mesh.h"
+
+#include "openmc/position.h"
+#endif
+
 using namespace openmc;
 
 #ifdef OPENMC_XDG_ENABLED
@@ -410,3 +425,98 @@ TEST_CASE("Test regular mesh ray tracing from outside")
   REQUIRE(lengths[0] == Catch::Approx(1.0 / 6.0));
   REQUIRE(lengths[1] == Catch::Approx(1.0 / 6.0));
 }
+
+#ifdef OPENMC_LIBMESH_ENABLED
+namespace {
+
+//! Initialize libMesh once for the test cases that need it (keeping stdout
+//! synchronized, or the test report written to it can be lost)
+const libMesh::Parallel::Communicator& libmesh_comm()
+{
+  static const char* argv[] = {"test_mesh", "--sync-with-stdio"};
+  static libMesh::LibMeshInit init(2, argv);
+  settings::libmesh_comm = &init.comm();
+  return init.comm();
+}
+
+//! Distances along the segment from r0 to r1 at which it enters and leaves
+//! the cube [-1, 1]^3 (equal if it misses the cube)
+std::pair<double, double> cube_crossing(Position r0, Position r1)
+{
+  const Position d = r1 - r0;
+  const double length = d.norm();
+  double t_lo = 0.0;
+  double t_hi = 1.0;
+  for (int i = 0; i < 3; i++) {
+    if (d[i] == 0.0) {
+      if (std::abs(r0[i]) > 1.0)
+        return {0.0, 0.0};
+      continue;
+    }
+    const double ta = (-1.0 - r0[i]) / d[i];
+    const double tb = (1.0 - r0[i]) / d[i];
+    t_lo = std::max(t_lo, std::min(ta, tb));
+    t_hi = std::min(t_hi, std::max(ta, tb));
+  }
+  if (t_hi <= t_lo)
+    return {0.0, 0.0};
+  return {t_lo * length, t_hi * length};
+}
+
+} // namespace
+
+TEST_CASE("Track-length traversal of a refined libMesh mesh with warped sides")
+{
+  // Hexes tiling [-1, 1]^3, with interior nodes displaced so that the sides
+  // between them are warped
+  libMesh::ReplicatedMesh mesh(libmesh_comm(), 3);
+  libMesh::MeshTools::Generation::build_cube(
+    mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::HEX8);
+  libMesh::MeshTools::Modification::distort(mesh, 0.1, false);
+
+  // Refine the elements with x > 0 once and those with x > 0.5 once more, so
+  // that coarse elements face refined neighbors across warped sides
+  libMesh::MeshRefinement refinement(mesh);
+  for (double x : {0.0, 0.5}) {
+    for (auto* elem : mesh.active_element_ptr_range()) {
+      if (elem->vertex_average()(0) > x)
+        elem->set_refinement_flag(libMesh::Elem::REFINE);
+    }
+    refinement.refine_elements();
+  }
+  AdaptiveLibMesh umesh(mesh);
+
+  // The element volumes add up to the cube's, and every element's vertex
+  // average lies in its own bin
+  double total_volume = 0.0;
+  for (int bin = 0; bin < umesh.n_bins(); bin++) {
+    total_volume += umesh.volume(bin);
+    REQUIRE(umesh.get_bin(umesh.centroid(bin)) == bin);
+  }
+  REQUIRE(total_volume == Catch::Approx(8.0).epsilon(1e-12));
+
+  // Tracks from inside and outside the cube: the segments add up to the part
+  // of the track inside the cube, and each segment's midpoint is in its bin
+  std::mt19937_64 rng(1);
+  std::uniform_real_distribution<double> uniform(-1.5, 1.5);
+  for (int i = 0; i < 2000; i++) {
+    const Position r0 {uniform(rng), uniform(rng), uniform(rng)};
+    const Position r1 {uniform(rng), uniform(rng), uniform(rng)};
+    const double length = (r1 - r0).norm();
+    const Direction u = (r1 - r0) / length;
+    vector<int> bins;
+    vector<double> lengths;
+    umesh.bins_crossed(r0, r1, u, bins, lengths);
+
+    const auto [t_in, t_out] = cube_crossing(r0, r1);
+    double t = t_in;
+    for (int k = 0; k < bins.size(); k++) {
+      const double segment = lengths[k] * length;
+      if (segment > 1e-6)
+        REQUIRE(umesh.get_bin(r0 + (t + 0.5 * segment) * u) == bins[k]);
+      t += segment;
+    }
+    REQUIRE(t - t_in == Catch::Approx(t_out - t_in).margin(1e-7));
+  }
+}
+#endif
