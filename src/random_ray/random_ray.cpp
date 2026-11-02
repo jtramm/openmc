@@ -384,7 +384,8 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
   const double min_length = 2.0 * TINY_BIT;
   if (outside <= min_length)
     return;
-  if (inside <= min_length) {
+  // (Up to twice that in the mesh is too short for what follows to place it)
+  if (inside <= 2.0 * min_length) {
     bins.assign(1, C_NONE);
     fractions.assign(1, 1.0);
     return;

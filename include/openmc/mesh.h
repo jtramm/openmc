@@ -176,7 +176,7 @@ public:
   //! \param[in] r0 Previous position of the particle
   //! \param[in] r1 Current position of the particle
   //! \param[in] u Particle direction
-  //! \param[out] bins Bins that were crossed
+  //! \param[out] bins Bins that were crossed, in order along the track
   //! \param[out] lengths Fraction of tracklength in each bin
   virtual void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const = 0;
@@ -986,11 +986,8 @@ private:
   //
   //! \param[in] r Position to check
   //! \param[in] MOAB terahedron to check
-  //! \param[in] tol Distance from its faces within which a point counts as in
-  //! it
   //! \return True if r is inside, False if r is outside
-  bool point_in_tet(
-    const moab::CartVect& r, moab::EntityHandle tet, double tol = 0.0) const;
+  bool point_in_tet(const moab::CartVect& r, moab::EntityHandle tet) const;
 
   //! Compute barycentric coordinate data for all tetrahedra
   //! in the mesh.
@@ -1054,9 +1051,6 @@ private:
   std::shared_ptr<moab::Interface> mbi_;    //!< MOAB instance
   unique_ptr<moab::AdaptiveKDTree> kdtree_; //!< MOAB KDTree instance
   vector<moab::Matrix3> baryc_data_;        //!< Barycentric data for tetrahedra
-  double extent_ {0.0};      //!< largest side of the mesh's bounding box
-  double surface_tol_ {0.0}; //!< distance from a face within which positions
-                             //!< cannot be told apart
   vector<std::string> tag_names_; //!< Names of score tags added to the mesh
 };
 

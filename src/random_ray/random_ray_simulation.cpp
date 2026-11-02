@@ -534,6 +534,10 @@ void RandomRaySimulation::simulate()
     finalize_batch();
   } // End random ray power iteration loop
 
+  if (FlatSourceDomain::solve_ == RandomRaySolve::FORWARD) {
+    domain_->warn_about_missed_meshes();
+  }
+
   domain_->count_external_source_regions();
 
   // End main simulation timer

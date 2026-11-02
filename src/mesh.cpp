@@ -3146,26 +3146,10 @@ void MOABMesh::initialize()
     fatal_error("Failed to get all tetrahedral elements");
   }
 
-  if (ehs_.empty()) {
-    fatal_error("No tetrahedra found in unstructured mesh file " + filename_);
-  }
-
-  // Only linear tets are handled (MOAB also types quadratic tets as MBTET)
-  bool linear_tets = ehs_.all_of_type(moab::MBTET);
-  for (auto it = ehs_.begin(); linear_tets && it != ehs_.end(); ++it) {
-    const moab::EntityHandle* conn;
-    int n_conn;
-    rval = mbi_->get_connectivity(*it, conn, n_conn);
-    linear_tets = rval == moab::MB_SUCCESS && n_conn == 4;
-  }
-  if (!linear_tets) {
-    fatal_error("Elements other than linear tetrahedra found in unstructured "
-                "mesh file " +
-                filename_ +
-                ", which the native MOAB interface does not support. The XDG "
-                "interface also handles linear hexahedra "
-                "(set the interface attribute of the openmc.UnstructuredMesh "
-                "to 'xdg').");
+  if (!ehs_.all_of_type(moab::MBTET)) {
+    warning("Non-tetrahedral elements found in unstructured "
+            "mesh file: " +
+            filename_);
   }
 
   // set member range of vertices
@@ -3215,21 +3199,8 @@ void MOABMesh::initialize()
     }
   }
 
-  // Determine bounds of mesh, and the distance from a face within which
-  // positions cannot be told apart: a little more than the roundoff in the
-  // mesh's coordinates, and no less than a small part of its extent
+  // Determine bounds of mesh
   this->determine_bounds();
-  double extent = 0.0;
-  double magnitude = 0.0;
-  for (int d = 0; d < 3; d++) {
-    extent = std::max(extent, upper_right_[d] - lower_left_[d]);
-    magnitude = std::max(
-      {magnitude, std::abs(lower_left_[d]), std::abs(upper_right_[d])});
-  }
-  extent_ = extent;
-  // (well below TINY_BIT, which points just past a face are found by)
-  surface_tol_ = std::max(std::min(1e-12 * extent, 0.25 * TINY_BIT),
-    8.0 * std::numeric_limits<double>::epsilon() * magnitude);
 }
 
 void MOABMesh::prepare_for_point_location()
@@ -3321,96 +3292,92 @@ void MOABMesh::intersect_track(const moab::CartVect& start,
       "Failed to compute intersections on unstructured mesh: " + filename_);
   }
 
-  // sort the intersection distances and remove duplicates (where the track
-  // crosses an edge or vertex shared by several triangles)
+  // remove duplicate intersection distances
+  std::unique(hits.begin(), hits.end());
+
+  // sorts by first component of std::pair by default
   std::sort(hits.begin(), hits.end());
-  hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
 }
 
 void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
+  moab::CartVect start(r0.x, r0.y, r0.z);
+  moab::CartVect end(r1.x, r1.y, r1.z);
   moab::CartVect dir(u.x, u.y, u.z);
   dir.normalize();
 
-  const double track_len = (r1 - r0).norm();
+  double track_len = (end - start).length();
   if (track_len == 0.0)
     return;
+
+  start -= TINY_BIT * dir;
+  end += TINY_BIT * dir;
+
+  vector<double> hits;
+  intersect_track(start, dir, track_len, hits);
 
   bins.clear();
   lengths.clear();
 
-  // Portion of the track within the mesh's bounding box, enlarged by a few
-  // times the surface tolerance: no point outside of it is in a tet
-  double t_lo = 0.0;
-  double t_hi = track_len;
-  for (int i = 0; i < 3; i++) {
-    const double lo = lower_left_[i] - 4.0 * surface_tol_;
-    const double hi = upper_right_[i] + 4.0 * surface_tol_;
-    if (u[i] == 0.0) {
-      if (r0[i] < lo || r0[i] > hi)
-        return;
-      continue;
-    }
-    const double ta = (lo - r0[i]) / u[i];
-    const double tb = (hi - r0[i]) / u[i];
-    t_lo = std::max(t_lo, std::min(ta, tb));
-    t_hi = std::min(t_hi, std::max(ta, tb));
-  }
-  if (t_lo >= t_hi)
-    return;
-
-  // Distances along the track are measured from its start, unless it starts
-  // more than about 100 times the mesh's extent away: they would then be too
-  // coarse for the intersections to be told from the end of the track in the
-  // mesh, so they are measured from where the track enters that box.
-  //
-  // MOAB's test of a triangle has no tolerance, so a track exactly through an
-  // edge or vertex of a tet or in a face can miss intersections. Moving the
-  // track by a tiny amount, in a fixed direction unrelated to the mesh, leaves
-  // no such ties.
-  const double offset = t_lo > 100.0 * extent_ ? t_lo : 0.0;
-  const Position origin =
-    r0 + offset * u +
-    surface_tol_ *
-      Position {0.5773502691896258, -0.3141592653589793, 0.7539822368615503};
-  const moab::CartVect ray_origin(origin.x, origin.y, origin.z);
-  const double s_end = t_hi - offset;
-
-  // Intersections with the faces of the tets, searched for from a tiny bit
-  // before the origin (so that one at the origin is found) up to the end of
-  // the box, as distances from the origin
-  vector<double> hits;
-  intersect_track(ray_origin - TINY_BIT * dir, dir, s_end + TINY_BIT, hits);
-
-  // Score each piece of the track between consecutive intersections to the
-  // tet found at its midpoint, if any: the piece can be outside of the mesh
-  auto score = [&](double s0, double s1) {
-    const int bin = this->get_bin(origin + 0.5 * (s0 + s1) * u);
+  // if there are no intersections the track may lie entirely
+  // within a single tet. If this is the case, apply entire
+  // score to that tet and return.
+  if (hits.size() == 0) {
+    Position midpoint = r0 + u * (track_len * 0.5);
+    int bin = this->get_bin(midpoint);
     if (bin != -1) {
       bins.push_back(bin);
-      lengths.push_back((s1 - s0) / track_len);
+      lengths.push_back(1.0);
     }
-  };
-  double s = t_lo - offset;
-  for (double hit : hits) {
-    const double distance = hit - TINY_BIT;
-    if (distance > s && distance < s_end) {
-      score(s, distance);
-      s = distance;
+    return;
+  }
+
+  // for each segment in the set of tracks, try to look up a tet
+  // at the midpoint of the segment
+  Position current = r0;
+  double last_dist = 0.0;
+  for (const auto& hit : hits) {
+    // get the segment length
+    double segment_length = hit - last_dist;
+    last_dist = hit;
+    // find the midpoint of this segment
+    Position midpoint = current + u * (segment_length * 0.5);
+    // try to find a tet for this position
+    int bin = this->get_bin(midpoint);
+
+    // determine the start point for this segment
+    current = r0 + u * hit;
+
+    if (bin == -1) {
+      continue;
+    }
+
+    bins.push_back(bin);
+    lengths.push_back(segment_length / track_len);
+  }
+
+  // tally remaining portion of track after last hit if
+  // the last segment of the track is in the mesh but doesn't
+  // reach the other side of the tet
+  if (hits.back() < track_len) {
+    Position segment_start = r0 + u * hits.back();
+    double segment_length = track_len - hits.back();
+    Position midpoint = segment_start + u * (segment_length * 0.5);
+    int bin = this->get_bin(midpoint);
+    if (bin != -1) {
+      bins.push_back(bin);
+      lengths.push_back(segment_length / track_len);
     }
   }
-  score(s, s_end);
-}
+};
 
 moab::EntityHandle MOABMesh::get_tet(const Position& r) const
 {
   moab::CartVect pos(r.x, r.y, r.z);
   // find the leaf of the kd-tree for this position
   moab::AdaptiveKDTreeIter kdtree_iter;
-  // (with a tolerance on the tree's boxes no smaller than the one used below)
-  moab::ErrorCode rval = kdtree_->point_search(
-    pos.array(), kdtree_iter, std::max(1e-10, surface_tol_));
+  moab::ErrorCode rval = kdtree_->point_search(pos.array(), kdtree_iter);
   if (rval != moab::MB_SUCCESS) {
     return 0;
   }
@@ -3426,13 +3393,6 @@ moab::EntityHandle MOABMesh::get_tet(const Position& r) const
   // loop over the tets in this leaf, returning the containing tet if found
   for (const auto& tet : tets) {
     if (point_in_tet(pos, tet)) {
-      return tet;
-    }
-  }
-
-  // roundoff can put a point on a face shared by tets outside of all of them
-  for (const auto& tet : tets) {
-    if (point_in_tet(pos, tet, surface_tol_)) {
       return tet;
     }
   }
@@ -3535,7 +3495,7 @@ void MOABMesh::compute_barycentric_data(const moab::Range& tets)
 }
 
 bool MOABMesh::point_in_tet(
-  const moab::CartVect& r, moab::EntityHandle tet, double tol) const
+  const moab::CartVect& r, moab::EntityHandle tet) const
 {
 
   moab::ErrorCode rval;
@@ -3565,22 +3525,9 @@ bool MOABMesh::point_in_tet(
 
   moab::CartVect bary_coords = a_inv * (r - p_zero);
 
-  // A distance from a face is a barycentric coordinate times the length of its
-  // gradient, a row of the matrix (and minus their sum for the fourth face)
-  double margin[4] = {0.0, 0.0, 0.0, 0.0};
-  if (tol > 0.0) {
-    moab::CartVect sum(0.0, 0.0, 0.0);
-    for (int i = 0; i < 3; i++) {
-      const moab::CartVect row(a_inv(i, 0), a_inv(i, 1), a_inv(i, 2));
-      margin[i] = tol * row.length();
-      sum += row;
-    }
-    margin[3] = tol * sum.length();
-  }
-
-  return (bary_coords[0] >= -margin[0] && bary_coords[1] >= -margin[1] &&
-          bary_coords[2] >= -margin[2] &&
-          bary_coords[0] + bary_coords[1] + bary_coords[2] <= 1.0 + margin[3]);
+  return (bary_coords[0] >= 0.0 && bary_coords[1] >= 0.0 &&
+          bary_coords[2] >= 0.0 &&
+          bary_coords[0] + bary_coords[1] + bary_coords[2] <= 1.0);
 }
 
 int MOABMesh::get_bin_from_index(int idx) const

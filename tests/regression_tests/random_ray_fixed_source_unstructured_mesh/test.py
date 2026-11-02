@@ -4,6 +4,7 @@ import sys
 from itertools import product
 from pathlib import Path
 
+import h5py
 import numpy as np
 import openmc
 import openmc.lib
@@ -142,8 +143,8 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
                run_mode='fixed source', source_point=None, slab=None,
                slab_fill=True, subdivide_root=True):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
-    by the mesh in mesh_path (read by a mesh library, directly or through
-    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
+    by the mesh in mesh_path (through XDG, for the libraries that start with
+    it), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
     a mesh tally on that mesh or on another one, and optionally a cell (of the
     material or void) in a slab of the given thickness past the box, to which
     the mesh is applied unless subdivide_root is False"""
@@ -219,7 +220,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
 
 
 @pytest.mark.parametrize("library,case", product(
-    ['moab', 'xdg-libmesh'], ['tally_and_ww', 'subdivision_only']))
+    ['xdg-moab', 'xdg-libmesh'], ['tally_and_ww', 'subdivision_only']))
 def test_random_ray_fixed_source_unstructured_mesh(library, case):
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
@@ -238,16 +239,14 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     # and the hex mesh extends beyond it
     ('regular', None, 0.5),
     ('regular-2d', None, 0.5),
-    ('moab', MESH_FILES['moab'], 0.5),
     ('xdg-moab', MESH_FILES['moab'], 0.5),
     ('xdg-libmesh', MESH_FILES['libmesh'], 0.5),
     ('xdg-libmesh', 'test_mesh_hexes.e', 0.5),
     # The mesh falls short of the cell by a sliver that is of no consequence,
     # or by enough to count, as with a mesh and a cell faceted separately
     ('regular', None, 0.5 + 1e-9),
-    ('moab', MESH_FILES['moab'], 0.5 + 1e-9),
     ('regular', None, 0.5 + 1e-3),
-    ('moab', MESH_FILES['moab'], 0.5 + 1e-3),
+    ('xdg-moab', MESH_FILES['moab'], 0.5 + 1e-3),
     ('xdg-libmesh', MESH_FILES['libmesh'], 0.5 + 1e-3),
 ])
 def test_random_ray_unstructured_mesh_coverage(
@@ -277,28 +276,16 @@ def test_random_ray_unstructured_mesh_coverage(
         assert 0.99 * cell_flux < mesh_flux < cell_flux
 
 
-@pytest.mark.parametrize("library,option", [
-    ('moab', 'linear'),
-    ('moab', 'scaled'),
-    ('moab', 'tally_mesh'),
-    ('xdg-libmesh', 'linear'),
-    ('xdg-libmesh', 'scaled'),
-    # Rays are not followed through a tally mesh, so the native interface will
-    # do for libMesh
-    ('xdg-libmesh', 'tally_mesh'),
-    ('moab', 'fw_cadis'),
-    ('xdg-libmesh', 'fw_cadis'),
-    ('moab', 'eigenvalue'),
-    ('xdg-libmesh', 'eigenvalue'),
-])
+@pytest.mark.parametrize("library,option", product(
+    ['xdg-moab', 'xdg-libmesh'],
+    ['linear', 'scaled', 'tally_mesh', 'fw_cadis', 'eigenvalue']))
 def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     """Runs with linear sources, with the mesh scaled by a length multiplier
     (the 24-tet mesh then tiles [-1, 1]^3), with the tally and weight windows
-    on the same mesh through the other interface, with FW-CADIS weight windows
-    and in eigenvalue mode, whose flux on the mesh adds up to the flux in the
-    cell"""
-    if not enabled(library) or (library == 'moab' and option == 'tally_mesh'
-                                and not enabled('xdg-moab')):
+    on the same mesh through the native interface, which only looks up points
+    for them, with FW-CADIS weight windows and in eigenvalue mode, whose flux
+    on the mesh adds up to the flux in the cell"""
+    if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
@@ -308,8 +295,6 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
         if option == 'tally_mesh':
             tally_mesh = openmc.UnstructuredMesh(
                 mesh_path, library=library.removeprefix('xdg-'))
-            tally_mesh.interface = ('native' if library.startswith('xdg-')
-                                    else 'xdg')
             model = make_model(library, mesh_path, 'tally_and_ww',
                                tally_mesh=tally_mesh)
         elif option == 'fw_cadis':
@@ -339,17 +324,18 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
         check_weight_windows(tmp_path)
 
 
-def test_random_ray_native_libmesh_subdivision(tmp_path):
-    """Rays cannot be followed through a libMesh mesh with the native
-    interface, which is reported up front"""
-    if not openmc.lib.feature_enabled('libmesh'):
-        pytest.skip("libmesh unstructured meshes are not enabled.")
+@pytest.mark.parametrize("library", ['moab', 'libmesh'])
+def test_random_ray_native_subdivision(library, tmp_path):
+    """Rays are followed through unstructured meshes by XDG, and using the
+    native interface instead is reported up front"""
+    if not enabled(library):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
-                 MESH_FILES['libmesh'])
+                 MESH_FILES[library])
     with change_directory(tmp_path):
-        make_model('libmesh', mesh_path,
+        make_model(library, mesh_path,
                    'subdivision_only').export_to_model_xml()
 
     if config['build_inputs']:
@@ -359,12 +345,13 @@ def test_random_ray_native_libmesh_subdivision(tmp_path):
     assert 'Use the XDG interface' in output
 
 
-@pytest.mark.parametrize("library", ['moab', 'xdg-moab'])
-def test_random_ray_mirrored_mesh(library, tmp_path):
+@pytest.mark.parametrize("interface,library", [
+    ('native', 'moab'), ('xdg', 'xdg-moab')])
+def test_random_ray_mirrored_mesh(interface, library, tmp_path):
     """A mirrored copy of a mesh keeps its node order, which turns its tets
     inside out: their volumes must still be positive for weight windows to be
     generated on them. XDG cannot follow rays through such a mesh, but it can
-    tally on it."""
+    tally on it, as can the native interface."""
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -375,14 +362,10 @@ def test_random_ray_mirrored_mesh(library, tmp_path):
 
     openmc.reset_auto_ids()
     with change_directory(tmp_path):
-        if library == 'moab':
-            model = make_model('moab', mesh_path, 'tally_and_ww')
-        else:
-            tally_mesh = openmc.UnstructuredMesh(mesh_path, library='moab')
-            tally_mesh.interface = 'xdg'
-            model = make_model('regular', None, 'tally_and_ww',
-                               tally_mesh=tally_mesh)
-        model.export_to_model_xml()
+        tally_mesh = openmc.UnstructuredMesh(mesh_path, library='moab')
+        tally_mesh.interface = interface
+        make_model('regular', None, 'tally_and_ww',
+                   tally_mesh=tally_mesh).export_to_model_xml()
 
     if config['build_inputs']:
         return
@@ -443,6 +426,13 @@ def part_of_box_mesh(library, mesh_path, scale=1.0):
         return -openmc.model.RectangularParallelepiped(
             scale * x0, scale * x1, -0.5 * scale, 0.5 * scale, -0.5 * scale,
             0.5 * scale)
+
+    if library == 'rectilinear':
+        mesh = openmc.RectilinearMesh()
+        mesh.x_grid = [-0.5, 0.1, 0.5]
+        mesh.y_grid = [-0.5, -0.2, 0.0, 0.5]
+        mesh.z_grid = [-0.5, 0.4, 0.5]
+        return mesh, cube(-0.5, 0.5)
 
     # Meshes that do not span all angles: a ray can come at them from anywhere
     z_range = +openmc.ZPlane(-0.5) & -openmc.ZPlane(0.5)
@@ -564,6 +554,7 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     ('regular', {'ww_method': 'fw_cadis'}),
     ('regular', {'plot': True}),
     ('regular-2d', {}),
+    ('rectilinear', {}),
     ('cylindrical', {}),
     ('cylindrical', {'source_shape': 'linear'}),
     ('spherical', {}),
@@ -571,14 +562,11 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     ('quarter-cylinder', {}),
     ('quarter-cylinder', {'source_shape': 'linear'}),
     ('cone', {}),
-    ('moab', {}),
-    ('moab', {'source_shape': 'linear'}),
-    ('moab', {'source_point': (1.4, 1.4, 1.4)}),
-    ('moab', {'ww_method': 'fw_cadis'}),
-    ('moab', {'plot': True}),
-    # A mesh large enough for a tolerance to matter
-    ('moab', {'scale': 2.5e4}),
     ('xdg-moab', {}),
+    ('xdg-moab', {'source_shape': 'linear'}),
+    ('xdg-moab', {'source_point': (1.4, 1.4, 1.4)}),
+    ('xdg-moab', {'ww_method': 'fw_cadis'}),
+    ('xdg-moab', {'plot': True}),
     ('xdg-libmesh', {}),
     ('xdg-libmesh', {'source_shape': 'linear'}),
     ('xdg-libmesh', {'source_point': (1.4, 1.4, 1.4)}),
@@ -586,12 +574,10 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     ('xdg-hexes', {}),
     # A mesh in two parts, of the 24-tet mesh moved to either side, and with
     # what comes before them as wide as each, which makes lengths coincide
-    ('two-moab', {}),
-    ('two-moab', {'source_shape': 'linear'}),
     ('two-xdg-moab', {}),
-    ('two-moab', {'half_width': 2.25}),
-    ('two-moab', {'half_width': 2.25, 'sample_method': 's2'}),
+    ('two-xdg-moab', {'source_shape': 'linear'}),
     ('two-xdg-moab', {'half_width': 2.25}),
+    ('two-xdg-moab', {'half_width': 2.25, 'sample_method': 's2'}),
     ('two-xdg-moab', {'scale': 100.0}),
 ])
 def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
@@ -657,6 +643,8 @@ def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
         assert np.any(results[0]['bounds'] > 0.0)
         assert results[0]['bounds'] == pytest.approx(
             results[1]['bounds'], rel=1e-5)
+    for path in (tmp_path / 'False', tmp_path / 'True'):
+        assert 'subdivides nothing' not in (path / 'output.txt').read_text()
     inner, outer = results[1]['cell flux']
     assert results[1]['mesh flux'].sum() > 0.0
     assert outer > 0.0
@@ -666,6 +654,27 @@ def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
         results[1]['mesh flux'], rel=1e-5)
     # The flux on the mesh is that of the part of the cell that it covers
     assert results[1]['mesh flux'].sum() == pytest.approx(inner, rel=1e-5)
+
+
+def test_random_ray_mesh_misses_its_cells(tmp_path):
+    """A mesh nowhere near the cells it is applied to is reported, as that is
+    most likely a mistake"""
+    openmc.reset_auto_ids()
+    with change_directory(tmp_path):
+        box = -openmc.model.RectangularParallelepiped(
+            -1.5, 1.5, -1.5, 1.5, -1.5, 1.5, boundary_type='vacuum')
+        mesh = openmc.RegularMesh()
+        mesh.lower_left = (100.0, 100.0, 100.0)
+        mesh.upper_right = (101.0, 101.0, 101.0)
+        mesh.dimension = (2, 2, 2)
+        make_comparison_model([openmc.Cell(region=box)], 1.5,
+                              mesh).export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode == 0, output
+    assert 'so it subdivides nothing' in output
 
 
 def tet_cell(points, tet):
@@ -685,13 +694,12 @@ def tet_cell(points, tet):
 
 
 @pytest.mark.parametrize("library,graded,source_shape,source_point", [
-    ('moab', False, 'flat', None),
-    ('moab', False, 'linear', None),
-    ('moab', False, 'flat', (0.3, 0.1, 0.05)),
-    ('moab', True, 'flat', None),
-    ('moab', True, 'linear', None),
-    ('moab', True, 'flat', (0.3, 0.1, 0.05)),
+    ('xdg-moab', False, 'flat', None),
+    ('xdg-moab', False, 'linear', None),
+    ('xdg-moab', False, 'flat', (0.3, 0.1, 0.05)),
     ('xdg-moab', True, 'flat', None),
+    ('xdg-moab', True, 'linear', None),
+    ('xdg-moab', True, 'flat', (0.3, 0.1, 0.05)),
     ('xdg-libmesh', False, 'flat', None),
     ('xdg-libmesh', False, 'linear', None),
     ('xdg-libmesh', False, 'flat', (0.3, 0.1, 0.05)),
@@ -763,8 +771,8 @@ def test_random_ray_tets_as_cells(
 def test_random_ray_weight_windows_normalized_tallies(ww_method, tmp_path):
     """Whether or not flux tallies are divided by volume, weight windows are
     the same on a mesh whose elements have different volumes"""
-    if not enabled('moab'):
-        pytest.skip("moab unstructured meshes are not enabled.")
+    if not enabled('xdg-moab'):
+        pytest.skip("xdg-moab unstructured meshes are not enabled.")
 
     points, tets = graded_unit_cube_tets()
     mesh_path = tmp_path / 'graded.vtk'
@@ -776,7 +784,7 @@ def test_random_ray_weight_windows_normalized_tallies(ww_method, tmp_path):
         path.mkdir()
         openmc.reset_auto_ids()
         with change_directory(path):
-            model = make_model('moab', mesh_path, 'tally_and_ww',
+            model = make_model('xdg-moab', mesh_path, 'tally_and_ww',
                                ww_method=ww_method)
             model.settings.random_ray[
                 'volume_normalized_flux_tallies'] = normalized
@@ -821,7 +829,10 @@ def test_random_ray_exodus_output_normalized_tallies(tmp_path):
             return
         returncode, output = run_openmc(path)
         assert returncode == 0, output
-        with netcdf_file(next(path.glob('tally_*.e')), mmap=False) as exodus:
+        exodus_path = next(path.glob('tally_*.e'))
+        if h5py.is_hdf5(exodus_path):
+            pytest.skip("Exodus file is NetCDF-4, which scipy cannot read")
+        with netcdf_file(exodus_path, mmap=False) as exodus:
             names = [b''.join(name).decode().strip('\x00')
                      for name in exodus.variables['name_nod_var'].data]
             variable = f'vals_nod_var{names.index("flux_total_mean") + 1}'
@@ -831,67 +842,13 @@ def test_random_ray_exodus_output_normalized_tallies(tmp_path):
     assert fluxes_in_file[0] == pytest.approx(fluxes_in_file[1], rel=0.1)
 
 
-def test_random_ray_material_volumes(tmp_path):
-    """The rays of material volumes on a mesh are aligned with it, also in a
-    model for random ray mode, so they are moved off it there too, for the same
-    volumes. (An error would end the process, which is why this needs its
-    own.)"""
-    if not enabled('moab'):
-        pytest.skip("moab unstructured meshes are not enabled.")
-
-    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
-                 MESH_FILES['moab'])
-    script = """
-import numpy as np
-import openmc.lib
-openmc.lib.init()
-mesh = next(iter(openmc.lib.meshes.values()))
-volumes = mesh.material_volumes((3, 3, 3))
-np.save('volumes.npy', [sum(v for material, v in volumes.by_element(i)
-                            if material == 1) for i in range(24)])
-openmc.lib.finalize()
-"""
-    volumes = []
-    for random_ray in (True, False):
-        path = tmp_path / str(random_ray)
-        path.mkdir()
-        openmc.reset_auto_ids()
-        with change_directory(path):
-            # Two materials, so that the volumes of a tet tell something
-            box = -openmc.model.RectangularParallelepiped(
-                -2.0, 2.0, -2.0, 2.0, -2.0, 2.0, boundary_type='vacuum')
-            plane = openmc.ZPlane(0.2)
-            cells = [openmc.Cell(region=box & -plane),
-                     openmc.Cell(region=box & +plane)]
-            model = make_comparison_model(
-                cells, 2.0, openmc.UnstructuredMesh(mesh_path, library='moab'))
-            other = openmc.Material()
-            other.set_density('macro', 1.0)
-            other.add_macroscopic(openmc.Macroscopic('mat'))
-            model.materials.append(other)
-            cells[1].fill = other
-            if not random_ray:
-                model.settings.random_ray = {}
-            model.export_to_model_xml()
-
-        if config['build_inputs']:
-            return
-        result = subprocess.run([sys.executable, '-c', script], cwd=path,
-                                capture_output=True, text=True)
-        assert result.returncode == 0, result.stdout + result.stderr
-        volumes.append(np.load(path / 'volumes.npy'))
-
-    assert volumes[0].sum() > 0.0
-    assert volumes[0] == pytest.approx(volumes[1])
-
-
 @pytest.mark.parametrize("library,point", [
-    ('moab', (0.1, 0.2, 0.3)),
+    ('xdg-moab', (0.1, 0.2, 0.3)),
     ('xdg-libmesh', (0.1, 0.2, 0.3)),
     # On a node and on an edge of the mesh, and on a face of its tets
-    ('moab', (0.0, 0.0, 0.0)),
-    ('moab', (0.0, 0.0, 0.25)),
-    ('moab', (0.1, 0.1, 0.3)),
+    ('xdg-moab', (0.0, 0.0, 0.0)),
+    ('xdg-moab', (0.0, 0.0, 0.25)),
+    ('xdg-moab', (0.1, 0.1, 0.3)),
     ('xdg-libmesh', (0.0, 0.0, 0.0)),
     ('xdg-libmesh', (0.0, 0.0, 0.25)),
     ('xdg-libmesh', (0.1, 0.1, 0.3)),

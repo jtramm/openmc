@@ -499,7 +499,6 @@ class MeshBase(IDManagerMixin, ABC):
         new_tally = openmc.Tally()
         new_tally.filters = [openmc.MeshFilter(self)]
         new_tally.scores = ['flux']
-        new_tally.estimator = 'collision'
         model.tallies = [new_tally]
 
         # Set default arguments
@@ -2769,21 +2768,17 @@ class UnstructuredMesh(MeshBase):
         Support for libMesh unstructured meshes was added.
 
     .. note::
-        With the native interface, a libMesh mesh supports point lookups and
-        collision estimators. Following tracks through it (for track-length
-        tallies, material volumes and the subdivision of source regions in
-        random ray mode) requires setting :attr:`interface` to ``'xdg'``. XDG
-        handles linear tetrahedra and hexahedra, and refuses other elements when
-        it loads the mesh. Their faces must be shared between neighboring
+        Following tracks through a mesh in order to subdivide source regions in
+        random ray mode requires setting :attr:`interface` to ``'xdg'``, for
+        either library. So do track-length tallies and material volumes on a
+        libMesh mesh, whose native interface only looks up points (for collision
+        estimators, and for mesh tallies and weight windows in random ray mode).
+        XDG handles linear tetrahedra and hexahedra, and refuses other elements
+        when it loads the mesh. Their faces must be shared between neighboring
         elements, and their node order must not be mirrored. This is not
         checked: at such a place, a track loses length, which random ray mode
         counts as outside of the mesh, while tallies in Monte Carlo mode are
         low; a mirrored element can also make a run print warnings without end.
-        A native MOAB mesh must consist of linear tetrahedra. A track that lies
-        exactly in the boundary of a mesh may or may not count as being in the
-        mesh, if so possibly all in one of the elements along it, and one that
-        enters it exactly through a corner of a mesh that does not fill its
-        bounding box can lose its length in the first element.
 
     Parameters
     ----------

@@ -426,14 +426,15 @@ mesh to a list of domains, with each domain being of type
 idea of defining a source region as a combination of a base geometry cell and a
 mesh element is known as "cell-under-voxel" style geometry, although in OpenMC
 the mesh can be any kind and is not restricted to 3D regular voxels. This
-includes :class:`openmc.UnstructuredMesh`, with MOAB or, through the XDG
-interface (by setting its ``interface`` attribute to ``'xdg'``), libMesh,
-although ray tracing through an unstructured mesh is considerably slower than
-through a structured one. A mesh does not have to cover the cells it is applied
+includes :class:`openmc.UnstructuredMesh`, with MOAB or libMesh, through the XDG
+interface (by setting its ``interface`` attribute to ``'xdg'``), although ray
+tracing through an unstructured mesh is considerably slower than through a
+structured one. A mesh does not have to cover the cells it is applied
 to: whatever is outside of the mesh counts as one more mesh bin, so that each
 cell instance has one source region for its part outside of the mesh, which is
-not subdivided any further. An example of overlaying a simple 2D mesh over a
-geometry is given as::
+not subdivided any further. As with any source region, a mesh tally on another
+mesh does not resolve it: all of its flux goes to a single bin. An example of
+overlaying a simple 2D mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

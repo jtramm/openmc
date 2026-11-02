@@ -98,6 +98,10 @@ public:
   void transpose_scattering_matrix();
   void serialize_final_fluxes(vector<double>& flux);
   void apply_meshes();
+
+  //! Warn about source region meshes that no ray found any part of their cells
+  //! in, which a wrong position or length multiplier makes likely
+  void warn_about_missed_meshes() const;
   void apply_mesh_to_cell_instances(int32_t i_cell, int32_t mesh_idx,
     int target_material_id, const vector<int32_t>& instances,
     bool is_target_void);

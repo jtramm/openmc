@@ -48,7 +48,7 @@
         </mesh>
       </source_region_meshes>
     </random_ray>
-    <mesh id="1" type="unstructured" library="moab">
+    <mesh id="1" type="unstructured" library="moab" interface="xdg">
       <filename>../../unstructured_mesh/test_mesh_dagmc_tets.vtk</filename>
     </mesh>
   </settings>

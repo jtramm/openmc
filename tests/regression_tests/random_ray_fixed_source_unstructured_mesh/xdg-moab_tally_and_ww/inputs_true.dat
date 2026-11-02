@@ -41,7 +41,7 @@
         <method>magic</method>
       </weight_windows_generator>
     </weight_window_generators>
-    <mesh id="1" type="unstructured" library="moab">
+    <mesh id="1" type="unstructured" library="moab" interface="xdg">
       <filename>../../unstructured_mesh/test_mesh_dagmc_tets.vtk</filename>
     </mesh>
     <random_ray>

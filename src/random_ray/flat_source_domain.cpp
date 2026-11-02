@@ -17,6 +17,7 @@
 #include "openmc/tallies/tally_scoring.h"
 #include "openmc/timer.h"
 #include "openmc/weight_windows.h"
+#include "openmc/xdg.h"
 
 #include <cstdio>
 #include <numeric>
@@ -2438,17 +2439,19 @@ void FlatSourceDomain::apply_meshes()
     if (mesh_domain_map_.find(mesh_id) == mesh_domain_map_.end())
       continue;
 
-#ifdef OPENMC_LIBMESH_ENABLED
-    // Rays have to be followed through the mesh, which the native libMesh
-    // interface does not do
-    if (dynamic_cast<LibMesh*>(mesh)) {
+    // Rays are followed through unstructured meshes by XDG
+    bool through_xdg = false;
+#ifdef OPENMC_XDG_ENABLED
+    through_xdg = dynamic_cast<XDGMesh*>(mesh) != nullptr;
+#endif
+    if (dynamic_cast<UnstructuredMesh*>(mesh) && !through_xdg) {
       fatal_error(fmt::format(
-        "Source region mesh {} is a libMesh mesh with the native interface, "
-        "through which rays cannot be followed. Use the XDG interface (set "
-        "the interface attribute of the openmc.UnstructuredMesh to 'xdg').",
+        "Source region mesh {} is an unstructured mesh with the native "
+        "interface, through which rays are not followed. Use the XDG interface "
+        "(set the interface attribute of the openmc.UnstructuredMesh to "
+        "'xdg').",
         mesh_id));
     }
-#endif
 
     // Ray tracing through the mesh and locating source regions within it
     // require the mesh's point-location acceleration structures, which some
@@ -2731,6 +2734,31 @@ int FlatSourceDomain::lookup_mesh_idx(int64_t sr) const
 // the geometry. This takes into account both the base source region index as
 // well as the mesh bin if a mesh is applied to this source region for
 // subdivision.
+void FlatSourceDomain::warn_about_missed_meshes() const
+{
+  vector<int> found(model::meshes.size(), 0);
+  for (int64_t sr = 0; sr < n_source_regions(); sr++) {
+    const SourceRegionKey key = source_regions_.key(sr);
+    const int mesh_idx = lookup_mesh_idx(key.base_source_region_id);
+    if (mesh_idx != C_NONE && key.mesh_bin != C_NONE) {
+      found[mesh_idx] = 1;
+    }
+  }
+#ifdef OPENMC_MPI
+  MPI_Allreduce(MPI_IN_PLACE, found.data(), static_cast<int>(found.size()),
+    MPI_INT, MPI_MAX, mpi::intracomm);
+#endif
+  for (const auto& entry : mesh_domain_map_) {
+    if (!found[model::mesh_map[entry.first]]) {
+      warning(fmt::format(
+        "Rays found no part of the cells that source region mesh {} is applied "
+        "to inside of the mesh, so it subdivides nothing. Check its position "
+        "and its length multiplier.",
+        entry.first));
+    }
+  }
+}
+
 SourceRegionKey FlatSourceDomain::lookup_source_region_key(
   const GeometryState& gs) const
 {
