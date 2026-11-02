@@ -382,9 +382,17 @@ Tally::Tally(pugi::xml_node node)
   // ensure a tracklength tally isn't used with a libMesh filter (in random ray
   // mode, the mesh filter only looks up points)
   for (auto i : this->filters_) {
-    auto df = dynamic_cast<MeshFilter*>(model::tally_filters[i].get());
-    if (df && settings::solver_type != SolverType::RANDOM_RAY) {
-      auto lm = dynamic_cast<LibMesh*>(model::meshes[df->mesh()].get());
+    Filter* filter = model::tally_filters[i].get();
+    int32_t mesh_index = C_NONE;
+    if (auto mesh_filter = dynamic_cast<MeshFilter*>(filter)) {
+      mesh_index = mesh_filter->mesh();
+    } else if (auto material_filter =
+                 dynamic_cast<MeshMaterialFilter*>(filter)) {
+      mesh_index = material_filter->mesh();
+    }
+    if (mesh_index != C_NONE &&
+        settings::solver_type != SolverType::RANDOM_RAY) {
+      auto lm = dynamic_cast<LibMesh*>(model::meshes[mesh_index].get());
       if (lm && estimator_ == TallyEstimator::TRACKLENGTH) {
         fatal_error("A tracklength estimator cannot be used with a libMesh "
                     "mesh tally through the native interface. Use a collision "

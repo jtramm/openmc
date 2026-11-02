@@ -959,16 +959,6 @@ private:
   void intersect_track(const moab::CartVect& start, const moab::CartVect& dir,
     double track_len, vector<double>& hits) const;
 
-  //! Find the part of a line that is in a tetrahedron
-  //
-  //! \param[in] tet MOAB EntityHandle of the tetrahedron
-  //! \param[in] origin Point on the line
-  //! \param[in] dir Normalized direction of the line
-  //! \param[out] s_in Distance from origin to where the line enters the tet
-  //! \param[out] s_out Distance from origin to where the line leaves the tet
-  void tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
-    const moab::CartVect& dir, double& s_in, double& s_out) const;
-
   //! Calculate the volume for a given tetrahedron handle.
   //
   // \param[in] tet MOAB EntityHandle of the tetrahedron
@@ -993,7 +983,8 @@ private:
   //! \param[in] r Position to check
   //! \param[in] MOAB terahedron to check
   //! \param[in] tol Distance from its faces within which a point counts as in
-  //! it \return True if r is inside, False if r is outside
+  //! it
+  //! \return True if r is inside, False if r is outside
   bool point_in_tet(
     const moab::CartVect& r, moab::EntityHandle tet, double tol = 0.0) const;
 

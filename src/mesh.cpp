@@ -3321,47 +3321,6 @@ void MOABMesh::intersect_track(const moab::CartVect& start,
   hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
 }
 
-void MOABMesh::tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
-  const moab::CartVect& dir, double& s_in, double& s_out) const
-{
-  const moab::EntityHandle* conn;
-  int n_conn;
-  moab::ErrorCode rval = mbi_->get_connectivity(tet, conn, n_conn, true);
-  if (rval != moab::MB_SUCCESS || n_conn != 4) {
-    fatal_error("Failed to get tet connectivity");
-  }
-  moab::CartVect p[4];
-  rval = mbi_->get_coords(conn, 4, p[0].array());
-  if (rval != moab::MB_SUCCESS) {
-    fatal_error("Failed to get tet coords");
-  }
-
-  // The line is inside the tet where it is on the same side as the fourth
-  // corner of the plane through each face. A line in such a plane, to within
-  // roundoff, is not cut by it.
-  s_in = -INFTY;
-  s_out = INFTY;
-  for (int i = 0; i < 4; i++) {
-    const moab::CartVect& a = p[(i + 1) % 4];
-    moab::CartVect normal = (p[(i + 2) % 4] - a) * (p[(i + 3) % 4] - a);
-    normal.normalize();
-    if ((p[i] - a) % normal > 0.0)
-      normal = -normal;
-    const double along = dir % normal;
-    const double distance = (a - origin) % normal;
-    if (std::abs(along) <= 1e-12 && std::abs(distance) <= surface_tol_)
-      continue;
-    if (along > 0.0) {
-      s_out = std::min(s_out, distance / along);
-    } else if (along < 0.0) {
-      s_in = std::max(s_in, distance / along);
-    } else if (distance < 0.0) {
-      s_in = INFTY;
-      s_out = -INFTY;
-    }
-  }
-}
-
 void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
@@ -3400,11 +3359,18 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // Distances along the track are measured from its start, unless it starts
   // more than about 100 times the mesh's extent away: they would then be too
   // coarse for the intersections to be told from the end of the track in the
-  // mesh, so they are measured from where the track enters that box
+  // mesh, so they are measured from where the track enters that box.
+  //
+  // MOAB's test of a triangle has no tolerance, so a track exactly through an
+  // edge or vertex of a tet or in a face can miss intersections. Moving the
+  // track by a tiny amount, in a fixed direction unrelated to the mesh, leaves
+  // no such ties.
   const double offset = t_lo > 100.0 * extent ? t_lo : 0.0;
-  const Position origin = r0 + offset * u;
+  const Position origin =
+    r0 + offset * u +
+    surface_tol_ *
+      Position {0.5773502691896258, -0.3141592653589793, 0.7539822368615503};
   const moab::CartVect ray_origin(origin.x, origin.y, origin.z);
-  const double s_begin = t_lo - offset;
   const double s_end = t_hi - offset;
 
   // Intersections with the faces of the tets, searched for from a tiny bit
@@ -3414,53 +3380,23 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   intersect_track(ray_origin - TINY_BIT * dir, dir, s_end + TINY_BIT, hits);
 
   // Score each piece of the track between consecutive intersections to the
-  // tet found at its midpoint (if any: the piece can be outside of the mesh).
-  // An intersection can be missed where the track passes through an edge or
-  // vertex, or runs along a face, so that the piece runs on past the tet: only
-  // the part in the tet is scored to it, and the rest of the piece is looked
-  // at in turn, also near its ends if its midpoint is in no tet.
-  const double resolution = 16.0 * surface_tol_;
-  auto point = [&](double s) { return origin + s * u; };
-  auto score = [&](auto&& self, double s0, double s1, int depth) -> void {
-    if (s1 <= s0)
-      return;
-    moab::EntityHandle tet = get_tet(point(0.5 * (s0 + s1)));
-    if (tet == 0) {
-      if (s1 - s0 <= 2.0 * resolution)
-        return;
-      tet = get_tet(point(s0 + resolution));
-      if (tet == 0)
-        tet = get_tet(point(s1 - resolution));
-      if (tet == 0)
-        return;
+  // tet found at its midpoint, if any: the piece can be outside of the mesh
+  auto score = [&](double s0, double s1) {
+    const int bin = this->get_bin(origin + 0.5 * (s0 + s1) * u);
+    if (bin != -1) {
+      bins.push_back(bin);
+      lengths.push_back((s1 - s0) / track_len);
     }
-    double chord_in, chord_out;
-    tet_chord(tet, ray_origin, dir, chord_in, chord_out);
-    const double in = chord_in - s0 <= resolution ? s0 : chord_in;
-    const double out = s1 - chord_out <= resolution ? s1 : chord_out;
-    if (out <= in) {
-      // The track only touches the tet at that point
-      if (depth < 8 && s1 - s0 > 2.0 * resolution) {
-        const double middle = 0.5 * (s0 + s1);
-        self(self, s0, middle, depth + 1);
-        self(self, middle, s1, depth + 1);
-      }
-      return;
-    }
-    self(self, s0, in, depth + 1);
-    bins.push_back(get_bin_from_ent_handle(tet));
-    lengths.push_back((out - in) / track_len);
-    self(self, out, s1, depth + 1);
   };
-  double s = s_begin;
+  double s = t_lo - offset;
   for (double hit : hits) {
     const double distance = hit - TINY_BIT;
     if (distance > s && distance < s_end) {
-      score(score, s, distance, 0);
+      score(s, distance);
       s = distance;
     }
   }
-  score(score, s, s_end, 0);
+  score(s, s_end);
 }
 
 moab::EntityHandle MOABMesh::get_tet(const Position& r) const

@@ -1326,15 +1326,18 @@ def test_SphericalMesh_get_indices_at_coords():
     assert result[2] == 0  # phi=pi/4, in [0, pi/2)
 
 
-@pytest.mark.parametrize('mesh_file, mesh_library, interface', [
-    ("test_mesh_dagmc_tets.vtk", "moab", "native"),
-    ("test_mesh_dagmc_tets.e", "libmesh", "native"),
-    ("test_mesh_dagmc_tets.vtk", "moab", "xdg"),
-    ("test_mesh_dagmc_tets.e", "libmesh", "xdg"),
+@pytest.mark.parametrize('mesh_file, mesh_library, interface, multiplier, total', [
+    ("test_mesh_dagmc_tets.vtk", "moab", "native", 1.0, 1.0),
+    ("test_mesh_dagmc_tets.e", "libmesh", "native", 1.0, 1.0),
+    ("test_mesh_dagmc_tets.e", "libmesh", "native", 2.0, 8.0),
+    ("test_mesh_dagmc_tets.vtk", "moab", "xdg", 1.0, 1.0),
+    ("test_mesh_dagmc_tets.e", "libmesh", "xdg", 1.0, 1.0),
+    ("test_mesh_hexes.e", "libmesh", "xdg", 1.0, 8000.0),
 ])
-def test_umesh_volumes(mesh_file, mesh_library, interface, run_in_tmpdir):
+def test_umesh_volumes(mesh_file, mesh_library, interface, multiplier, total,
+                       run_in_tmpdir):
     """The element volumes written to a statepoint are positive and sum to
-    the volume of the unit cube the mesh tiles"""
+    the volume of the cube the mesh tiles"""
     features = {'moab': 'dagmc', 'libmesh': 'libmesh'}
     if not openmc.lib.feature_enabled(features[mesh_library]):
         pytest.skip(f"{mesh_library} not enabled.")
@@ -1344,7 +1347,8 @@ def test_umesh_volumes(mesh_file, mesh_library, interface, run_in_tmpdir):
     model = openmc.Model()
     surf = openmc.Sphere(r=1000.0, boundary_type="vacuum")
     model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
-    umesh = openmc.UnstructuredMesh(UMESH_DIR / mesh_file, mesh_library)
+    umesh = openmc.UnstructuredMesh(UMESH_DIR / mesh_file, mesh_library,
+                                    length_multiplier=multiplier)
     umesh.interface = interface
     tally = openmc.Tally()
     tally.filters = [openmc.MeshFilter(umesh)]
@@ -1359,7 +1363,7 @@ def test_umesh_volumes(mesh_file, mesh_library, interface, run_in_tmpdir):
     with openmc.StatePoint(sp_file) as sp:
         volumes = sp.meshes[umesh.id].volumes
     assert np.all(volumes > 0)
-    assert np.sum(volumes) == pytest.approx(1.0, rel=1e-12)
+    assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
 @pytest.mark.parametrize('nodes, cell, cell_type', [
@@ -1395,18 +1399,24 @@ def test_native_moab_other_elements(nodes, cell, cell_type, run_in_tmpdir):
         model.run()
 
 
-def test_native_libmesh_tracklength_tally(run_in_tmpdir):
+@pytest.mark.parametrize('filter_type', ['mesh', 'mesh_material'])
+def test_native_libmesh_tracklength_tally(filter_type, run_in_tmpdir):
     """Tracks cannot be followed through a libMesh mesh with the native
     interface, which is reported up front"""
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh not enabled.")
 
     model = openmc.Model()
+    mat = openmc.Material()
+    mat.add_nuclide('H1', 1.0)
+    mat.set_density('g/cm3', 1.0)
     surf = openmc.Sphere(r=10.0, boundary_type="vacuum")
-    model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
+    model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-surf)])
+    mesh = openmc.UnstructuredMesh(UMESH_DIR / "test_mesh_dagmc_tets.e", 'libmesh')
     tally = openmc.Tally()
-    tally.filters = [openmc.MeshFilter(openmc.UnstructuredMesh(
-        UMESH_DIR / "test_mesh_dagmc_tets.e", 'libmesh'))]
+    tally.filters = [
+        openmc.MeshFilter(mesh) if filter_type == 'mesh' else
+        openmc.MeshMaterialFilter(mesh, [(0, mat.id)])]
     tally.scores = ["flux"]
     tally.estimator = "tracklength"
     model.tallies = [tally]

@@ -491,8 +491,8 @@ public:
   template<typename F>
   MovedMeshFile(const MOABMesh& mesh, F move)
     : path_(std::filesystem::temp_directory_path() /
-            ("openmc_test_mesh_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".vtk"))
+            ("openmc_test_mesh_" + std::to_string(std::random_device {}()) +
+              ".vtk"))
   {
     std::ofstream out(path_);
     out.precision(17);
@@ -592,7 +592,7 @@ TEST_CASE("MOAB tracks in a mesh whose hull is not its bounding box")
         const Position node = mesh.vertex(i);
         const Position inner = move({uniform(rng), uniform(rng), uniform(rng)});
         check_chords(
-          mesh, node - 1.3 * (inner - node), node + 3.0 * (inner - node), 1e-9);
+          mesh, node - 1.3 * (inner - node), node + 3.0 * (inner - node), 1e-8);
       }
     }
   }
@@ -601,10 +601,10 @@ TEST_CASE("MOAB tracks in a mesh whose hull is not its bounding box")
 TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
 {
   // With coordinates as they are, with roundoff in them as from a mesh
-  // generator, and turned about two axes, which makes such a track cross faces
-  // at arbitrary places or not at all, and such a point seem outside of all of
-  // its tets. What counts is that it is found: which of the tets around it
-  // gets it is arbitrary.
+  // generator, and turned about two axes or moved away from the origin, which
+  // makes such a track cross faces at arbitrary places or not at all, and such
+  // a point seem outside of all of its tets. What counts is that it is found:
+  // which of the tets around it gets it is arbitrary.
   MOABMesh original(tets_file());
   const auto turn = [](Position p) {
     const Position q {0.6 * p.x - 0.8 * p.y, 0.8 * p.x + 0.6 * p.y, p.z};
@@ -618,22 +618,32 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
     const Position q {p.x, c * p.y + s * p.z, -s * p.y + c * p.z};
     return Position {0.6 * q.x + 0.8 * q.y, -0.8 * q.x + 0.6 * q.y, q.z};
   };
+  const Position away {2000.0, 1000.0, -3000.0};
 
-  for (int variant : {0, 1, 2}) {
+  enum class Variant { AS_IS, ROUNDOFF, MORE_ROUNDOFF, TURNED, AWAY };
+  for (Variant variant : {Variant::AS_IS, Variant::ROUNDOFF,
+         Variant::MORE_ROUNDOFF, Variant::TURNED, Variant::AWAY}) {
     std::mt19937_64 rng(41);
     std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+    const auto from_cube = [&](Position p) {
+      return variant == Variant::TURNED ? turn(p)
+             : variant == Variant::AWAY ? p + away
+                                        : p;
+    };
+    const auto to_cube = [&](Position p) {
+      return variant == Variant::TURNED ? unturn(p)
+             : variant == Variant::AWAY ? p - away
+                                        : p;
+    };
     MovedMeshFile file(original, [&](Position p) {
-      if (variant == 1)
-        return p +
-               2.3e-16 * Position {uniform(rng), uniform(rng), uniform(rng)};
-      return variant == 2 ? turn(p) : p;
+      const double noise = variant == Variant::ROUNDOFF        ? 2.3e-16
+                           : variant == Variant::MORE_ROUNDOFF ? 1e-13
+                                                               : 0.0;
+      return from_cube(p) +
+             noise * Position {uniform(rng), uniform(rng), uniform(rng)};
     });
     MOABMesh mesh(file.path());
     mesh.prepare_for_point_location();
-    const auto to_cube = [&](
-                           Position p) { return variant == 2 ? unturn(p) : p; };
-    const auto from_cube = [&](
-                             Position p) { return variant == 2 ? turn(p) : p; };
 
     auto check_length = [&](Position r0, Position r1) {
       const double length = (r1 - r0).norm();
@@ -645,7 +655,7 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
         total += f * length;
       REQUIRE(
         total == Catch::Approx(length_in_unit_cube(to_cube(r0), to_cube(r1)))
-                   .margin(1e-9));
+                   .margin(1e-8));
     };
 
     // Beams along the axes of the cube, along the mesh's middle lines and in

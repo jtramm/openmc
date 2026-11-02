@@ -2772,7 +2772,9 @@ class UnstructuredMesh(MeshBase):
         Carlo mode are low; a mirrored element can also make a run print
         warnings without end. A native MOAB mesh must consist of linear
         tetrahedra. A track that lies exactly in the boundary of a mesh may or
-        may not count as being in the mesh.
+        may not count as being in the mesh, and one that enters it exactly
+        through a corner of a mesh that does not fill its bounding box can lose
+        its length in the first element.
 
     Parameters
     ----------

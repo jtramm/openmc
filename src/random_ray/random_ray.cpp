@@ -488,20 +488,27 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
     // Portions of the segment outside the mesh are not returned, so they
-    // could be neither attenuated nor tallied: see check_mesh_coverage()
-    if (mesh_coverage.empty())
-      mesh_coverage.resize(model::cells.size());
-    MeshCoverage& coverage = mesh_coverage[lowest_coord().cell()];
-    const double lost = reduced_distance *
-                        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
-                                 mesh_fractional_lengths_.end(), 0.0));
-    coverage.path += reduced_distance;
-    coverage.lost += lost;
-    if (lost > coverage.worst) {
-      coverage.worst = lost;
-      coverage.mesh_id = mesh->id();
-      coverage.start = start;
-      coverage.end = end;
+    // could be neither attenuated nor tallied: see check_mesh_coverage(). This
+    // does not matter in a void cell without a source, where nothing happens
+    // to the rays.
+    const int i_cell = lowest_coord().cell();
+    if (model::cells[i_cell]->material(cell_instance()) != MATERIAL_VOID ||
+        domain_->external_volumetric_source_map_.count(sr)) {
+      if (mesh_coverage.empty())
+        mesh_coverage.resize(model::cells.size());
+      MeshCoverage& coverage = mesh_coverage[i_cell];
+      const double lost =
+        reduced_distance *
+        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
+                 mesh_fractional_lengths_.end(), 0.0));
+      coverage.path += reduced_distance;
+      coverage.lost += lost;
+      if (lost > coverage.worst) {
+        coverage.worst = lost;
+        coverage.mesh_id = mesh->id();
+        coverage.start = start;
+        coverage.end = end;
+      }
     }
 
     // Loop over all mesh bins and attenuate flux
