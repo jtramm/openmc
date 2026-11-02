@@ -4532,9 +4532,8 @@ double LibMesh::triangulated_volume(const vector<SideTriangle>& tris)
   return volume / 6.0;
 }
 
-const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
-  const std::set<libMesh::subdomain_id_type>* blocks,
-  const libMesh::Elem* exclude) const
+const libMesh::Elem* LibMesh::locate(
+  const libMesh::Point& p, const libMesh::Elem* exclude) const
 {
   // The elements whose bounding boxes contain the point are found in a tree
   // and the decision is made with classify(), the geometry bins_crossed()
@@ -4543,8 +4542,10 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   // previous answer per thread). An element that contains the point by more
   // than roundoff is preferred over one whose surface is merely within the
   // tolerance of it, so that a point just past a side is placed in the
-  // element it is in; elements do not overlap, so there is at most one such
-  // element and the search stops there. Otherwise the lowest id of the
+  // element it is in. There is at most one such element, unless elements
+  // overlap (at a non-conforming interface whose sides are not flat), so the
+  // search stops there; the order of the search is fixed, so overlapping
+  // elements still get a point consistently. Otherwise the lowest id of the
   // elements whose surface the point is on wins, which does not depend on
   // roundoff or on the order of the search.
   static thread_local vector<SideTriangle> tris;
@@ -4553,7 +4554,7 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
   int on_surface_index = -1;
   elem_tree_.for_point(p, [&](int i) {
     const libMesh::Elem* elem = tree_elems_[i];
-    if (elem == exclude || (blocks && !blocks->count(elem->subdomain_id())))
+    if (elem == exclude)
       return false;
     side_triangles(*elem, tris);
     const int position = classify(tris, p, surface_tol_);
@@ -4822,13 +4823,27 @@ const libMesh::Elem* LibMesh::elem_across(
 
 void LibMesh::build_boundary_triangles()
 {
+  // The sides with no element across them are on the boundary of the mesh, or
+  // at a non-conforming interface. There, where such sides are not flat, they
+  // do not coincide and elements can overlap, which a point just inside a
+  // side that is also in another element shows.
   boundary_tris_.clear();
+  elements_overlap_ = false;
   vector<SideTriangle> tris;
   for (const libMesh::Elem* elem : tree_elems_) {
     side_triangles(*elem, tris);
     for (const auto& tri : tris) {
-      if (!elem_across(*elem, tri.side))
-        boundary_tris_.push_back({tri.a, tri.b, tri.c, tri.normal, elem});
+      if (elem_across(*elem, tri.side))
+        continue;
+      boundary_tris_.push_back({tri.a, tri.b, tri.c, tri.normal, elem});
+      if (!elements_overlap_) {
+        const double length = std::sqrt(std::max({(tri.b - tri.a).norm_sq(),
+          (tri.c - tri.b).norm_sq(), (tri.a - tri.c).norm_sq()}));
+        const libMesh::Point probe =
+          (tri.a + tri.b + tri.c) / 3.0 -
+          std::max(1e-6 * length, 10.0 * surface_tol_) * tri.normal.unit();
+        elements_overlap_ = locate(probe, elem) != nullptr;
+      }
     }
   }
 
@@ -5283,25 +5298,33 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   if (t_lo >= t_hi)
     return;
 
-  // Distances along the track are measured from where it enters that box,
-  // so that they stay small next to the mesh's tolerances however far from
-  // the mesh the track starts, and the walk ends where the track leaves the
-  // box. The lengths and starts scored are fractions of the whole track.
-  const double offset = t_lo;
-  p0 += offset * dir;
-  const double end = t_hi - offset;
+  // Distances along the track are measured from its start, unless it starts
+  // more than about 100 times the mesh's scale away: such distances would not
+  // be small next to the mesh's tolerances, so they are then measured from
+  // where the track enters that box. (Only then, as the rounding of that
+  // point moves the track, which matters where it grazes a side.) The lengths
+  // and starts scored are fractions of the whole track.
+  double offset = 0.0;
+  if (t_lo > 1e14 * surface_tol_) {
+    offset = t_lo;
+    p0 += offset * dir;
+  }
+  const double t_end = t_hi - offset;
+  const double track_end = track_len - offset;
 
   static thread_local vector<SideTriangle> tris;
   static thread_local vector<SideTriangle> other_tris;
   const double step = probe_step_;
   auto point = [&](double s) { return p0 + s * dir; };
-  // Distance along the track a short step past s, short of the walk's end
-  auto ahead = [&](double s) { return s + std::min(step, 0.5 * (end - s)); };
+  // Distance along the track a short step past s, short of the track's end
+  auto ahead = [&](double s) {
+    return s + std::min(step, 0.5 * (track_end - s));
+  };
 
   // Score the part of the track between s0 and s1 to an element, by default
   // the one that locate() finds at its midpoint: as in MOABMesh, so that the
-  // bin is the one a later get_bin() of that midpoint returns (the random ray
-  // solver relies on this)
+  // bin is the one get_bin() returns there (the random ray solver checks the
+  // bin of a source region it discovers with get_bin())
   auto score = [&](double s0, double s1, const libMesh::Elem* owner) {
     if (s1 <= s0)
       return;
@@ -5348,8 +5371,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   // scored to the elements found along it. Nothing is past the end of the
   // bounding box.
   auto resume = [&](double& s, double h) -> const libMesh::Elem* {
-    if (s >= end) {
-      s = end;
+    if (s >= t_end) {
+      s = track_end;
       return nullptr;
     }
     if (const libMesh::Elem* found = locate(point(ahead(s)))) {
@@ -5357,7 +5380,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       s = ahead(s);
       return found;
     }
-    const double s_max = std::min(s + h, end);
+    const double s_max = std::min(s + h, t_end);
     double t_entry;
     const libMesh::Elem* entered = find_entry(p0, dir, s, s_max, t_entry);
     const double limit = entered ? t_entry : s_max;
@@ -5383,8 +5406,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       }
     }
     if (!entered)
-      entered = find_entry(p0, dir, s_max, end, t_entry);
-    s = entered ? t_entry : end;
+      entered = find_entry(p0, dir, s_max, t_end, t_entry);
+    s = entered ? t_entry : track_end;
     return entered;
   };
 
@@ -5395,7 +5418,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   int n_skips = 0;
   int n_redone = 0;
   double redo_exit = 0.0;
-  double t = 0.0;
+  double t = t_lo - offset;
   // The walk starts in the element the track moves into, if the start of the
   // track is in it; otherwise in the element that does contain the start (the
   // track leaves it within a step), or, if the track starts outside of the
@@ -5416,20 +5439,20 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   // of track.
   auto step_past = [&]() {
     const double t_past =
-      std::min(t + std::ldexp(step, std::min(n_skips++, 60)), end);
+      std::min(t + std::ldexp(step, std::min(n_skips++, 60)), track_end);
     score_located(score_located, t, t_past);
     const double h = elem->hmax();
     t = t_past;
     n_stalled = 0;
     n_redone = 0;
-    if (t < end) {
+    if (t < t_end) {
       elem = locate(point(t));
       if (!elem)
         elem = resume(t, h);
     }
   };
 
-  while (t < end) {
+  while (t < t_end) {
     if (++n_steps > max_track_steps_) {
       // The random ray solver would silently lose transport, so stop; a
       // Monte Carlo tally drops the rest of the track and reports it once
@@ -5449,7 +5472,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
     }
     if (!elem) {
       double t_entry;
-      elem = find_entry(p0, dir, t, end, t_entry);
+      elem = find_entry(p0, dir, t, t_end, t_entry);
       if (!elem)
         return;
       t = t_entry;
@@ -5464,7 +5487,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
     // progress.
     const int position = classify(tris, point(t), surface_tol_);
     if (position < 0 && classify(tris, point(ahead(t)), surface_tol_) < 0) {
-      const libMesh::Elem* found = locate(point(t), nullptr, elem);
+      const libMesh::Elem* found = locate(point(t), elem);
       n_redone = 0;
       if (found) {
         elem = found;
@@ -5526,7 +5549,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
         d_exit = exit_distance(tris, point(t), dir, exit_side);
       }
     }
-    double t_exit = std::min(t + d_exit, end);
+    double t_exit = std::min(t + d_exit, track_end);
 
     // A hit within the tolerance of a side triangle's edge can report an
     // exit at (almost) zero distance for a track that stays inside the
@@ -5538,7 +5561,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       const double d =
         exit_distance(tris, point(t), dir, retry_side, step, false);
       if (d < INFTY) {
-        t_exit = std::min(t + d, end);
+        t_exit = std::min(t + d, track_end);
         exit_side = retry_side;
       }
     }
@@ -5554,7 +5577,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
 
     // The segment is scored to the element that locate() finds at its
     // midpoint. A midpoint strictly inside the walked element is in no other
-    // element, so the search is only needed otherwise. If the element found
+    // element, unless elements overlap, so the search is only needed
+    // otherwise. If the element found
     // is not the one being walked but contains the point the walk is at (the
     // walk strayed at an edge, a vertex or a warped side, or the track lies
     // in a side), the step is redone from it, a couple of times at most;
@@ -5563,7 +5587,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
     const libMesh::Elem* owner = elem;
     if (t_exit > t) {
       const double t_mid = 0.5 * (t + t_exit);
-      if (classify(tris, point(t_mid), surface_tol_) <= 0) {
+      if (elements_overlap_ ||
+          classify(tris, point(t_mid), surface_tol_) <= 0) {
         owner = locate(point(t_mid));
         if (!owner) {
           // The track leaves the element through a hole in its surface (a
@@ -5600,7 +5625,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       else
         score_located(score_located, t, t_exit);
     }
-    if (t_exit >= end)
+    if (t_exit >= track_end)
       return;
     const bool progressed = t_exit - t > step;
     t = t_exit;
@@ -5635,7 +5660,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       const libMesh::Point point_ahead = point(ahead(t));
       next = locate(point_ahead);
       if (next == elem && classify(tris, point_ahead, surface_tol_) <= 0)
-        next = neighbor ? neighbor : locate(point_ahead, nullptr, elem);
+        next = neighbor ? neighbor : locate(point_ahead, elem);
       if (!next)
         next = neighbor;
       if (!next && (side_neighbor || through_hole))
@@ -5764,8 +5789,12 @@ int AdaptiveLibMesh::get_bin(Position r) const
     p /= length_multiplier_;
   }
 
-  const auto elem_ptr = locate(p, block_restrict_ ? &block_ids_ : nullptr);
-  return elem_ptr ? get_bin_from_element(elem_ptr) : -1;
+  // All elements take part in the lookup, as in bins_crossed(), so that a
+  // point on a side between blocks belongs to one element; it is in a bin if
+  // that element is
+  const auto elem_ptr = locate(p);
+  return elem_ptr && is_bin_element(elem_ptr) ? get_bin_from_element(elem_ptr)
+                                              : -1;
 }
 
 int AdaptiveLibMesh::get_bin_from_element(const libMesh::Elem* elem) const

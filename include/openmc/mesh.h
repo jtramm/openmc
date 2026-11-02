@@ -1165,14 +1165,12 @@ protected:
   //! Find the active element containing a point
   //
   //! \param[in] p Point in mesh coordinates
-  //! \param[in] blocks Subdomains to restrict the search to, if any
   //! \param[in] exclude An element not to consider, if any
   //! \return Element containing the point: one that contains it by more than
   //!   roundoff if there is one, or else the one with the lowest id among
   //!   those whose surface it is on; nullptr if it is outside the mesh
-  const libMesh::Elem* locate(const libMesh::Point& p,
-    const std::set<libMesh::subdomain_id_type>* blocks = nullptr,
-    const libMesh::Elem* exclude = nullptr) const;
+  const libMesh::Elem* locate(
+    const libMesh::Point& p, const libMesh::Elem* exclude = nullptr) const;
 
   // Data members
   libMesh::MeshBase* m_; //!< pointer to libMesh MeshBase instance, always set
@@ -1390,6 +1388,7 @@ private:
     coincident_neighbors_;     //!< element and side across sides without
                                //!< libMesh neighbors, by 32 * element id + side
   bool sides_checked_ {false}; //!< whether curved sides were looked for
+  bool elements_overlap_ {false}; //!< whether elements were found to overlap
   int64_t max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {
     false}; //!< whether a track that exceeded the bound was reported

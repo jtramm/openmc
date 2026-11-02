@@ -1414,8 +1414,10 @@ def test_umesh_material_volume_bounding_boxes(
 
 
 @pytest.mark.parametrize('mesh_file, message', [
-    # Tets around a node pushed past its neighbors (some are inverted)
+    # Tets around a node pushed past its neighbors (some are inverted), which
+    # do and do not share their nodes
     ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
+    ("test_mesh_tets_folded_split.e", "are inverted, wholly or in part"),
     # A hex with its top turned 150 degrees from its bottom (its sides cross)
     ("test_mesh_hex_twisted.e", "are inverted, wholly or in part"),
 ])

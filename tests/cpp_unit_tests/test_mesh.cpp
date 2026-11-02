@@ -533,6 +533,24 @@ void check_track(const Mesh& umesh, Position lo, Position hi, Position r0,
   REQUIRE(t - t_in == Catch::Approx(t_out - t_in).epsilon(0.0).margin(margin));
 }
 
+//! Check that get_bin() at the middle of each piece of the track from r0 to r1
+//! scored to a bin finds that bin
+void check_midpoints(const Mesh& umesh, Position r0, Position r1)
+{
+  const double length = (r1 - r0).norm();
+  const Direction u = (r1 - r0) / length;
+  vector<int> bins;
+  vector<double> lengths;
+  vector<double> starts;
+  umesh.bins_crossed_with_starts(r0, r1, u, bins, lengths, starts);
+  for (int k = 0; k < bins.size(); k++) {
+    if (lengths[k] * length > 1e-6) {
+      const double middle = (starts[k] + 0.5 * lengths[k]) * length;
+      REQUIRE(umesh.get_bin(r0 + middle * u) == bins[k]);
+    }
+  }
+}
+
 //! Check that the length scored to each bin along the track from r0 to r1 is,
 //! to within the resolution of n samples, the length over which get_bin()
 //! finds that bin along the track
@@ -1039,58 +1057,104 @@ TEST_CASE("Track-length traversal of tracks starting far from a libMesh mesh")
   }
 }
 
+TEST_CASE("Track-length traversal of a libMesh mesh with overlapping elements")
+{
+  // A coarse hex whose warped side meets four finer hexes at hanging nodes:
+  // with flat sides, the coarse hex and the finer ones overlap in a thin
+  // layer around x = 0.05, where tracks that run along it must be scored to
+  // the element that a lookup finds
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  const auto mesh_dir = std::filesystem::path(__FILE__).parent_path() /
+                        "../regression_tests/unstructured_mesh";
+  libMesh::ExodusII_IO(mesh).read(
+    (mesh_dir / "test_mesh_hexes_warped_hanging.e").string());
+  mesh.prepare_for_use();
+  LibMesh umesh(mesh);
+
+  std::mt19937_64 rng(21);
+  std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+  for (int i = 0; i < 3000; i++) {
+    const double x = 0.075 + 0.075 * uniform(rng);
+    const Position r0 {x, uniform(rng), uniform(rng)};
+    const Position r1 {x + 0.05 * uniform(rng), uniform(rng), uniform(rng)};
+    check_midpoints(umesh, r0, r1);
+    // Tracks through the layer no longer than an element there
+    check_midpoints(umesh, r0, r0 + 0.2 * (r1 - r0));
+  }
+  const Position lo {-1.0, -1.0, -1.0};
+  const Position hi {1.0, 1.0, 1.0};
+  for (const auto& [r0, r1] : make_tracks(lo, hi, 0.0, 1000, 22))
+    check_midpoints(umesh, r0, r1);
+}
+
 TEST_CASE("libMesh meshes whose elements do not share nodes")
 {
   // The same distorted tets, connected and with every element on nodes of
   // its own (as in separately meshed parts, or a mesh written with nodes
-  // duplicated for every element): sides coincide without libMesh neighbor
-  // links, and the traversal and the point lookups give the same results
-  LibMeshComm libmesh;
-  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
-  libMesh::MeshTools::Generation::build_cube(
-    mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
-  libMesh::MeshTools::Modification::distort(mesh, 0.2, false);
-  libMesh::ReplicatedMesh split(libmesh.comm, 3);
-  for (const auto* elem : mesh.element_ptr_range()) {
-    auto copy = libMesh::Elem::build(elem->type());
-    for (unsigned int i = 0; i < elem->n_nodes(); i++)
-      copy->set_node(i) = split.add_point(elem->point(i));
-    copy->set_id(elem->id());
-    split.add_elem(std::move(copy));
-  }
-  split.prepare_for_use();
-  LibMesh connected(mesh);
-  LibMesh disconnected(split);
-  REQUIRE(disconnected.n_bins() == connected.n_bins());
+  // duplicated for every element), and also with the node order of some of
+  // them mirrored: sides coincide without libMesh neighbor links, and the
+  // traversal and the point lookups give the same results
+  for (bool mirrored : {false, true}) {
+    DYNAMIC_SECTION((mirrored ? "half mirrored" : "plain"))
+    {
+      LibMeshComm libmesh;
+      libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+      libMesh::MeshTools::Generation::build_cube(
+        mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+      libMesh::MeshTools::Modification::distort(mesh, 0.2, false);
+      libMesh::ReplicatedMesh split(libmesh.comm, 3);
+      for (const auto* elem : mesh.element_ptr_range()) {
+        auto copy = libMesh::Elem::build(elem->type());
+        for (unsigned int i = 0; i < elem->n_nodes(); i++)
+          copy->set_node(i) = split.add_point(elem->point(i));
+        if (mirrored && elem->vertex_average()(0) < 0.0) {
+          libMesh::Node* node = copy->node_ptr(1);
+          copy->set_node(1) = copy->node_ptr(2);
+          copy->set_node(2) = node;
+        }
+        copy->set_id(elem->id());
+        split.add_elem(std::move(copy));
+      }
+      split.prepare_for_use();
+      LibMesh connected(mesh);
+      LibMesh disconnected(split);
+      REQUIRE(disconnected.n_bins() == connected.n_bins());
+      for (int bin = 0; bin < disconnected.n_bins(); bin++) {
+        REQUIRE(disconnected.volume(bin) ==
+                Catch::Approx(connected.volume(bin)).epsilon(1e-12));
+      }
 
-  auto scored = [](const LibMesh& umesh, Position r0, Position r1) {
-    const double length = (r1 - r0).norm();
-    vector<int> bins;
-    vector<double> lengths;
-    umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
-    std::map<int, double> by_bin;
-    for (int k = 0; k < bins.size(); k++)
-      by_bin[bins[k]] += lengths[k] * length;
-    return by_bin;
-  };
-  const Position lo {-1.0, -1.0, -1.0};
-  const Position hi {1.0, 1.0, 1.0};
-  auto tracks = make_tracks(lo, hi, 0.0, 500, 16);
-  for (const auto& track : node_tracks(mesh, 500, 17))
-    tracks.push_back(track);
-  for (const auto& [r0, r1] : tracks) {
-    auto expected = scored(connected, r0, r1);
-    auto found = scored(disconnected, r0, r1);
-    for (const auto& [bin, length] : found)
-      expected[bin] -= length;
-    for (const auto& [bin, difference] : expected)
-      REQUIRE(difference == Catch::Approx(0.0).margin(1e-12));
-  }
-  std::mt19937_64 rng(18);
-  std::uniform_real_distribution<double> uniform(-1.2, 1.2);
-  for (int i = 0; i < 10000; i++) {
-    const Position r {uniform(rng), uniform(rng), uniform(rng)};
-    REQUIRE(disconnected.get_bin(r) == connected.get_bin(r));
+      auto scored = [](const LibMesh& umesh, Position r0, Position r1) {
+        const double length = (r1 - r0).norm();
+        vector<int> bins;
+        vector<double> lengths;
+        umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
+        std::map<int, double> by_bin;
+        for (int k = 0; k < bins.size(); k++)
+          by_bin[bins[k]] += lengths[k] * length;
+        return by_bin;
+      };
+      const Position lo {-1.0, -1.0, -1.0};
+      const Position hi {1.0, 1.0, 1.0};
+      auto tracks = make_tracks(lo, hi, 0.0, 500, 16);
+      for (const auto& track : node_tracks(mesh, 500, 17))
+        tracks.push_back(track);
+      for (const auto& [r0, r1] : tracks) {
+        auto expected = scored(connected, r0, r1);
+        auto found = scored(disconnected, r0, r1);
+        for (const auto& [bin, length] : found)
+          expected[bin] -= length;
+        for (const auto& [bin, difference] : expected)
+          REQUIRE(difference == Catch::Approx(0.0).margin(1e-12));
+      }
+      std::mt19937_64 rng(18);
+      std::uniform_real_distribution<double> uniform(-1.2, 1.2);
+      for (int i = 0; i < 10000; i++) {
+        const Position r {uniform(rng), uniform(rng), uniform(rng)};
+        REQUIRE(disconnected.get_bin(r) == connected.get_bin(r));
+      }
+    }
   }
 }
 
@@ -1204,6 +1268,18 @@ TEST_CASE("Block-restricted libMesh meshes partition the tracks")
     const auto [t_in, t_out] = box_crossing(lo, hi, r0, r1);
     REQUIRE(scored_length(low, r0, r1) + scored_length(high, r0, r1) ==
             Catch::Approx(t_out - t_in).epsilon(0.0).margin(1e-7));
+  }
+
+  // Every node, including those on the sides between the blocks, is in one
+  // element, so in a bin of one of the two meshes, and lookups agree with the
+  // scores along tracks through nodes
+  for (const auto* node : mesh.node_ptr_range()) {
+    const Position r {2.0 * (*node)(0), 2.0 * (*node)(1), 2.0 * (*node)(2)};
+    REQUIRE((low.get_bin(r) >= 0) + (high.get_bin(r) >= 0) == 1);
+  }
+  for (const auto& [a, b] : node_tracks(mesh, 500, 20)) {
+    check_midpoints(low, 2.0 * a, 2.0 * b);
+    check_midpoints(high, 2.0 * a, 2.0 * b);
   }
 }
 #endif

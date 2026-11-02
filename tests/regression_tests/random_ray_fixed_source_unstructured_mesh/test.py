@@ -31,10 +31,11 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 
 
 def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
-               length_multiplier=None):
+               length_multiplier=None, tally_mesh=None):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
     by the mesh in mesh_path (read by a mesh library, directly or through
-    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2"""
+    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
+    a mesh tally on that mesh or on another one"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -112,7 +113,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     # mesh only, or used for subdivision alone
     if case in ('tally_and_ww', 'tally'):
         mesh_tally = openmc.Tally(name='tet flux')
-        mesh_tally.filters = [openmc.MeshFilter(umesh)]
+        mesh_tally.filters = [openmc.MeshFilter(tally_mesh or umesh)]
         mesh_tally.scores = ['flux']
         mesh_tally.estimator = 'tracklength'
         tallies.append(mesh_tally)
@@ -191,11 +192,12 @@ def test_random_ray_unstructured_mesh_coverage(
 
 
 @pytest.mark.parametrize("library,option", product(
-    ['moab', 'libmesh'], ['linear', 'scaled']))
+    ['moab', 'libmesh'], ['linear', 'scaled', 'tally_mesh']))
 def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
-    """Runs with linear sources, and with the mesh scaled by a length
-    multiplier (the 24-tet mesh then tiles [-1, 1]^3), whose flux on the mesh
-    adds up to the flux in the cell"""
+    """Runs with linear sources, with the mesh scaled by a length multiplier
+    (the 24-tet mesh then tiles [-1, 1]^3), and with a regular subdivision
+    mesh and the tally on the 24-tet mesh, whose flux on the mesh adds up to
+    the flux in the cell"""
     if not openmc.lib.feature_enabled(FEATURES[library]):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -203,10 +205,15 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
                  MESH_FILES[library])
     with change_directory(tmp_path):
-        model = make_model(
-            library, mesh_path, 'tally',
-            source_shape='linear' if option == 'linear' else 'flat',
-            length_multiplier=2.0 if option == 'scaled' else None)
+        if option == 'tally_mesh':
+            model = make_model(
+                'regular', None, 'tally',
+                tally_mesh=openmc.UnstructuredMesh(mesh_path, library=library))
+        else:
+            model = make_model(
+                library, mesh_path, 'tally',
+                source_shape='linear' if option == 'linear' else 'flat',
+                length_multiplier=2.0 if option == 'scaled' else None)
         model.export_to_model_xml()
 
     if config['build_inputs']:
