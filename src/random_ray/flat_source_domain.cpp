@@ -2048,6 +2048,14 @@ void FlatSourceDomain::convert_external_sources(bool use_adjoint_sources)
       }
       SourceRegionKey key = lookup_source_region_key(gs);
 
+      // No ray would find the source region of a point outside of a mesh
+      if (key.mesh_bin < 0) {
+        fatal_error(fmt::format(
+          "External point source at {} is outside of the source region mesh "
+          "applied to its cell.",
+          sp->r()));
+      }
+
       // With the source region and mesh bin known, we can use the
       // accompanying SourceRegionKey as a key into a map that stores the
       // corresponding external source index for the point source. Notably, we
@@ -2444,8 +2452,8 @@ void FlatSourceDomain::apply_meshes()
     if (dynamic_cast<LibMesh*>(mesh)) {
       fatal_error(fmt::format(
         "Source region mesh {} is a libMesh mesh with the native interface, "
-        "through which rays cannot be followed. Use the XDG interface "
-        "(interface='xdg' on openmc.UnstructuredMesh).",
+        "through which rays cannot be followed. Use the XDG interface (set "
+        "the interface attribute of the openmc.UnstructuredMesh to 'xdg').",
         mesh_id));
     }
 #endif

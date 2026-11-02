@@ -1,6 +1,7 @@
 #include "openmc/xdg.h"
 
 #include <algorithm> // for remove_if
+#include <cmath>     // for abs
 #include <memory>    // for shared_ptr
 #include <string>    // for string
 #include <utility>   // for pair
@@ -282,7 +283,9 @@ std::vector<int> XDGMesh::connectivity(int id) const
 
 double XDGMesh::volume(int bin) const
 {
-  double vol = xdg_->mesh_manager()->element_volume(bin_to_mesh_id(bin));
+  // Positive whatever the element's node order
+  double vol =
+    std::abs(xdg_->mesh_manager()->element_volume(bin_to_mesh_id(bin)));
   if (length_multiplier_ > 0.0) {
     vol *= length_multiplier_ * length_multiplier_ * length_multiplier_;
   }

@@ -598,21 +598,42 @@ TEST_CASE("MOAB tracks in a mesh whose hull is not its bounding box")
   }
 }
 
-TEST_CASE("MOAB tracks in the faces and along the edges of tets")
+TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
 {
-  // With coordinates as they are, and with roundoff in them as from a mesh
-  // generator or a rotation, which make such a track cross faces at arbitrary
-  // places or not at all. Its length is what counts here: which of the tets
-  // around it gets it is arbitrary.
+  // With coordinates as they are, with roundoff in them as from a mesh
+  // generator, and turned about two axes, which makes such a track cross faces
+  // at arbitrary places or not at all, and such a point seem outside of all of
+  // its tets. What counts is that it is found: which of the tets around it
+  // gets it is arbitrary.
   MOABMesh original(tets_file());
-  for (double noise : {0.0, 2.3e-16}) {
+  const auto turn = [](Position p) {
+    const Position q {0.6 * p.x - 0.8 * p.y, 0.8 * p.x + 0.6 * p.y, p.z};
+    constexpr double c = 0.28;
+    constexpr double s = 0.96;
+    return Position {q.x, c * q.y - s * q.z, s * q.y + c * q.z};
+  };
+  const auto unturn = [](Position p) {
+    constexpr double c = 0.28;
+    constexpr double s = 0.96;
+    const Position q {p.x, c * p.y + s * p.z, -s * p.y + c * p.z};
+    return Position {0.6 * q.x + 0.8 * q.y, -0.8 * q.x + 0.6 * q.y, q.z};
+  };
+
+  for (int variant : {0, 1, 2}) {
     std::mt19937_64 rng(41);
     std::uniform_real_distribution<double> uniform(-1.0, 1.0);
     MovedMeshFile file(original, [&](Position p) {
-      return p + noise * Position {uniform(rng), uniform(rng), uniform(rng)};
+      if (variant == 1)
+        return p +
+               2.3e-16 * Position {uniform(rng), uniform(rng), uniform(rng)};
+      return variant == 2 ? turn(p) : p;
     });
     MOABMesh mesh(file.path());
     mesh.prepare_for_point_location();
+    const auto to_cube = [&](
+                           Position p) { return variant == 2 ? unturn(p) : p; };
+    const auto from_cube = [&](
+                             Position p) { return variant == 2 ? turn(p) : p; };
 
     auto check_length = [&](Position r0, Position r1) {
       const double length = (r1 - r0).norm();
@@ -622,11 +643,13 @@ TEST_CASE("MOAB tracks in the faces and along the edges of tets")
       double total = 0.0;
       for (double f : lengths)
         total += f * length;
-      REQUIRE(total == Catch::Approx(length_in_unit_cube(r0, r1)).margin(1e-9));
+      REQUIRE(
+        total == Catch::Approx(length_in_unit_cube(to_cube(r0), to_cube(r1)))
+                   .margin(1e-9));
     };
 
-    // Beams along the axes, along the mesh's middle lines and in its middle
-    // planes
+    // Beams along the axes of the cube, along the mesh's middle lines and in
+    // its middle planes
     for (int axis = 0; axis < 3; axis++) {
       for (double a : {0.0, 0.25, -0.3}) {
         for (double b : {0.0, 0.1}) {
@@ -636,7 +659,7 @@ TEST_CASE("MOAB tracks in the faces and along the edges of tets")
             Position r1 = r0;
             r0[axis] = -5.0;
             r1[axis] = 5.0;
-            check_length(r0, r1);
+            check_length(from_cube(r0), from_cube(r1));
           }
         }
       }
@@ -648,13 +671,31 @@ TEST_CASE("MOAB tracks in the faces and along the edges of tets")
       for (int j = 0; j < i; j++) {
         const Position a = mesh.vertex(i);
         const Position b = mesh.vertex(j);
+        const Position a_cube = to_cube(a);
+        const Position b_cube = to_cube(b);
         bool on_boundary = false;
         for (int d = 0; d < 3; d++) {
-          on_boundary = on_boundary || (std::abs(std::abs(a[d]) - 0.5) < 1e-9 &&
-                                         std::abs(a[d] - b[d]) < 1e-9);
+          on_boundary =
+            on_boundary || (std::abs(std::abs(a_cube[d]) - 0.5) < 1e-9 &&
+                             std::abs(a_cube[d] - b_cube[d]) < 1e-9);
         }
         if (!on_boundary)
           check_length(a - 3.0 * (b - a), b + 3.0 * (b - a));
+      }
+    }
+
+    // Points on the faces and edges of the tets, and at their corners, are in
+    // the mesh
+    for (int bin = 0; bin < mesh.n_bins(); bin++) {
+      const auto nodes = mesh.connectivity(bin);
+      for (int i = 0; i < 4; i++) {
+        const Position a = mesh.vertex(nodes[i]);
+        const Position b = mesh.vertex(nodes[(i + 1) % 4]);
+        const Position c = mesh.vertex(nodes[(i + 2) % 4]);
+        REQUIRE(mesh.get_bin(a) >= 0);
+        REQUIRE(mesh.get_bin(0.5 * (a + b)) >= 0);
+        REQUIRE(mesh.get_bin((a + b + c) / 3.0) >= 0);
+        REQUIRE(mesh.get_bin(0.2 * a + 0.3 * b + 0.5 * c) >= 0);
       }
     }
   }

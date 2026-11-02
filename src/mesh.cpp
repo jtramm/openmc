@@ -3146,11 +3146,22 @@ void MOABMesh::initialize()
     fatal_error("Failed to get all tetrahedral elements");
   }
 
-  if (!ehs_.all_of_type(moab::MBTET)) {
-    fatal_error("Non-tetrahedral elements found in unstructured mesh file " +
+  // Only linear tets are handled (MOAB also types quadratic tets as MBTET)
+  bool linear_tets = ehs_.all_of_type(moab::MBTET);
+  for (auto it = ehs_.begin(); linear_tets && it != ehs_.end(); ++it) {
+    const moab::EntityHandle* conn;
+    int n_conn;
+    rval = mbi_->get_connectivity(*it, conn, n_conn);
+    linear_tets = rval == moab::MB_SUCCESS && n_conn == 4;
+  }
+  if (!linear_tets) {
+    fatal_error("Elements other than linear tetrahedra found in unstructured "
+                "mesh file " +
                 filename_ +
-                ", which the native MOAB interface does not support. Use the "
-                "XDG interface (interface='xdg' on openmc.UnstructuredMesh).");
+                ", which the native MOAB interface does not support. The XDG "
+                "interface also handles linear hexahedra "
+                "(set the interface attribute of the openmc.UnstructuredMesh "
+                "to 'xdg').");
   }
 
   // set member range of vertices
@@ -3477,6 +3488,13 @@ moab::EntityHandle MOABMesh::get_tet(const Position& r) const
     }
   }
 
+  // roundoff can put a point on a face shared by tets outside of all of them
+  for (const auto& tet : tets) {
+    if (point_in_tet(pos, tet, surface_tol_)) {
+      return tet;
+    }
+  }
+
   // if no tet is found, return an invalid handle
   return 0;
 }
@@ -3575,7 +3593,7 @@ void MOABMesh::compute_barycentric_data(const moab::Range& tets)
 }
 
 bool MOABMesh::point_in_tet(
-  const moab::CartVect& r, moab::EntityHandle tet) const
+  const moab::CartVect& r, moab::EntityHandle tet, double tol) const
 {
 
   moab::ErrorCode rval;
@@ -3605,9 +3623,22 @@ bool MOABMesh::point_in_tet(
 
   moab::CartVect bary_coords = a_inv * (r - p_zero);
 
-  return (bary_coords[0] >= 0.0 && bary_coords[1] >= 0.0 &&
-          bary_coords[2] >= 0.0 &&
-          bary_coords[0] + bary_coords[1] + bary_coords[2] <= 1.0);
+  // A distance from a face is a barycentric coordinate times the length of its
+  // gradient, a row of the matrix (and minus their sum for the fourth face)
+  double margin[4] = {0.0, 0.0, 0.0, 0.0};
+  if (tol > 0.0) {
+    moab::CartVect sum(0.0, 0.0, 0.0);
+    for (int i = 0; i < 3; i++) {
+      const moab::CartVect row(a_inv(i, 0), a_inv(i, 1), a_inv(i, 2));
+      margin[i] = tol * row.length();
+      sum += row;
+    }
+    margin[3] = tol * sum.length();
+  }
+
+  return (bary_coords[0] >= -margin[0] && bary_coords[1] >= -margin[1] &&
+          bary_coords[2] >= -margin[2] &&
+          bary_coords[0] + bary_coords[1] + bary_coords[2] <= 1.0 + margin[3]);
 }
 
 int MOABMesh::get_bin_from_index(int idx) const
@@ -4182,8 +4213,8 @@ void LibMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 {
   fatal_error(fmt::format(
     "Tracks cannot be followed through libMesh mesh {} with the native "
-    "interface. Use the XDG interface (interface='xdg' on "
-    "openmc.UnstructuredMesh).",
+    "interface. Use the XDG interface (set the interface attribute of the "
+    "openmc.UnstructuredMesh to 'xdg').",
     id_));
 }
 

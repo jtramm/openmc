@@ -108,9 +108,8 @@ public:
   void event_advance_ray();
   void attenuate_flux(double distance, bool is_active, double offset = 0.0);
 
-  //! Stop with an error if the rays of this batch have spent too much of their
-  //! path through the cells that a source region mesh is applied to outside of
-  //! the mesh
+  //! Stop with an error if the rays have spent too much of their path through a
+  //! cell that a source region mesh is applied to outside of the mesh
   static void check_mesh_coverage();
   void attenuate_flux_inner(
     double distance, bool is_active, int64_t sr, int mesh_bin, Position r);

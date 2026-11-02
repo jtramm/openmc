@@ -39,11 +39,13 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 
 
 def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
-               length_multiplier=None, tally_mesh=None):
+               length_multiplier=None, tally_mesh=None, ww_method='magic',
+               run_mode='fixed source', source_point=None, slab=None):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
     by the mesh in mesh_path (read by a mesh library, directly or through
     XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
-    a mesh tally on that mesh or on another one"""
+    a mesh tally on that mesh or on another one, and optionally a cell in a
+    slab of the given thickness past the box"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -52,6 +54,10 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     xsdata.set_total([1.0])
     xsdata.set_absorption([0.5])
     xsdata.set_scatter_matrix(np.array([[[0.5]]]))
+    if run_mode == 'eigenvalue':
+        xsdata.set_fission([0.25])
+        xsdata.set_nu_fission([0.6])
+        xsdata.set_chi([1.0])
     mgxs_lib = openmc.MGXSLibrary(groups)
     mgxs_lib.add_xsdata(xsdata)
     mgxs_lib.export_to_hdf5('mgxs.h5')
@@ -72,6 +78,13 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
         s.boundary_type = 'vacuum'
     cell = openmc.Cell(name='cube', fill=mat, region=-box)
     root = openmc.Universe(cells=[cell])
+    if slab is not None:
+        box.xmax.boundary_type = 'transmission'
+        end = openmc.XPlane(x_max + slab, boundary_type='vacuum')
+        root.add_cell(openmc.Cell(
+            name='slab', fill=mat,
+            region=+box.xmax & -end & +box.ymin & -box.ymax & +box.zmin
+            & -box.zmax))
     geometry = openmc.Geometry(root)
 
     # The tet mesh subdivides the single cell into 24 source regions
@@ -95,7 +108,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
 
     settings = openmc.Settings()
     settings.energy_mode = 'multi-group'
-    settings.run_mode = 'fixed source'
+    settings.run_mode = run_mode
     settings.batches = 10
     settings.inactive = 5
     settings.particles = 100
@@ -107,9 +120,14 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     if source_shape != 'flat':
         settings.random_ray['source_shape'] = source_shape
     settings.random_ray['source_region_meshes'] = [(umesh, [root])]
-    settings.source = openmc.IndependentSource(
-        energy=openmc.stats.Discrete([1.0e6], [1.0]),
-        constraints={'domains': [cell]})
+    if source_point is not None:
+        settings.source = openmc.IndependentSource(
+            space=openmc.stats.Point(source_point),
+            energy=openmc.stats.Discrete([1.0e6], [1.0]))
+    else:
+        settings.source = openmc.IndependentSource(
+            energy=openmc.stats.Discrete([1.0e6], [1.0]),
+            constraints={'domains': [cell]})
 
     cell_tally = openmc.Tally(name='cell flux')
     cell_tally.filters = [openmc.CellFilter(cell)]
@@ -127,7 +145,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
         tallies.append(mesh_tally)
     if case == 'tally_and_ww':
         settings.weight_window_generators = openmc.WeightWindowGenerator(
-            mesh=tally_mesh or umesh, method='magic', max_realizations=5)
+            mesh=tally_mesh or umesh, method=ww_method, max_realizations=5)
 
     return openmc.Model(geometry, materials, settings, tallies)
 
@@ -207,12 +225,17 @@ def test_random_ray_unstructured_mesh_coverage(
     # Rays are not followed through a tally mesh, so the native interface will
     # do
     ('libmesh', 'tally_mesh'),
+    ('moab', 'fw_cadis'),
+    ('xdg-libmesh', 'fw_cadis'),
+    ('moab', 'eigenvalue'),
+    ('xdg-libmesh', 'eigenvalue'),
 ])
 def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     """Runs with linear sources, with the mesh scaled by a length multiplier
-    (the 24-tet mesh then tiles [-1, 1]^3), and with a regular subdivision
-    mesh and the tally and weight windows on the 24-tet mesh, whose flux on
-    the mesh adds up to the flux in the cell"""
+    (the 24-tet mesh then tiles [-1, 1]^3), with a regular subdivision mesh and
+    the tally and weight windows on the 24-tet mesh, with FW-CADIS weight
+    windows and in eigenvalue mode, whose flux on the mesh adds up to the flux
+    in the cell"""
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -227,6 +250,12 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
                 tally_mesh.interface = 'xdg'
             model = make_model('regular', None, 'tally_and_ww',
                                tally_mesh=tally_mesh)
+        elif option == 'fw_cadis':
+            model = make_model(library, mesh_path, 'tally_and_ww',
+                               ww_method='fw_cadis')
+        elif option == 'eigenvalue':
+            model = make_model(library, mesh_path, 'tally',
+                               run_mode='eigenvalue')
         else:
             model = make_model(
                 library, mesh_path, 'tally',
@@ -241,12 +270,8 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     check_tally_sums(tmp_path)
     if option == 'scaled':
         assert mesh_volumes(tmp_path).sum() == pytest.approx(8.0)
-    if option == 'tally_mesh':
-        # Valid bounds, or -1 for a tet with no source region at its bin's point
-        bounds = openmc.WeightWindowsList.from_hdf5(
-            tmp_path / 'weight_windows.h5')[0].lower_ww_bounds
-        assert np.any(bounds > 0.0)
-        assert np.all((bounds > 0.0) | (bounds == -1.0))
+    if option in ('tally_mesh', 'fw_cadis'):
+        check_weight_windows(tmp_path)
 
 
 def test_random_ray_native_libmesh_subdivision(tmp_path):
@@ -268,12 +293,14 @@ def test_random_ray_native_libmesh_subdivision(tmp_path):
     assert 'Use the XDG interface' in output
 
 
-def test_random_ray_mirrored_moab_mesh(tmp_path):
-    """A mirrored copy of a MOAB mesh keeps its node order, which turns its
-    tets inside out: their volumes must still be positive for weight windows
-    to be generated on them"""
-    if not openmc.lib.feature_enabled('dagmc'):
-        pytest.skip("moab unstructured meshes are not enabled.")
+@pytest.mark.parametrize("library", ['moab', 'xdg-moab'])
+def test_random_ray_mirrored_mesh(library, tmp_path):
+    """A mirrored copy of a mesh keeps its node order, which turns its tets
+    inside out: their volumes must still be positive for weight windows to be
+    generated on them. XDG cannot follow rays through such a mesh, but it can
+    tally on it."""
+    if not enabled(library):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     # x -> -x in the VTK file of the 24-tet mesh of the unit cube
     source = Path(__file__).parents[1] / 'unstructured_mesh' / MESH_FILES['moab']
@@ -287,7 +314,14 @@ def test_random_ray_mirrored_moab_mesh(tmp_path):
 
     openmc.reset_auto_ids()
     with change_directory(tmp_path):
-        make_model('moab', mesh_path, 'tally_and_ww').export_to_model_xml()
+        if library == 'moab':
+            model = make_model('moab', mesh_path, 'tally_and_ww')
+        else:
+            tally_mesh = openmc.UnstructuredMesh(mesh_path, library='moab')
+            tally_mesh.interface = 'xdg'
+            model = make_model('regular', None, 'tally_and_ww',
+                               tally_mesh=tally_mesh)
+        model.export_to_model_xml()
 
     if config['build_inputs']:
         return
@@ -297,9 +331,72 @@ def test_random_ray_mirrored_moab_mesh(tmp_path):
     volumes = mesh_volumes(tmp_path)
     assert np.all(volumes > 0.0)
     assert volumes.sum() == pytest.approx(1.0)
-    weight_windows = openmc.WeightWindowsList.from_hdf5(
-        tmp_path / 'weight_windows.h5')[0]
-    assert np.all(weight_windows.lower_ww_bounds > 0.0)
+    check_weight_windows(tmp_path)
+
+
+def test_random_ray_small_uncovered_cell(tmp_path):
+    """A cell entirely outside of the mesh stops the run, even if it is too
+    small to matter next to the path through the other cells on the mesh"""
+    openmc.reset_auto_ids()
+    with change_directory(tmp_path):
+        make_model('regular', None, 'tally', slab=1e-7).export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode != 0
+    assert 'does not cover' in output
+
+
+@pytest.mark.parametrize("library,point", [
+    ('moab', (0.1, 0.2, 0.3)),
+    ('xdg-libmesh', (0.1, 0.2, 0.3)),
+    # On a node and on an edge of the mesh, and on a face of its tets
+    ('moab', (0.0, 0.0, 0.0)),
+    ('moab', (0.0, 0.0, 0.25)),
+    ('moab', (0.1, 0.1, 0.3)),
+])
+def test_random_ray_point_source(library, point, tmp_path):
+    """A point source goes to the mesh bin around it, wherever in the mesh it
+    is"""
+    if not enabled(library):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
+
+    openmc.reset_auto_ids()
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                 MESH_FILES[library])
+    with change_directory(tmp_path):
+        make_model(library, mesh_path, 'tally',
+                   source_point=point).export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode == 0, output
+    check_tally_sums(tmp_path)
+
+
+def test_random_ray_point_source_outside_of_mesh(tmp_path):
+    """No ray would find a point source outside of the mesh, which is reported
+    up front"""
+    openmc.reset_auto_ids()
+    with change_directory(tmp_path):
+        make_model('regular', None, 'tally', x_max=1.5,
+                   source_point=(1.0, 0.1, 0.1)).export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode != 0
+    assert 'outside of the source region mesh' in output
+
+
+def check_weight_windows(path):
+    """Valid bounds, or -1 for a bin without a usable flux"""
+    bounds = openmc.WeightWindowsList.from_hdf5(
+        path / 'weight_windows.h5')[0].lower_ww_bounds
+    assert np.any(bounds > 0.0)
+    assert np.all((bounds > 0.0) | (bounds == -1.0))
 
 
 def mesh_volumes(path):
@@ -315,7 +412,8 @@ def run_openmc(path):
     if config['mpi']:
         args = [config['mpiexec'], '-n', config['mpi_np']] + args
     result = subprocess.run(args, cwd=path, capture_output=True, text=True)
-    return result.returncode, result.stdout + result.stderr
+    # (messages are wrapped)
+    return result.returncode, ' '.join((result.stdout + result.stderr).split())
 
 
 def check_tally_sums(path):

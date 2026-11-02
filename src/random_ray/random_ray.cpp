@@ -376,44 +376,47 @@ void RandomRay::event_advance_ray()
 
 namespace {
 
-//! What a thread has seen in a batch of the rays' path through the cells that
-//! a source region mesh is applied to
+//! The rays' path through a cell that a source region mesh is applied to
 struct MeshCoverage {
-  double path {0.0};  //!< length of that path
-  double lost {0.0};  //!< length of its parts outside of the mesh
-  double worst {0.0}; //!< the longest such part of a ray's path through a cell
-  int cell_id {C_NONE}; //!< that cell
+  double path {0.0}; //!< length of that path
+  double lost {0.0}; //!< length of its parts outside of the mesh
+  double worst {
+    0.0}; //!< the longest such part of a ray's path through the cell
+  int mesh_id {C_NONE}; //!< mesh that part is outside of
   Position start;       //!< start of that ray's path through the cell
   Position end;         //!< end of that ray's path through the cell
 };
 
-thread_local vector<MeshCoverage> mesh_coverage; //!< by mesh, for this thread
+thread_local vector<MeshCoverage>
+  mesh_coverage; //!< by cell, what this thread has seen in this batch
 
 } // namespace
 
 void RandomRay::check_mesh_coverage()
 {
-  // What the threads have seen in this batch, from which they start over
-  vector<MeshCoverage> total(model::meshes.size());
+  // What the threads have seen in this batch adds to that of earlier batches
+  static vector<MeshCoverage> seen;
+  if (simulation::current_batch == 1 || seen.size() != model::cells.size())
+    seen.assign(model::cells.size(), MeshCoverage {});
 #pragma omp parallel
   {
 #pragma omp critical(random_ray_mesh_coverage)
     for (int i = 0; i < mesh_coverage.size(); i++) {
-      const MeshCoverage& seen = mesh_coverage[i];
-      total[i].path += seen.path;
-      total[i].lost += seen.lost;
-      if (seen.worst > total[i].worst) {
-        total[i].worst = seen.worst;
-        total[i].cell_id = seen.cell_id;
-        total[i].start = seen.start;
-        total[i].end = seen.end;
+      const MeshCoverage& coverage = mesh_coverage[i];
+      seen[i].path += coverage.path;
+      seen[i].lost += coverage.lost;
+      if (coverage.worst > seen[i].worst) {
+        seen[i].worst = coverage.worst;
+        seen[i].mesh_id = coverage.mesh_id;
+        seen[i].start = coverage.start;
+        seen[i].end = coverage.end;
       }
     }
     mesh_coverage.clear();
   }
 
   vector<double> path_and_lost;
-  for (const auto& coverage : total) {
+  for (const auto& coverage : seen) {
     path_and_lost.push_back(coverage.path);
     path_and_lost.push_back(coverage.lost);
   }
@@ -425,23 +428,24 @@ void RandomRay::check_mesh_coverage()
   // A mesh has to cover the cells it is applied to, as the parts of a ray's
   // path outside of it are neither attenuated nor tallied. The odd sliver can
   // be lost to roundoff, as where a mesh and a cell have the same boundary or
-  // a ray is tangent to a curved surface of the mesh.
-  for (int i = 0; i < total.size(); i++) {
+  // a ray is tangent to a curved surface of the mesh, so this looks at a
+  // cell's whole path, not at single rays. (On this rank, the rays may not have
+  // lost any of the path, in which case there is no example.)
+  for (int i = 0; i < seen.size(); i++) {
     const double path = path_and_lost[2 * i];
     const double lost = path_and_lost[2 * i + 1];
     if (lost > 1e-6 * path) {
-      std::string example;
-      if (total[i].cell_id != C_NONE) {
-        example = fmt::format(
-          ", such as {:.6g} cm of a ray's path through cell {}, from {} to {}",
-          total[i].worst, total[i].cell_id, total[i].start, total[i].end);
-      }
+      const std::string example =
+        seen[i].mesh_id == C_NONE
+          ? ""
+          : fmt::format(
+              " of source region mesh {}, such as {:.6g} cm of a ray's path "
+              "from {} to {}",
+              seen[i].mesh_id, seen[i].worst, seen[i].start, seen[i].end);
       fatal_error(fmt::format(
-        "Source region mesh {} does not cover all of the cells it is applied "
-        "to: {:.3g}% of the rays' path through them in batch {} is outside of "
-        "the mesh{}.",
-        model::meshes[i]->id(), 100.0 * lost / path, simulation::current_batch,
-        example));
+        "A source region mesh does not cover all of cell {}, which it is "
+        "applied to: {:.3g}% of the rays' path through the cell is outside{}.",
+        model::cells[i]->id_, 100.0 * lost / path, example));
     }
   }
 }
@@ -485,9 +489,9 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 
     // Portions of the segment outside the mesh are not returned, so they
     // could be neither attenuated nor tallied: see check_mesh_coverage()
-    if (mesh_coverage.size() <= mesh_idx)
-      mesh_coverage.resize(model::meshes.size());
-    MeshCoverage& coverage = mesh_coverage[mesh_idx];
+    if (mesh_coverage.empty())
+      mesh_coverage.resize(model::cells.size());
+    MeshCoverage& coverage = mesh_coverage[lowest_coord().cell()];
     const double lost = reduced_distance *
                         (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
                                  mesh_fractional_lengths_.end(), 0.0));
@@ -495,7 +499,7 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     coverage.lost += lost;
     if (lost > coverage.worst) {
       coverage.worst = lost;
-      coverage.cell_id = model::cells[lowest_coord().cell()]->id_;
+      coverage.mesh_id = mesh->id();
       coverage.start = start;
       coverage.end = end;
     }

@@ -2763,14 +2763,16 @@ class UnstructuredMesh(MeshBase):
         With the native interface, a libMesh mesh supports point lookups and
         collision estimators. Following tracks through it (for track-length
         tallies, material volumes and the subdivision of source regions in
-        random ray mode) requires ``interface='xdg'``. XDG handles linear
-        tetrahedra and hexahedra, and refuses other elements when it loads the
-        mesh. Their faces must be shared between neighboring elements, and
-        their node order must not be mirrored. This is not checked: a track
-        loses length at such a place, which random ray mode reports as a mesh
-        that does not cover a cell, while tallies in Monte Carlo mode are low.
-        A native MOAB mesh must consist of tetrahedra. A track that lies exactly
-        in the boundary of a mesh may or may not count as being in the mesh.
+        random ray mode) requires setting :attr:`interface` to ``'xdg'``. XDG
+        handles linear tetrahedra and hexahedra, and refuses other elements when
+        it loads the mesh. Their faces must be shared between neighboring
+        elements, and their node order must not be mirrored. This is not
+        checked: at such a place, a track loses length, which random ray mode
+        reports as a mesh that does not cover a cell, while tallies in Monte
+        Carlo mode are low; a mirrored element can also make a run print
+        warnings without end. A native MOAB mesh must consist of linear
+        tetrahedra. A track that lies exactly in the boundary of a mesh may or
+        may not count as being in the mesh.
 
     Parameters
     ----------

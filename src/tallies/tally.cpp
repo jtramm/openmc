@@ -388,8 +388,8 @@ Tally::Tally(pugi::xml_node node)
       if (lm && estimator_ == TallyEstimator::TRACKLENGTH) {
         fatal_error("A tracklength estimator cannot be used with a libMesh "
                     "mesh tally through the native interface. Use a collision "
-                    "estimator or the XDG interface (interface='xdg' on "
-                    "openmc.UnstructuredMesh).");
+                    "estimator or the XDG interface (set the interface "
+                    "attribute of the openmc.UnstructuredMesh to 'xdg').");
       }
     }
   }

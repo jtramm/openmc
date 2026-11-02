@@ -992,8 +992,10 @@ private:
   //
   //! \param[in] r Position to check
   //! \param[in] MOAB terahedron to check
-  //! \return True if r is inside, False if r is outside
-  bool point_in_tet(const moab::CartVect& r, moab::EntityHandle tet) const;
+  //! \param[in] tol Distance from its faces within which a point counts as in
+  //! it \return True if r is inside, False if r is outside
+  bool point_in_tet(
+    const moab::CartVect& r, moab::EntityHandle tet, double tol = 0.0) const;
 
   //! Compute barycentric coordinate data for all tetrahedra
   //! in the mesh.
