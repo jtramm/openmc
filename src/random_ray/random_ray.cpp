@@ -399,9 +399,26 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
     return (s1 - s0) * sum(stretch_fractions);
   };
 
-  // Suppose that the bins follow each other without a gap, after some length
-  // outside of the mesh. All of their length then has to be in a stretch that
-  // long from there, which leaves none for anywhere else.
+  // Nothing outside of the mesh's bounding box is in the mesh, which is all
+  // there is to know if the bins fill what is left, as for a mesh that fills
+  // its box
+  double box_start = 0.0;
+  double box_end = length;
+  const Position lower_left = mesh.lower_left();
+  const Position upper_right = mesh.upper_right();
+  for (int i = 0; i < 3; i++) {
+    if (u()[i] != 0.0) {
+      const double s_lower = (lower_left[i] - r[i]) / u()[i];
+      const double s_upper = (upper_right[i] - r[i]) / u()[i];
+      box_start = std::max(box_start, std::min(s_lower, s_upper));
+      box_end = std::min(box_end, std::max(s_lower, s_upper));
+    }
+  }
+  const double outside_in_box = box_end - box_start - inside;
+
+  // Otherwise, suppose that the bins follow each other without a gap, after
+  // some length outside of the mesh. All of their length then has to be in a
+  // stretch that long from there, which leaves none for anywhere else.
   const auto fits = [&](double before) {
     const double stretch = inside - 2.0 * TINY_BIT;
     return stretch -
@@ -409,15 +426,21 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
            min_length;
   };
 
-  // The length before them is no more than all that is outside, so a trace that
-  // far and a bit further gives it, unless that ends past the bins. In that
-  // case there may be nothing before them.
-  const double probe = outside + 0.1 * inside;
-  double before = std::min(probe - length_in_mesh(0.0, probe), outside);
-  bool found = fits(before);
-  if (!found && before > min_length) {
-    before = 0.0;
+  // The length before them in the box is no more than all that is outside
+  // there, so a trace that far and a bit further gives it, unless that ends
+  // past the bins. In that case there may be nothing before them.
+  double before = std::min(box_start, outside);
+  bool found = outside_in_box <= min_length;
+  if (!found) {
+    const double probe = outside_in_box + 0.1 * inside;
+    before =
+      box_start + std::min(probe - length_in_mesh(box_start, box_start + probe),
+                    outside_in_box);
     found = fits(before);
+    if (!found && before > box_start + min_length) {
+      before = box_start;
+      found = fits(before);
+    }
   }
   if (found) {
     if (outside - before > min_length) {
@@ -437,7 +460,7 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
   // the mesh, where a trace is at its weakest.
   bins.clear();
   fractions.clear();
-  const double first = 0.6180339887498949 * length;
+  const double first = box_start + 0.6180339887498949 * (box_end - box_start);
   for (int part = 0; part < 2; part++) {
     const Position r_part = part == 0 ? r : r + first * u();
     const double part_length = part == 0 ? first : length - first;
@@ -587,7 +610,8 @@ void RandomRay::attenuate_flux_inner(
 #endif
 
   SourceRegionHandle srh;
-  srh = domain_->get_subdivided_source_region_handle(sr_key, midpoint, u());
+  srh = domain_->get_subdivided_source_region_handle(
+    sr_key, midpoint - TINY_BIT * u(), u());
   if (srh.is_numerical_fp_artifact_) {
     return;
   }

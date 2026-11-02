@@ -3,8 +3,6 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 import itertools
 import random
-import subprocess
-import sys
 
 import h5py
 import numpy as np
@@ -1404,32 +1402,12 @@ def test_native_moab_other_elements(nodes, cell, cell_type, message,
         model.run()
 
 
-def test_native_libmesh_material_volumes(run_in_tmpdir):
-    """Material volumes need tracks through the mesh: the native libMesh
-    interface says so, rather than asking for another estimator. (The error
-    ends the process, which is why this needs its own.)"""
-    if not openmc.lib.feature_enabled('libmesh'):
-        pytest.skip("LibMesh not enabled.")
-
-    script = f"""
-import openmc
-model = openmc.Model()
-mat = openmc.Material()
-mat.add_nuclide('H1', 1.0)
-mat.set_density('g/cm3', 1.0)
-surf = openmc.Sphere(r=10.0, boundary_type='vacuum')
-model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-surf)])
-model.settings.run_mode = 'fixed source'
-model.settings.batches = 1
-model.settings.particles = 10
-mesh = openmc.UnstructuredMesh({str(UMESH_DIR / "test_mesh_dagmc_tets.e")!r}, 'libmesh')
-mesh.material_volumes(model, (5, 5, 5))
-"""
-    result = subprocess.run([sys.executable, '-c', script], capture_output=True,
-                            text=True)
-    assert result.returncode != 0
-    assert "Use the XDG interface" in ' '.join(
-        (result.stdout + result.stderr).split())
+def test_native_libmesh_material_volumes():
+    """Material volumes need tracks through the mesh, and the native libMesh
+    interface says so"""
+    mesh = openmc.UnstructuredMesh(UMESH_DIR / "test_mesh_dagmc_tets.e", 'libmesh')
+    with pytest.raises(ValueError, match="XDG interface"):
+        mesh.material_volumes(openmc.Model(), (5, 5, 5))
 
 
 def test_native_libmesh_born_filter(run_in_tmpdir):

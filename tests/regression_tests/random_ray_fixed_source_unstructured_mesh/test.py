@@ -21,10 +21,12 @@ MESH_FILES = {
     'libmesh': 'test_mesh_dagmc_tets.e',
     'xdg-moab': 'test_mesh_dagmc_tets.vtk',
     'xdg-libmesh': 'test_mesh_dagmc_tets.e',
+    'xdg-hexes': 'test_mesh_hexes.e',
 }
 # Features a mesh library needs; regular meshes need none
 FEATURES = {'moab': ['dagmc'], 'libmesh': ['libmesh'],
-            'xdg-moab': ['xdg', 'dagmc'], 'xdg-libmesh': ['xdg', 'libmesh']}
+            'xdg-moab': ['xdg', 'dagmc'], 'xdg-libmesh': ['xdg', 'libmesh'],
+            'xdg-hexes': ['xdg', 'libmesh']}
 
 
 def enabled(library):
@@ -295,7 +297,7 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     on the same mesh through the other interface, with FW-CADIS weight windows
     and in eigenvalue mode, whose flux on the mesh adds up to the flux in the
     cell"""
-    if not enabled(library) or (option == 'tally_mesh'
+    if not enabled(library) or (library == 'moab' and option == 'tally_mesh'
                                 and not enabled('xdg-moab')):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -487,6 +489,13 @@ def part_of_box_mesh(library, mesh_path, scale=1.0):
             phi_grid=[0.0, 2.0, 2.0 * np.pi])
         return mesh, +openmc.Sphere(r=0.4) & -openmc.Sphere(r=1.0)
 
+    if library == 'xdg-hexes':
+        # 1000 hexes of [-10, 10]^3 to start with
+        mesh = openmc.UnstructuredMesh(mesh_path, library='libmesh')
+        mesh.interface = 'xdg'
+        mesh.length_multiplier = 0.05
+        return mesh, cube(-0.5, 0.5)
+
     mesh = openmc.UnstructuredMesh(
         mesh_path, library=library.removeprefix('two-').removeprefix('xdg-'))
     if 'xdg' in library:
@@ -500,7 +509,8 @@ def part_of_box_mesh(library, mesh_path, scale=1.0):
 
 def make_comparison_model(cells, half_width, mesh, source_shape='flat',
                           run_mode='fixed source', source_point=None,
-                          sample_method=None, scale=1.0):
+                          sample_method=None, scale=1.0, ww_method=None,
+                          plot=False):
     """Model of cells filling a box of a given half width, all subdivided by
     the mesh, with their fluxes and that on the mesh as tallies. A mesh is also
     what makes runs comparable for linear sources: the position of the start of
@@ -527,10 +537,20 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     tallies = openmc.Tallies(
         [flux_tally('cell flux', openmc.CellFilter(cells)),
          flux_tally('mesh flux', openmc.MeshFilter(mesh))])
+    if ww_method is not None:
+        settings.weight_window_generators = openmc.WeightWindowGenerator(
+            mesh=mesh, method=ww_method, max_realizations=5)
+    plots = None
+    if plot:
+        voxels = openmc.VoxelPlot()
+        voxels.width = (2.0 * half_width,) * 3
+        voxels.pixels = (6, 6, 6)
+        plots = openmc.Plots([voxels])
     materials = one_group_materials(run_mode, 1.0 / scale)
     for cell in cells:
         cell.fill = materials[0]
-    return openmc.Model(openmc.Geometry(cells), materials, settings, tallies)
+    return openmc.Model(openmc.Geometry(cells), materials, settings, tallies,
+                        plots)
 
 
 @pytest.mark.parametrize("library,options", [
@@ -540,6 +560,9 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     # A point source in the mesh, and one outside of it
     ('regular', {'source_point': (0.45, 0.1, 0.1)}),
     ('regular', {'source_point': (1.4, 1.4, 1.4)}),
+    ('regular', {'ww_method': 'magic'}),
+    ('regular', {'ww_method': 'fw_cadis'}),
+    ('regular', {'plot': True}),
     ('regular-2d', {}),
     ('cylindrical', {}),
     ('cylindrical', {'source_shape': 'linear'}),
@@ -551,12 +574,16 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     ('moab', {}),
     ('moab', {'source_shape': 'linear'}),
     ('moab', {'source_point': (1.4, 1.4, 1.4)}),
+    ('moab', {'ww_method': 'fw_cadis'}),
+    ('moab', {'plot': True}),
     # A mesh large enough for a tolerance to matter
     ('moab', {'scale': 2.5e4}),
     ('xdg-moab', {}),
     ('xdg-libmesh', {}),
     ('xdg-libmesh', {'source_shape': 'linear'}),
     ('xdg-libmesh', {'source_point': (1.4, 1.4, 1.4)}),
+    ('xdg-libmesh', {'ww_method': 'fw_cadis'}),
+    ('xdg-hexes', {}),
     # A mesh in two parts, of the 24-tet mesh moved to either side, and with
     # what comes before them as wide as each, which makes lengths coincide
     ('two-moab', {}),
@@ -565,6 +592,7 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     ('two-moab', {'half_width': 2.25}),
     ('two-moab', {'half_width': 2.25, 'sample_method': 's2'}),
     ('two-xdg-moab', {'half_width': 2.25}),
+    ('two-xdg-moab', {'scale': 100.0}),
 ])
 def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
     """What is outside of a mesh that covers part of a cell counts as one more
@@ -619,7 +647,16 @@ def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
         returncode, output = run_openmc(path)
         assert returncode == 0, output
         results.append(fluxes(path, 'cell flux', 'mesh flux'))
+        if 'ww_method' in options:
+            results[-1]['bounds'] = openmc.WeightWindowsList.from_hdf5(
+                path / 'weight_windows.h5')[0].lower_ww_bounds
+        if 'plot' in options:
+            assert list(path.glob('*.vtk'))
 
+    if 'ww_method' in options:
+        assert np.any(results[0]['bounds'] > 0.0)
+        assert results[0]['bounds'] == pytest.approx(
+            results[1]['bounds'], rel=1e-5)
     inner, outer = results[1]['cell flux']
     assert results[1]['mesh flux'].sum() > 0.0
     assert outer > 0.0
@@ -855,6 +892,9 @@ openmc.lib.finalize()
     ('moab', (0.0, 0.0, 0.0)),
     ('moab', (0.0, 0.0, 0.25)),
     ('moab', (0.1, 0.1, 0.3)),
+    ('xdg-libmesh', (0.0, 0.0, 0.0)),
+    ('xdg-libmesh', (0.0, 0.0, 0.25)),
+    ('xdg-libmesh', (0.1, 0.1, 0.3)),
 ])
 def test_random_ray_point_source(library, point, tmp_path):
     """A point source finds a mesh bin, wherever in the mesh it is"""

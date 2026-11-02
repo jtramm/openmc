@@ -485,6 +485,14 @@ class MeshBase(IDManagerMixin, ABC):
         """
         import openmc.lib
 
+        if (isinstance(self, UnstructuredMesh) and self.library == 'libmesh'
+                and self.interface == 'native'):
+            raise ValueError(
+                "Material volumes need tracks through the mesh, which the "
+                "native libMesh interface cannot follow. Use the XDG interface "
+                "(set the interface attribute of the UnstructuredMesh to "
+                "'xdg').")
+
         # In order to get mesh into model, we temporarily replace the
         # tallies with a single mesh tally using the current mesh
         original_tallies = list(model.tallies)

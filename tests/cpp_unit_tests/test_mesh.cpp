@@ -766,8 +766,14 @@ public:
   std::string bin_label(int) const override { return ""; }
   double volume(int) const override { return 1.0; }
   std::string get_mesh_type() const override { return "slabs"; }
-  Position lower_left() const override { return {}; }
-  Position upper_right() const override { return {}; }
+  Position lower_left() const override
+  {
+    return {slabs_.front().first, -INFTY, -INFTY};
+  }
+  Position upper_right() const override
+  {
+    return {slabs_.back().second, INFTY, INFTY};
+  }
 
 private:
   vector<std::pair<double, double>> slabs_;
