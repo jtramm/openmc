@@ -476,9 +476,6 @@ void RandomRaySimulation::simulate()
     transport_sweep();
 #endif
 
-    if (!domain_->mesh_domain_map_.empty())
-      RandomRay::check_mesh_coverage();
-
     // Add any newly discovered source regions to the main source region
     // container
     domain_->finalize_discovered_source_regions();

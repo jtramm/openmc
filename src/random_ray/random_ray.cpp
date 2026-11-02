@@ -1,13 +1,9 @@
 #include "openmc/random_ray/random_ray.h"
 
 #include <algorithm>
-#include <cmath>
-
-#include <fmt/core.h>
 
 #include "openmc/cell.h"
 #include "openmc/constants.h"
-#include "openmc/error.h"
 #include "openmc/geometry.h"
 #include "openmc/message_passing.h"
 #include "openmc/mgxs_interface.h"
@@ -374,80 +370,87 @@ void RandomRay::event_advance_ray()
   }
 }
 
-namespace {
-
-//! The rays' path through a cell that a source region mesh is applied to
-struct MeshCoverage {
-  double path {0.0}; //!< length of that path
-  double lost {0.0}; //!< length of its parts outside of the mesh
-  double worst {
-    0.0}; //!< the longest such part of a ray's path through the cell
-  int mesh_id {C_NONE}; //!< mesh that part is outside of
-  Position start;       //!< start of that ray's path through the cell
-  Position end;         //!< end of that ray's path through the cell
-};
-
-thread_local vector<MeshCoverage>
-  mesh_coverage; //!< by cell, what this thread has seen in this batch
-
-} // namespace
-
-void RandomRay::check_mesh_coverage()
+void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
+  vector<int>& bins, vector<double>& fractions) const
 {
-  // What the threads have seen in this batch adds to that of earlier batches
-  static vector<MeshCoverage> seen;
-  if (simulation::current_batch == 1 || seen.size() != model::cells.size())
-    seen.assign(model::cells.size(), MeshCoverage {});
-#pragma omp parallel
-  {
-#pragma omp critical(random_ray_mesh_coverage)
-    for (int i = 0; i < mesh_coverage.size(); i++) {
-      const MeshCoverage& coverage = mesh_coverage[i];
-      seen[i].path += coverage.path;
-      seen[i].lost += coverage.lost;
-      if (coverage.worst > seen[i].worst) {
-        seen[i].worst = coverage.worst;
-        seen[i].mesh_id = coverage.mesh_id;
-        seen[i].start = coverage.start;
-        seen[i].end = coverage.end;
-      }
+  const auto sum = [](const vector<double>& v) {
+    return std::accumulate(v.begin(), v.end(), 0.0);
+  };
+  const double inside = length * sum(fractions);
+  const double outside = length - inside;
+
+  // Anything shorter is no more than what is left out at the ends of a segment
+  // to begin with, or roundoff, as where a mesh and a cell share a boundary
+  const double min_length = 2.0 * TINY_BIT;
+  if (outside <= min_length)
+    return;
+  if (inside <= min_length) {
+    bins.assign(1, C_NONE);
+    fractions.assign(1, 1.0);
+    return;
+  }
+
+  // Suppose that the bins follow each other without a gap, after some length
+  // outside of the mesh and before the rest of it. The mesh then has to start
+  // and end where that puts them.
+  const auto in_mesh = [&](double s) {
+    return mesh.get_bin(r + s * u()) != C_NONE;
+  };
+  const auto fits = [&](double before) {
+    const double end = before + inside;
+    return (before <= min_length ||
+             (!in_mesh(before - TINY_BIT) && in_mesh(before + TINY_BIT))) &&
+           (length - end <= min_length ||
+             (in_mesh(end - TINY_BIT) && !in_mesh(end + TINY_BIT)));
+  };
+
+  // There may be nothing before them. If not, a trace up to a bit past all that
+  // is outside gives the length before them, unless it ends past the bins.
+  double before = 0.0;
+  bool found = fits(before);
+  if (!found) {
+    const double probe = outside + 0.1 * inside;
+    vector<int> probe_bins;
+    vector<double> probe_fractions;
+    mesh.bins_crossed(r, r + probe * u(), u(), probe_bins, probe_fractions);
+    before = std::min(probe * (1.0 - sum(probe_fractions)), outside);
+    found = fits(before);
+  }
+  if (found) {
+    if (outside - before > min_length) {
+      bins.push_back(C_NONE);
+      fractions.push_back((outside - before) / length);
     }
-    mesh_coverage.clear();
+    if (before > min_length) {
+      bins.insert(bins.begin(), C_NONE);
+      fractions.insert(fractions.begin(), before / length);
+    }
+    return;
   }
 
-  vector<double> path_and_lost;
-  for (const auto& coverage : seen) {
-    path_and_lost.push_back(coverage.path);
-    path_and_lost.push_back(coverage.lost);
-  }
-#ifdef OPENMC_MPI
-  MPI_Allreduce(MPI_IN_PLACE, path_and_lost.data(), path_and_lost.size(),
-    MPI_DOUBLE, MPI_SUM, mpi::intracomm);
-#endif
-
-  // A mesh has to cover the cells it is applied to (void ones too, as flux is
-  // tallied there), as the parts of a ray's path outside of it are neither
-  // attenuated nor tallied. The odd sliver can be lost to roundoff, as where a
-  // mesh and a cell have the same boundary or a ray is tangent to a curved
-  // surface of the mesh, so this looks at a cell's whole path, not at single
-  // rays. (On this rank, the rays may not have lost any of the path, in which
-  // case there is no example.)
-  for (int i = 0; i < seen.size(); i++) {
-    const double path = path_and_lost[2 * i];
-    const double lost = path_and_lost[2 * i + 1];
-    if (lost > 1e-6 * path) {
-      const std::string example =
-        seen[i].mesh_id == C_NONE
-          ? ""
-          : fmt::format(
-              " of source region mesh {}, such as {:.6g} cm of a ray's path "
-              "from {} to {}",
-              seen[i].mesh_id, seen[i].worst, seen[i].start, seen[i].end);
-      fatal_error(fmt::format(
-        "A source region mesh does not cover all of cell {}, which it is "
-        "applied to: {:.3g}% of the rays' path through the cell is outside{}. "
-        "Apply the mesh only to cells that it covers.",
-        model::cells[i]->id_, 100.0 * lost / path, example));
+  // Otherwise, the path may leave the mesh and come back, so look at the parts
+  // on either side of a point on it, which leaves no trace in what comes out.
+  // That is not its middle, which in a symmetric model can lie on a surface of
+  // the mesh, where a trace is at its weakest.
+  bins.clear();
+  fractions.clear();
+  const double first = 0.6180339887498949 * length;
+  for (int part = 0; part < 2; part++) {
+    const Position r_part = part == 0 ? r : r + first * u();
+    const double part_length = part == 0 ? first : length - first;
+    vector<int> part_bins;
+    vector<double> part_fractions;
+    mesh.bins_crossed(
+      r_part, r_part + part_length * u(), u(), part_bins, part_fractions);
+    add_mesh_gaps(mesh, r_part, part_length, part_bins, part_fractions);
+    for (int i = 0; i < part_bins.size(); i++) {
+      const double fraction = part_fractions[i] * part_length / length;
+      if (!bins.empty() && bins.back() == part_bins[i]) {
+        fractions.back() += fraction;
+      } else {
+        bins.push_back(part_bins[i]);
+        fractions.push_back(fraction);
+      }
     }
   }
 }
@@ -489,22 +492,10 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh_fractional_lengths_.resize(0);
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
-    // Portions of the segment outside the mesh are not returned, so they
-    // could be neither attenuated nor tallied: see check_mesh_coverage()
-    if (mesh_coverage.empty())
-      mesh_coverage.resize(model::cells.size());
-    MeshCoverage& coverage = mesh_coverage[lowest_coord().cell()];
-    const double lost = reduced_distance *
-                        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
-                                 mesh_fractional_lengths_.end(), 0.0));
-    coverage.path += reduced_distance;
-    coverage.lost += lost;
-    if (lost > coverage.worst) {
-      coverage.worst = lost;
-      coverage.mesh_id = mesh->id();
-      coverage.start = start;
-      coverage.end = end;
-    }
+    // Portions of the segment outside the mesh are not returned. In order, and
+    // at the right places on the ray, they go to a source region of their own.
+    add_mesh_gaps(
+      *mesh, start, reduced_distance, mesh_bins_, mesh_fractional_lengths_);
 
     // Loop over all mesh bins and attenuate flux
     for (int b = 0; b < mesh_bins_.size(); b++) {

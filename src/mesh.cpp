@@ -37,6 +37,7 @@
 #include "openmc/random_dist.h"
 #include "openmc/search.h"
 #include "openmc/settings.h"
+#include "openmc/simulation.h"
 #include "openmc/string_utils.h"
 #include "openmc/tallies/filter.h"
 #include "openmc/tallies/tally.h"
@@ -3146,6 +3147,10 @@ void MOABMesh::initialize()
     fatal_error("Failed to get all tetrahedral elements");
   }
 
+  if (ehs_.empty()) {
+    fatal_error("No tetrahedra found in unstructured mesh file " + filename_);
+  }
+
   // Only linear tets are handled (MOAB also types quadratic tets as MBTET)
   bool linear_tets = ehs_.all_of_type(moab::MBTET);
   for (auto it = ehs_.begin(); linear_tets && it != ehs_.end(); ++it) {
@@ -3365,10 +3370,12 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // edge or vertex of a tet or in a face can miss intersections. Moving the
   // track by a tiny amount, in a fixed direction unrelated to the mesh, leaves
   // no such ties. Random rays have no ties to begin with, and the random ray
-  // solver checks the bins it gets at points on the ray.
+  // solver checks the bins it gets at points on the ray. (The rays of material
+  // volume calculations, which come before a simulation, can have ties.)
   const double offset = t_lo > 100.0 * extent ? t_lo : 0.0;
   Position origin = r0 + offset * u;
-  if (settings::solver_type != SolverType::RANDOM_RAY) {
+  if (settings::solver_type != SolverType::RANDOM_RAY ||
+      !simulation::initialized) {
     origin += surface_tol_ * Position {0.5773502691896258, -0.3141592653589793,
                                0.7539822368615503};
   }

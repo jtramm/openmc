@@ -2769,13 +2769,13 @@ class UnstructuredMesh(MeshBase):
         it loads the mesh. Their faces must be shared between neighboring
         elements, and their node order must not be mirrored. This is not
         checked: at such a place, a track loses length, which random ray mode
-        reports as a mesh that does not cover a cell, while tallies in Monte
-        Carlo mode are low; a mirrored element can also make a run print
-        warnings without end. A native MOAB mesh must consist of linear
-        tetrahedra. A track that lies exactly in the boundary of a mesh may or
-        may not count as being in the mesh, and one that enters it exactly
-        through a corner of a mesh that does not fill its bounding box can lose
-        its length in the first element.
+        counts as outside of the mesh, while tallies in Monte Carlo mode are
+        low; a mirrored element can also make a run print warnings without end.
+        A native MOAB mesh must consist of linear tetrahedra. A track that lies
+        exactly in the boundary of a mesh may or may not count as being in the
+        mesh, if so possibly all in one of the elements along it, and one that
+        enters it exactly through a corner of a mesh that does not fill its
+        bounding box can lose its length in the first element.
 
     Parameters
     ----------

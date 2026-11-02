@@ -588,11 +588,15 @@ void WeightWindows::update_weights(const Tally* tally, const std::string& value,
     }
   }
 
-  // Divide by volume of mesh elements
+  // Divide by volume of mesh elements, unless random ray flux tallies already
+  // are
+  if (value == "rel_err" || settings::solver_type != SolverType::RANDOM_RAY ||
+      !FlatSourceDomain::volume_normalized_flux_tallies_) {
 #pragma omp parallel for collapse(2) schedule(static)
-  for (int e = 0; e < e_bins; e++) {
-    for (int64_t m = 0; m < mesh_bins; m++) {
-      new_bounds(e, m) /= mesh_vols[m];
+    for (int e = 0; e < e_bins; e++) {
+      for (int64_t m = 0; m < mesh_bins; m++) {
+        new_bounds(e, m) /= mesh_vols[m];
+      }
     }
   }
 

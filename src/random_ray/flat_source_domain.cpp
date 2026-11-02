@@ -2048,14 +2048,6 @@ void FlatSourceDomain::convert_external_sources(bool use_adjoint_sources)
       }
       SourceRegionKey key = lookup_source_region_key(gs);
 
-      // No ray would find the source region of a point outside of a mesh
-      if (key.mesh_bin < 0) {
-        fatal_error(fmt::format(
-          "Point source at {} is outside of the source region mesh applied to "
-          "its cell.",
-          sp->r()));
-      }
-
       // With the source region and mesh bin known, we can use the
       // accompanying SourceRegionKey as a key into a map that stores the
       // corresponding external source index for the point source. Notably, we
@@ -2575,7 +2567,7 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   } else {
     Mesh* mesh = model::meshes[mesh_idx].get();
     int bin_found = mesh->get_bin(r + TINY_BIT * u);
-    if (bin_found != sr_key.mesh_bin || bin_found < 0) {
+    if (bin_found != sr_key.mesh_bin) {
       discovered_source_regions_.unlock(sr_key);
       SourceRegionHandle handle;
       handle.is_numerical_fp_artifact_ = true;

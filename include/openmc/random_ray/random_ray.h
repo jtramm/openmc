@@ -108,9 +108,15 @@ public:
   void event_advance_ray();
   void attenuate_flux(double distance, bool is_active, double offset = 0.0);
 
-  //! Stop with an error if the rays have spent too much of their path through a
-  //! cell that a source region mesh is applied to outside of the mesh
-  static void check_mesh_coverage();
+  //! Add the parts of a stretch of the ray's path outside of a source region
+  //! mesh, as bin C_NONE, in their place among what the mesh returned for it
+  //! \param[in] mesh Mesh the stretch was traced through
+  //! \param[in] r Start of the stretch
+  //! \param[in] length Length of the stretch
+  //! \param[in,out] bins Mesh bins crossed by the stretch
+  //! \param[in,out] fractions Fractions of the stretch's length in those bins
+  void add_mesh_gaps(const Mesh& mesh, Position r, double length,
+    vector<int>& bins, vector<double>& fractions) const;
   void attenuate_flux_inner(
     double distance, bool is_active, int64_t sr, int mesh_bin, Position r);
   void attenuate_flux_flat_source(

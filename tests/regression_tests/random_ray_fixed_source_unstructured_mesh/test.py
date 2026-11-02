@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from itertools import product
 from pathlib import Path
 
@@ -38,18 +39,8 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
             os.remove(f)
 
 
-def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
-               length_multiplier=None, tally_mesh=None, ww_method='magic',
-               run_mode='fixed source', source_point=None, slab=None,
-               slab_fill=True, subdivide_root=True):
-    """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
-    by the mesh in mesh_path (read by a mesh library, directly or through
-    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
-    a mesh tally on that mesh or on another one, and optionally a cell (of the
-    material or void) in a slab of the given thickness past the box, to which
-    the mesh is applied unless subdivide_root is False"""
-
-    # One-group material with half scattering
+def one_group_materials(run_mode='fixed source'):
+    """One-group material with half scattering"""
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
     xsdata = openmc.XSdata('mat', groups)
     xsdata.order = 0
@@ -69,6 +60,93 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     mat.add_macroscopic(openmc.Macroscopic('mat'))
     materials = openmc.Materials([mat])
     materials.cross_sections = 'mgxs.h5'
+    return materials
+
+
+def random_ray_settings(lower_left, upper_right, source_shape='flat',
+                        run_mode='fixed source'):
+    """Settings of a few rays over a box, with enough batches for linear
+    sources to be used, which starts after the tenth"""
+    settings = openmc.Settings()
+    settings.energy_mode = 'multi-group'
+    settings.run_mode = run_mode
+    settings.batches = 10 if source_shape == 'flat' else 15
+    settings.inactive = 5
+    settings.particles = 100
+    settings.random_ray['distance_active'] = 10.0
+    settings.random_ray['distance_inactive'] = 3.0
+    settings.random_ray['ray_source'] = openmc.IndependentSource(
+        space=openmc.stats.Box(lower_left, upper_right))
+    settings.random_ray['volume_estimator'] = 'hybrid'
+    if source_shape != 'flat':
+        settings.random_ray['source_shape'] = source_shape
+    return settings
+
+
+def flux_tally(name, tally_filter):
+    tally = openmc.Tally(name=name)
+    tally.filters = [tally_filter]
+    tally.scores = ['flux']
+    tally.estimator = 'tracklength'
+    return tally
+
+
+def read_tets(path):
+    """The nodes of a VTK file, and the nodes of each of its tets"""
+    lines = Path(path).read_text().splitlines()
+    i_points = next(i for i, line in enumerate(lines)
+                    if line.startswith('POINTS'))
+    i_cells = next(i for i, line in enumerate(lines)
+                   if line.startswith('CELLS'))
+    i_types = next(i for i, line in enumerate(lines)
+                   if line.startswith('CELL_TYPES'))
+    n_points = int(lines[i_points].split()[1])
+    points = np.array(
+        [line.split() for line in lines[i_points + 1:i_points + 1 + n_points]],
+        dtype=float)
+    tets = np.array([line.split()[1:] for line in lines[i_cells + 1:i_types]
+                     if line.startswith('4 ')], dtype=int)
+    return points, tets
+
+
+def write_tets(path, points, tets):
+    """A VTK file of the given tets"""
+    lines = ['# vtk DataFile Version 2.0', 'tets', 'ASCII',
+             'DATASET UNSTRUCTURED_GRID', f'POINTS {len(points)} double']
+    lines += [' '.join(map(str, point)) for point in points]
+    lines.append(f'CELLS {len(tets)} {5 * len(tets)}')
+    lines += ['4 ' + ' '.join(map(str, tet)) for tet in tets]
+    lines.append(f'CELL_TYPES {len(tets)}')
+    lines += ['10'] * len(tets)
+    Path(path).write_text('\n'.join(lines) + '\n')
+
+
+def unit_cube_tets():
+    """The nodes and tets of the 24-tet mesh of the unit cube"""
+    return read_tets(Path(__file__).parents[1] / 'unstructured_mesh' /
+                     MESH_FILES['moab'])
+
+
+def graded_unit_cube_tets():
+    """The 24-tet mesh of the unit cube with the nodes in the middle of its
+    faces moved along them, for tets with volumes that differ"""
+    points, tets = unit_cube_tets()
+    return np.where(points == 0.0, 0.4, points), tets
+
+
+def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
+               length_multiplier=None, tally_mesh=None, ww_method='magic',
+               run_mode='fixed source', source_point=None, slab=None,
+               slab_fill=True, subdivide_root=True):
+    """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
+    by the mesh in mesh_path (read by a mesh library, directly or through
+    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
+    a mesh tally on that mesh or on another one, and optionally a cell (of the
+    material or void) in a slab of the given thickness past the box, to which
+    the mesh is applied unless subdivide_root is False"""
+
+    materials = one_group_materials(run_mode)
+    mat = materials[0]
 
     # Reflective on the low faces and vacuum on the high faces so the flux
     # has a gradient
@@ -108,19 +186,9 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     if length_multiplier is not None:
         umesh.length_multiplier = length_multiplier
 
-    settings = openmc.Settings()
-    settings.energy_mode = 'multi-group'
-    settings.run_mode = run_mode
-    settings.batches = 10
-    settings.inactive = 5
-    settings.particles = 100
-    settings.random_ray['distance_active'] = 10.0
-    settings.random_ray['distance_inactive'] = 3.0
-    settings.random_ray['ray_source'] = openmc.IndependentSource(
-        space=openmc.stats.Box((-0.5, -0.5, -0.5), (x_max, 0.5, 0.5)))
-    settings.random_ray['volume_estimator'] = 'hybrid'
-    if source_shape != 'flat':
-        settings.random_ray['source_shape'] = source_shape
+    settings = random_ray_settings((-0.5, -0.5, -0.5),
+                                   (x_max + (slab or 0.0), 0.5, 0.5),
+                                   source_shape, run_mode)
     settings.random_ray['source_region_meshes'] = [
         (umesh, [root if subdivide_root else cell])]
     if source_point is not None:
@@ -132,20 +200,14 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
             energy=openmc.stats.Discrete([1.0e6], [1.0]),
             constraints={'domains': [cell]})
 
-    cell_tally = openmc.Tally(name='cell flux')
-    cell_tally.filters = [openmc.CellFilter(cell)]
-    cell_tally.scores = ['flux']
-    cell_tally.estimator = 'tracklength'
-    tallies = openmc.Tallies([cell_tally])
+    tallies = openmc.Tallies(
+        [flux_tally('cell flux', openmc.CellFilter(cell))])
 
     # The mesh is also the tally mesh and the weight window mesh, the tally
     # mesh only, or used for subdivision alone
     if case in ('tally_and_ww', 'tally'):
-        mesh_tally = openmc.Tally(name='tet flux')
-        mesh_tally.filters = [openmc.MeshFilter(tally_mesh or umesh)]
-        mesh_tally.scores = ['flux']
-        mesh_tally.estimator = 'tracklength'
-        tallies.append(mesh_tally)
+        tallies.append(flux_tally(
+            'tet flux', openmc.MeshFilter(tally_mesh or umesh)))
     if case == 'tally_and_ww':
         settings.weight_window_generators = openmc.WeightWindowGenerator(
             mesh=tally_mesh or umesh, method=ww_method, max_realizations=5)
@@ -169,11 +231,6 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
 
 
 @pytest.mark.parametrize("library,mesh_file,x_max", [
-    # The cell is twice as long as the mesh
-    ('moab', MESH_FILES['moab'], 1.5),
-    ('xdg-libmesh', MESH_FILES['libmesh'], 1.5),
-    ('regular', None, 1.5),
-    ('regular-2d', None, 1.5),
     # The mesh covers the cell: the 24-tet mesh and the regular mesh tile it,
     # and the hex mesh extends beyond it
     ('regular', None, 0.5),
@@ -183,39 +240,38 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     ('xdg-libmesh', MESH_FILES['libmesh'], 0.5),
     ('xdg-libmesh', 'test_mesh_hexes.e', 0.5),
     # The mesh falls short of the cell by a sliver that is of no consequence,
-    # or by enough to matter
+    # or by enough to count, as with a mesh and a cell faceted separately
     ('regular', None, 0.5 + 1e-9),
     ('moab', MESH_FILES['moab'], 0.5 + 1e-9),
     ('regular', None, 0.5 + 1e-3),
     ('moab', MESH_FILES['moab'], 0.5 + 1e-3),
+    ('xdg-libmesh', MESH_FILES['libmesh'], 0.5 + 1e-3),
 ])
 def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
-    """A run with a mesh covering only half of the cell it subdivides stops
-    with an error, and one with a mesh covering all of it does not, and its
-    flux on the mesh adds up to the flux in the cell"""
+    """The flux on a mesh that covers the cell adds up to the flux in the cell,
+    and that on a mesh that falls just short of it to nearly all of it"""
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
                  if mesh_file else None)
-    covered = x_max < 0.5 + 1e-6
     with change_directory(tmp_path):
-        model = make_model(library, mesh_path,
-                           'tally' if covered else 'subdivision_only',
-                           x_max=x_max)
-        model.export_to_model_xml()
+        make_model(library, mesh_path, 'tally',
+                   x_max=x_max).export_to_model_xml()
 
     if config['build_inputs']:
         return
     returncode, output = run_openmc(tmp_path)
-    if covered:
-        assert returncode == 0, output
+    assert returncode == 0, output
+    if x_max < 0.5 + 1e-6:
         check_tally_sums(tmp_path)
     else:
-        assert returncode != 0
-        assert 'does not cover' in output
+        with openmc.StatePoint(statepoint_path(tmp_path)) as sp:
+            cell_flux = sp.get_tally(name='cell flux').mean.sum()
+            mesh_flux = sp.get_tally(name='tet flux').mean.sum()
+        assert 0.99 * cell_flux < mesh_flux < cell_flux
 
 
 @pytest.mark.parametrize("library,option", [
@@ -290,7 +346,8 @@ def test_random_ray_native_libmesh_subdivision(tmp_path):
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
                  MESH_FILES['libmesh'])
     with change_directory(tmp_path):
-        make_model('libmesh', mesh_path, 'subdivision_only').export_to_model_xml()
+        make_model('libmesh', mesh_path,
+                   'subdivision_only').export_to_model_xml()
 
     if config['build_inputs']:
         return
@@ -308,15 +365,10 @@ def test_random_ray_mirrored_mesh(library, tmp_path):
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
-    # x -> -x in the VTK file of the 24-tet mesh of the unit cube
-    source = Path(__file__).parents[1] / 'unstructured_mesh' / MESH_FILES['moab']
-    lines = source.read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith('POINTS'))
-    for i in range(start + 1, start + 1 + int(lines[start].split()[1])):
-        x, y, z = lines[i].split()
-        lines[i] = f'{-float(x)} {y} {z}'
+    # x -> -x in the 24-tet mesh of the unit cube
+    points, tets = unit_cube_tets()
     mesh_path = tmp_path / 'mirrored.vtk'
-    mesh_path.write_text('\n'.join(lines) + '\n')
+    write_tets(mesh_path, points * [-1.0, 1.0, 1.0], tets)
 
     openmc.reset_auto_ids()
     with change_directory(tmp_path):
@@ -340,48 +392,378 @@ def test_random_ray_mirrored_mesh(library, tmp_path):
     check_weight_windows(tmp_path)
 
 
-def test_random_ray_small_uncovered_cell(tmp_path):
-    """A cell entirely outside of the mesh stops the run, even if it is too
-    small to matter next to the path through the other cells on the mesh"""
-    openmc.reset_auto_ids()
-    with change_directory(tmp_path):
-        make_model('regular', None, 'tally', slab=1e-7).export_to_model_xml()
+@pytest.mark.parametrize("slab,slab_fill,rel", [
+    (0.5, True, 1e-6),
+    (0.5, False, 1e-6),
+    # Rays through a mesh lose TINY_BIT at both ends of a cell, which shows
+    # here
+    (1e-7, True, 0.2),
+])
+def test_random_ray_cell_outside_of_mesh(slab, slab_fill, rel, tmp_path):
+    """A cell outside of a mesh applied to it is not subdivided, so applying
+    the mesh to the root universe or only to the cell inside of it is the same,
+    whether the other cell is filled or void, and however small"""
+    results = []
+    for subdivide_root in (True, False):
+        path = tmp_path / str(subdivide_root)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            model = make_model('regular', None, 'tally', slab=slab,
+                               slab_fill=slab_fill,
+                               subdivide_root=subdivide_root)
+            slab_cell = next(
+                cell for cell in model.geometry.get_all_cells().values()
+                if cell.name == 'slab')
+            model.tallies.append(
+                flux_tally('slab flux', openmc.CellFilter(slab_cell)))
+            model.export_to_model_xml()
 
-    if config['build_inputs']:
-        return
-    returncode, output = run_openmc(tmp_path)
-    assert returncode != 0
-    assert 'does not cover' in output
-
-
-@pytest.mark.parametrize("subdivide_root", [True, False])
-def test_random_ray_void_cell_outside_of_mesh(subdivide_root, tmp_path):
-    """Flux is tallied in a void cell, so a mesh must cover it too if applied
-    to it, and if not, the void cell has its own flux"""
-    openmc.reset_auto_ids()
-    with change_directory(tmp_path):
-        model = make_model('regular', None, 'tally', slab=0.5, slab_fill=False,
-                           subdivide_root=subdivide_root)
-        void_cell = next(cell for cell in model.geometry.get_all_cells().values()
-                         if cell.name == 'slab')
-        void_tally = openmc.Tally(name='void flux')
-        void_tally.filters = [openmc.CellFilter(void_cell)]
-        void_tally.scores = ['flux']
-        void_tally.estimator = 'tracklength'
-        model.tallies.append(void_tally)
-        model.export_to_model_xml()
-
-    if config['build_inputs']:
-        return
-    returncode, output = run_openmc(tmp_path)
-    if subdivide_root:
-        assert returncode != 0
-        assert 'does not cover' in output
-    else:
+        if config['build_inputs']:
+            return
+        returncode, output = run_openmc(path)
         assert returncode == 0, output
-        check_tally_sums(tmp_path)
-        with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
-            assert sp.get_tally(name='void flux').mean.sum() > 0.0
+        check_tally_sums(path)
+        results.append(fluxes(path, 'cell flux', 'tet flux', 'slab flux'))
+
+    assert results[0]['slab flux'].sum() > 0.0
+    for name in ('cell flux', 'tet flux'):
+        assert results[0][name] == pytest.approx(results[1][name], rel=1e-6)
+    assert results[0]['slab flux'] == pytest.approx(
+        results[1]['slab flux'], rel=rel)
+
+
+def part_of_box_mesh(library, mesh_path):
+    """A mesh inside of the box [-1.5, 1.5]^3, and the region it covers"""
+    def cube(x0, x1):
+        return -openmc.model.RectangularParallelepiped(
+            x0, x1, -0.5, 0.5, -0.5, 0.5)
+
+    if library == 'regular':
+        mesh = openmc.RegularMesh()
+        mesh.lower_left = (-0.5, -0.5, -0.5)
+        mesh.upper_right = (0.5, 0.5, 0.5)
+        mesh.dimension = (3, 3, 3)
+        return mesh, cube(-0.5, 0.5)
+    if library == 'regular-2d':
+        mesh = openmc.RegularMesh()
+        mesh.lower_left = (-0.5, -0.5)
+        mesh.upper_right = (0.5, 0.5)
+        mesh.dimension = (3, 3)
+        return mesh, (+openmc.XPlane(-0.5) & -openmc.XPlane(0.5)
+                      & +openmc.YPlane(-0.5) & -openmc.YPlane(0.5))
+    # A hollow cylinder and a hollow sphere: rays can leave and come back
+    if library == 'cylindrical':
+        mesh = openmc.CylindricalMesh(
+            r_grid=[0.4, 0.7, 1.0], z_grid=[-0.5, 0.0, 0.5],
+            phi_grid=[0.0, 2.0, 2.0 * np.pi])
+        return mesh, (+openmc.ZCylinder(r=0.4) & -openmc.ZCylinder(r=1.0)
+                      & +openmc.ZPlane(-0.5) & -openmc.ZPlane(0.5))
+    if library == 'spherical':
+        mesh = openmc.SphericalMesh(
+            r_grid=[0.4, 0.7, 1.0], theta_grid=[0.0, 1.0, np.pi],
+            phi_grid=[0.0, 2.0, 2.0 * np.pi])
+        return mesh, +openmc.Sphere(r=0.4) & -openmc.Sphere(r=1.0)
+
+    mesh = openmc.UnstructuredMesh(
+        mesh_path, library=library.removeprefix('two-').removeprefix('xdg-'))
+    if 'xdg' in library:
+        mesh.interface = 'xdg'
+    if library.startswith('two-'):
+        return mesh, cube(-1.25, -0.25) | cube(0.25, 1.25)
+    return mesh, cube(-0.5, 0.5)
+
+
+def make_comparison_model(cells, half_width, mesh, source_shape='flat',
+                          run_mode='fixed source', source_point=None):
+    """Model of cells filling a box of a given half width, all subdivided by
+    the mesh, with their fluxes and that on the mesh as tallies. A mesh is also
+    what makes runs comparable for linear sources: the position of the start of
+    a ray in its active length is not right in a cell without one."""
+    settings = random_ray_settings(
+        (-half_width, -half_width, -half_width),
+        (half_width, half_width, half_width), source_shape, run_mode)
+    settings.random_ray['source_region_meshes'] = [(mesh, cells)]
+    if source_point is not None:
+        settings.source = openmc.IndependentSource(
+            space=openmc.stats.Point(source_point),
+            energy=openmc.stats.Discrete([1.0e6], [1.0]))
+    else:
+        settings.source = openmc.IndependentSource(
+            energy=openmc.stats.Discrete([1.0e6], [1.0]),
+            constraints={'domains': cells})
+
+    tallies = openmc.Tallies(
+        [flux_tally('cell flux', openmc.CellFilter(cells)),
+         flux_tally('mesh flux', openmc.MeshFilter(mesh))])
+    materials = one_group_materials(run_mode)
+    for cell in cells:
+        cell.fill = materials[0]
+    return openmc.Model(openmc.Geometry(cells), materials, settings, tallies)
+
+
+@pytest.mark.parametrize("library,source_shape,run_mode,source_point", [
+    ('regular', 'flat', 'fixed source', None),
+    ('regular', 'linear', 'fixed source', None),
+    ('regular', 'flat', 'eigenvalue', None),
+    # A point source in the mesh, and one outside of it
+    ('regular', 'flat', 'fixed source', (0.45, 0.1, 0.1)),
+    ('regular', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
+    ('regular-2d', 'flat', 'fixed source', None),
+    ('cylindrical', 'flat', 'fixed source', None),
+    ('cylindrical', 'linear', 'fixed source', None),
+    ('spherical', 'flat', 'fixed source', None),
+    ('moab', 'flat', 'fixed source', None),
+    ('moab', 'linear', 'fixed source', None),
+    ('moab', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
+    ('xdg-moab', 'flat', 'fixed source', None),
+    ('xdg-libmesh', 'flat', 'fixed source', None),
+    ('xdg-libmesh', 'linear', 'fixed source', None),
+    ('xdg-libmesh', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
+    # A mesh in two parts, of the 24-tet mesh moved to either side
+    ('two-moab', 'flat', 'fixed source', None),
+    ('two-moab', 'linear', 'fixed source', None),
+    ('two-xdg-moab', 'flat', 'fixed source', None),
+])
+def test_random_ray_mesh_over_part_of_cell(
+        library, source_shape, run_mode, source_point, tmp_path):
+    """What is outside of a mesh that covers part of a cell counts as one more
+    bin of the mesh. Rays go through it in its place along them, so a run is
+    the same as one with that part as a cell of its own, whatever the shape of
+    the mesh and however many times a ray enters it."""
+    if not enabled(library.removeprefix('two-')):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
+    # A ray handed to another rank restarts on a bin boundary. On a radial
+    # surface of these meshes, going inward at a grazing angle, it misses its
+    # way out again (find_r_crossing takes it to still be on the surface), so
+    # that a few rays score to the wrong bin, which is not what is being tested
+    # here.
+    if config['mpi'] and library in ('cylindrical', 'spherical'):
+        pytest.skip("Radial crossings of restarted rays")
+
+    mesh_path = None
+    if library.startswith('two-'):
+        mesh_path = tmp_path / 'two_parts.vtk'
+        points, tets = unit_cube_tets()
+        write_tets(mesh_path,
+                   np.vstack([points - [0.75, 0.0, 0.0],
+                              points + [0.75, 0.0, 0.0]]),
+                   np.vstack([tets, tets + len(points)]))
+    elif library in MESH_FILES:
+        mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                     MESH_FILES[library])
+
+    results = []
+    for split in (False, True):
+        path = tmp_path / str(split)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            mesh, covered = part_of_box_mesh(library, mesh_path)
+            box = -openmc.model.RectangularParallelepiped(
+                -1.5, 1.5, -1.5, 1.5, -1.5, 1.5, boundary_type='vacuum')
+            cells = ([openmc.Cell(region=box & covered),
+                      openmc.Cell(region=box & ~covered)] if split
+                     else [openmc.Cell(region=box)])
+            make_comparison_model(cells, 1.5, mesh, source_shape, run_mode,
+                                  source_point).export_to_model_xml()
+
+        if config['build_inputs']:
+            return
+        returncode, output = run_openmc(path)
+        assert returncode == 0, output
+        results.append(fluxes(path, 'cell flux', 'mesh flux'))
+
+    inner, outer = results[1]['cell flux']
+    assert results[1]['mesh flux'].sum() > 0.0
+    assert outer > 0.0
+    assert results[0]['cell flux'].sum() == pytest.approx(
+        inner + outer, rel=1e-5)
+    assert results[0]['mesh flux'] == pytest.approx(
+        results[1]['mesh flux'], rel=1e-5)
+    # The flux on the mesh is that of the part of the cell that it covers
+    assert results[1]['mesh flux'].sum() == pytest.approx(inner, rel=1e-5)
+
+
+def tet_cell(points, tet):
+    """A cell of the shape of a tet of the unit cube"""
+    nodes = points[tet]
+    half_spaces = []
+    for i in range(4):
+        face = np.delete(nodes, i, axis=0)
+        normal = np.cross(face[1] - face[0], face[2] - face[0])
+        on_cube = np.any(np.all(np.abs(face) == 0.5, axis=0)
+                         & (np.ptp(face, axis=0) == 0.0))
+        plane = openmc.Plane(*normal, d=normal @ face[0], boundary_type=(
+            'vacuum' if on_cube else 'transmission'))
+        half_spaces.append(+plane if normal @ nodes[i] > plane.d else -plane)
+    return openmc.Cell(region=half_spaces[0] & half_spaces[1] & half_spaces[2]
+                       & half_spaces[3])
+
+
+@pytest.mark.parametrize("library,graded,source_shape,source_point", [
+    ('moab', False, 'flat', None),
+    ('moab', False, 'linear', None),
+    ('moab', False, 'flat', (0.3, 0.1, 0.05)),
+    ('moab', True, 'flat', None),
+    ('moab', True, 'linear', None),
+    ('moab', True, 'flat', (0.3, 0.1, 0.05)),
+    ('xdg-moab', True, 'flat', None),
+    ('xdg-libmesh', False, 'flat', None),
+    ('xdg-libmesh', False, 'linear', None),
+    ('xdg-libmesh', False, 'flat', (0.3, 0.1, 0.05)),
+])
+def test_random_ray_tets_as_cells(
+        library, graded, source_shape, source_point, tmp_path):
+    """With a source region per tet, a run is the same as one with a cell of
+    the same shape per tet: bin by bin, the flux on the mesh is that in the
+    cell, and the volume of the bin that of the cell"""
+    if not enabled(library):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
+
+    points, tets = graded_unit_cube_tets() if graded else unit_cube_tets()
+    if graded:
+        mesh_path = tmp_path / 'graded.vtk'
+        write_tets(mesh_path, points, tets)
+    else:
+        mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                     MESH_FILES[library])
+
+    for split in (False, True):
+        path = tmp_path / str(split)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            if split:
+                cells = [tet_cell(points, tet) for tet in tets]
+                mesh = openmc.RegularMesh()
+                mesh.lower_left = (-1.0, -1.0, -1.0)
+                mesh.upper_right = (1.0, 1.0, 1.0)
+                mesh.dimension = (1, 1, 1)
+            else:
+                cube = -openmc.model.RectangularParallelepiped(
+                    -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, boundary_type='vacuum')
+                cells = [openmc.Cell(region=cube)]
+                mesh = openmc.UnstructuredMesh(
+                    mesh_path, library=library.removeprefix('xdg-'))
+                if library.startswith('xdg-'):
+                    mesh.interface = 'xdg'
+            make_comparison_model(cells, 0.5, mesh, source_shape,
+                                  source_point=source_point
+                                  ).export_to_model_xml()
+
+        if config['build_inputs']:
+            return
+        returncode, output = run_openmc(path)
+        assert returncode == 0, output
+
+    with openmc.StatePoint(statepoint_path(tmp_path / 'False')) as sp:
+        tally = sp.get_tally(name='mesh flux')
+        flux = tally.mean.ravel()
+        centroids = tally.find_filter(openmc.MeshFilter).mesh.centroids
+        volumes = tally.find_filter(openmc.MeshFilter).mesh.volumes
+    cell_flux = fluxes(tmp_path / 'True', 'cell flux')['cell flux']
+
+    assert cell_flux.sum() > 0.0
+    for i, tet in enumerate(tets):
+        nodes = points[tet]
+        tet_bin = np.argmin(np.linalg.norm(
+            centroids - nodes.mean(axis=0), axis=1))
+        assert flux[tet_bin] == pytest.approx(cell_flux[i], rel=1e-5)
+        assert volumes[tet_bin] == pytest.approx(
+            abs(np.linalg.det(nodes[1:] - nodes[0])) / 6.0)
+    if graded:
+        assert volumes.max() > 2.0 * volumes.min()
+
+
+@pytest.mark.parametrize("ww_method", ['magic', 'fw_cadis'])
+def test_random_ray_weight_windows_normalized_tallies(ww_method, tmp_path):
+    """Whether or not flux tallies are divided by volume, weight windows are
+    the same on a mesh whose elements have different volumes"""
+    if not enabled('moab'):
+        pytest.skip("moab unstructured meshes are not enabled.")
+
+    points, tets = graded_unit_cube_tets()
+    mesh_path = tmp_path / 'graded.vtk'
+    write_tets(mesh_path, points, tets)
+
+    bounds = []
+    for normalized in (False, True):
+        path = tmp_path / str(normalized)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            model = make_model('moab', mesh_path, 'tally_and_ww',
+                               ww_method=ww_method)
+            model.settings.random_ray[
+                'volume_normalized_flux_tallies'] = normalized
+            # Enough rays for the sampled volumes of the elements to be close
+            model.settings.particles = 2000
+            model.export_to_model_xml()
+
+        if config['build_inputs']:
+            return
+        returncode, output = run_openmc(path)
+        assert returncode == 0, output
+        bounds.append(openmc.WeightWindowsList.from_hdf5(
+            path / 'weight_windows.h5')[0].lower_ww_bounds)
+
+    assert np.all(bounds[0] > 0.0)
+    assert bounds[0] == pytest.approx(bounds[1], rel=0.1)
+
+
+def test_random_ray_material_volumes(tmp_path):
+    """The rays of material volumes on a mesh are aligned with it, also in a
+    model for random ray mode, so they are moved off it there too, for the same
+    volumes. (An error would end the process, which is why this needs its
+    own.)"""
+    if not enabled('moab'):
+        pytest.skip("moab unstructured meshes are not enabled.")
+
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                 MESH_FILES['moab'])
+    script = """
+import numpy as np
+import openmc.lib
+openmc.lib.init()
+mesh = next(iter(openmc.lib.meshes.values()))
+volumes = mesh.material_volumes((3, 3, 3))
+np.save('volumes.npy', [sum(v for material, v in volumes.by_element(i)
+                            if material == 1) for i in range(24)])
+openmc.lib.finalize()
+"""
+    volumes = []
+    for random_ray in (True, False):
+        path = tmp_path / str(random_ray)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            # Two materials, so that the volumes of a tet tell something
+            box = -openmc.model.RectangularParallelepiped(
+                -2.0, 2.0, -2.0, 2.0, -2.0, 2.0, boundary_type='vacuum')
+            plane = openmc.ZPlane(0.2)
+            cells = [openmc.Cell(region=box & -plane),
+                     openmc.Cell(region=box & +plane)]
+            model = make_comparison_model(
+                cells, 2.0, openmc.UnstructuredMesh(mesh_path, library='moab'))
+            other = openmc.Material()
+            other.set_density('macro', 1.0)
+            other.add_macroscopic(openmc.Macroscopic('mat'))
+            model.materials.append(other)
+            cells[1].fill = other
+            if not random_ray:
+                model.settings.random_ray = {}
+            model.export_to_model_xml()
+
+        if config['build_inputs']:
+            return
+        result = subprocess.run([sys.executable, '-c', script], cwd=path,
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        volumes.append(np.load(path / 'volumes.npy'))
+
+    assert volumes[0].sum() > 0.0
+    assert volumes[0] == pytest.approx(volumes[1])
 
 
 @pytest.mark.parametrize("library,point", [
@@ -393,8 +775,7 @@ def test_random_ray_void_cell_outside_of_mesh(subdivide_root, tmp_path):
     ('moab', (0.1, 0.1, 0.3)),
 ])
 def test_random_ray_point_source(library, point, tmp_path):
-    """A point source goes to the mesh bin around it, wherever in the mesh it
-    is"""
+    """A point source finds a mesh bin, wherever in the mesh it is"""
     if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -412,21 +793,6 @@ def test_random_ray_point_source(library, point, tmp_path):
     check_tally_sums(tmp_path)
 
 
-def test_random_ray_point_source_outside_of_mesh(tmp_path):
-    """No ray would find a point source outside of the mesh, which is reported
-    up front"""
-    openmc.reset_auto_ids()
-    with change_directory(tmp_path):
-        make_model('regular', None, 'tally', x_max=1.5,
-                   source_point=(1.0, 0.1, 0.1)).export_to_model_xml()
-
-    if config['build_inputs']:
-        return
-    returncode, output = run_openmc(tmp_path)
-    assert returncode != 0
-    assert 'outside of the source region mesh' in output
-
-
 def check_weight_windows(path, all_bins=False):
     """Valid bounds, in all bins or else -1 for a bin without a usable flux"""
     bounds = openmc.WeightWindowsList.from_hdf5(
@@ -435,9 +801,14 @@ def check_weight_windows(path, all_bins=False):
     assert np.all((bounds > 0.0) | (not all_bins and bounds == -1.0))
 
 
+def statepoint_path(path):
+    """The statepoint of the run in path"""
+    return next(Path(path).glob('statepoint.*.h5'))
+
+
 def mesh_volumes(path):
     """The volumes of the elements of the tally mesh of the run in path"""
-    with openmc.StatePoint(path / 'statepoint.10.h5') as sp:
+    with openmc.StatePoint(statepoint_path(path)) as sp:
         return sp.get_tally(name='tet flux').find_filter(
             openmc.MeshFilter).mesh.volumes
 
@@ -456,10 +827,16 @@ def run_openmc(path):
         return result.returncode, ' '.join(output.read().split())
 
 
+def fluxes(path, *names):
+    """The flux of the tallies with the given names of the run in path"""
+    with openmc.StatePoint(statepoint_path(path)) as sp:
+        return {name: sp.get_tally(name=name).mean.ravel() for name in names}
+
+
 def check_tally_sums(path):
     """The flux on the mesh of the run in path adds up to the flux in the
     cell"""
-    with openmc.StatePoint(path / 'statepoint.10.h5') as sp:
+    with openmc.StatePoint(statepoint_path(path)) as sp:
         cell_flux = sp.get_tally(name='cell flux').mean.sum()
         mesh_flux = sp.get_tally(name='tet flux').mean.sum()
     assert cell_flux > 0.0

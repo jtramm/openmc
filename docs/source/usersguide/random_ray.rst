@@ -429,14 +429,11 @@ the mesh can be any kind and is not restricted to 3D regular voxels. This
 includes :class:`openmc.UnstructuredMesh`, with MOAB or, through the XDG
 interface (by setting its ``interface`` attribute to ``'xdg'``), libMesh,
 although ray tracing through an unstructured mesh is considerably slower than
-through a structured one. A mesh must cover every cell it is applied to. OpenMC
-stops with an error at the end of a batch once more than a millionth of the
-rays' path through such a cell, over all of its instances, has been outside of
-the mesh (for instance in a hole of the mesh, or where a faceted mesh does not
-quite reach a curved cell boundary). A point source must be inside of the mesh
-too. Apply the mesh only to the cells that it covers, and to subdivide a cell
-with curved boundaries, use a mesh that extends beyond the cell. An example of
-overlaying a simple 2D mesh over a geometry is given as::
+through a structured one. A mesh does not have to cover the cells it is applied
+to: whatever is outside of the mesh counts as one more mesh bin, so that each
+cell instance has one source region for its part outside of the mesh, which is
+not subdivided any further. An example of overlaying a simple 2D mesh over a
+geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

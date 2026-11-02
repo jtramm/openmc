@@ -1368,15 +1368,18 @@ def test_umesh_volumes(mesh_file, mesh_library, interface, multiplier, total,
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
-@pytest.mark.parametrize('nodes, cell, cell_type', [
+@pytest.mark.parametrize('nodes, cell, cell_type, message', [
     # A hexahedron
     ("0 0 0 1 0 0 1 1 0 0 1 0 0 0 1 1 0 1 1 1 1 0 1 1",
-     "8 0 1 2 3 4 5 6 7", 12),
+     "8 0 1 2 3 4 5 6 7", 12, "other than linear tetrahedra"),
     # A quadratic tetrahedron, which MOAB also takes for a tetrahedron
     ("0 0 0 1 0 0 0 1 0 0 0 1 .5 0 0 .5 .5 0 0 .5 0 0 0 .5 .5 0 .5 0 .5 .5",
-     "10 0 1 2 3 4 5 6 7 8 9", 24),
+     "10 0 1 2 3 4 5 6 7 8 9", 24, "other than linear tetrahedra"),
+    # Only a triangle, and so no volume
+    ("0 0 0 1 0 0 0 1 0", "3 0 1 2", 5, "No tetrahedra"),
 ])
-def test_native_moab_other_elements(nodes, cell, cell_type, run_in_tmpdir):
+def test_native_moab_other_elements(nodes, cell, cell_type, message,
+                                    run_in_tmpdir):
     """Elements that the native MOAB interface does not handle are refused"""
     if not openmc.lib.feature_enabled('dagmc'):
         pytest.skip("DAGMC not enabled.")
@@ -1397,7 +1400,7 @@ def test_native_moab_other_elements(nodes, cell, cell_type, run_in_tmpdir):
     model.settings.run_mode = "fixed source"
     model.settings.batches = 1
     model.settings.particles = 10
-    with pytest.raises(RuntimeError, match="other than linear tetrahedra"):
+    with pytest.raises(RuntimeError, match=message):
         model.run()
 
 
