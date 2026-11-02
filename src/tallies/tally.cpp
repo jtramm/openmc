@@ -384,7 +384,9 @@ Tally::Tally(pugi::xml_node node)
   for (auto i : this->filters_) {
     Filter* filter = model::tally_filters[i].get();
     int32_t mesh_index = C_NONE;
-    if (auto mesh_filter = dynamic_cast<MeshFilter*>(filter)) {
+    if (dynamic_cast<MeshBornFilter*>(filter)) {
+      // Only looks up where particles were born
+    } else if (auto mesh_filter = dynamic_cast<MeshFilter*>(filter)) {
       mesh_index = mesh_filter->mesh();
     } else if (auto material_filter =
                  dynamic_cast<MeshMaterialFilter*>(filter)) {

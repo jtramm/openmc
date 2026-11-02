@@ -425,12 +425,13 @@ void RandomRay::check_mesh_coverage()
     MPI_DOUBLE, MPI_SUM, mpi::intracomm);
 #endif
 
-  // A mesh has to cover the cells it is applied to, as the parts of a ray's
-  // path outside of it are neither attenuated nor tallied. The odd sliver can
-  // be lost to roundoff, as where a mesh and a cell have the same boundary or
-  // a ray is tangent to a curved surface of the mesh, so this looks at a
-  // cell's whole path, not at single rays. (On this rank, the rays may not have
-  // lost any of the path, in which case there is no example.)
+  // A mesh has to cover the cells it is applied to (void ones too, as flux is
+  // tallied there), as the parts of a ray's path outside of it are neither
+  // attenuated nor tallied. The odd sliver can be lost to roundoff, as where a
+  // mesh and a cell have the same boundary or a ray is tangent to a curved
+  // surface of the mesh, so this looks at a cell's whole path, not at single
+  // rays. (On this rank, the rays may not have lost any of the path, in which
+  // case there is no example.)
   for (int i = 0; i < seen.size(); i++) {
     const double path = path_and_lost[2 * i];
     const double lost = path_and_lost[2 * i + 1];
@@ -444,7 +445,8 @@ void RandomRay::check_mesh_coverage()
               seen[i].mesh_id, seen[i].worst, seen[i].start, seen[i].end);
       fatal_error(fmt::format(
         "A source region mesh does not cover all of cell {}, which it is "
-        "applied to: {:.3g}% of the rays' path through the cell is outside{}.",
+        "applied to: {:.3g}% of the rays' path through the cell is outside{}. "
+        "Apply the mesh only to cells that it covers.",
         model::cells[i]->id_, 100.0 * lost / path, example));
     }
   }
@@ -488,27 +490,20 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
     // Portions of the segment outside the mesh are not returned, so they
-    // could be neither attenuated nor tallied: see check_mesh_coverage(). This
-    // does not matter in a void cell without a source, where nothing happens
-    // to the rays.
-    const int i_cell = lowest_coord().cell();
-    if (model::cells[i_cell]->material(cell_instance()) != MATERIAL_VOID ||
-        domain_->external_volumetric_source_map_.count(sr)) {
-      if (mesh_coverage.empty())
-        mesh_coverage.resize(model::cells.size());
-      MeshCoverage& coverage = mesh_coverage[i_cell];
-      const double lost =
-        reduced_distance *
-        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
-                 mesh_fractional_lengths_.end(), 0.0));
-      coverage.path += reduced_distance;
-      coverage.lost += lost;
-      if (lost > coverage.worst) {
-        coverage.worst = lost;
-        coverage.mesh_id = mesh->id();
-        coverage.start = start;
-        coverage.end = end;
-      }
+    // could be neither attenuated nor tallied: see check_mesh_coverage()
+    if (mesh_coverage.empty())
+      mesh_coverage.resize(model::cells.size());
+    MeshCoverage& coverage = mesh_coverage[lowest_coord().cell()];
+    const double lost = reduced_distance *
+                        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
+                                 mesh_fractional_lengths_.end(), 0.0));
+    coverage.path += reduced_distance;
+    coverage.lost += lost;
+    if (lost > coverage.worst) {
+      coverage.worst = lost;
+      coverage.mesh_id = mesh->id();
+      coverage.start = start;
+      coverage.end = end;
     }
 
     // Loop over all mesh bins and attenuate flux

@@ -3364,12 +3364,14 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // MOAB's test of a triangle has no tolerance, so a track exactly through an
   // edge or vertex of a tet or in a face can miss intersections. Moving the
   // track by a tiny amount, in a fixed direction unrelated to the mesh, leaves
-  // no such ties.
+  // no such ties. Random rays have no ties to begin with, and the random ray
+  // solver checks the bins it gets at points on the ray.
   const double offset = t_lo > 100.0 * extent ? t_lo : 0.0;
-  const Position origin =
-    r0 + offset * u +
-    surface_tol_ *
-      Position {0.5773502691896258, -0.3141592653589793, 0.7539822368615503};
+  Position origin = r0 + offset * u;
+  if (settings::solver_type != SolverType::RANDOM_RAY) {
+    origin += surface_tol_ * Position {0.5773502691896258, -0.3141592653589793,
+                               0.7539822368615503};
+  }
   const moab::CartVect ray_origin(origin.x, origin.y, origin.z);
   const double s_end = t_hi - offset;
 
@@ -3404,7 +3406,9 @@ moab::EntityHandle MOABMesh::get_tet(const Position& r) const
   moab::CartVect pos(r.x, r.y, r.z);
   // find the leaf of the kd-tree for this position
   moab::AdaptiveKDTreeIter kdtree_iter;
-  moab::ErrorCode rval = kdtree_->point_search(pos.array(), kdtree_iter);
+  // (with a tolerance on the tree's boxes no smaller than the one used below)
+  moab::ErrorCode rval = kdtree_->point_search(
+    pos.array(), kdtree_iter, std::max(1e-10, surface_tol_));
   if (rval != moab::MB_SUCCESS) {
     return 0;
   }

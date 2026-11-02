@@ -491,6 +491,7 @@ class MeshBase(IDManagerMixin, ABC):
         new_tally = openmc.Tally()
         new_tally.filters = [openmc.MeshFilter(self)]
         new_tally.scores = ['flux']
+        new_tally.estimator = 'collision'
         model.tallies = [new_tally]
 
         # Set default arguments

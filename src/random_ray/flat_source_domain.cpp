@@ -2051,8 +2051,8 @@ void FlatSourceDomain::convert_external_sources(bool use_adjoint_sources)
       // No ray would find the source region of a point outside of a mesh
       if (key.mesh_bin < 0) {
         fatal_error(fmt::format(
-          "External point source at {} is outside of the source region mesh "
-          "applied to its cell.",
+          "Point source at {} is outside of the source region mesh applied to "
+          "its cell.",
           sp->r()));
       }
 
@@ -2575,7 +2575,7 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   } else {
     Mesh* mesh = model::meshes[mesh_idx].get();
     int bin_found = mesh->get_bin(r + TINY_BIT * u);
-    if (bin_found != sr_key.mesh_bin) {
+    if (bin_found != sr_key.mesh_bin || bin_found < 0) {
       discovered_source_regions_.unlock(sr_key);
       SourceRegionHandle handle;
       handle.is_numerical_fp_artifact_ = true;

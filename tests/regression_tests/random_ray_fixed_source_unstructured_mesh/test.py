@@ -41,12 +41,13 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
 def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
                length_multiplier=None, tally_mesh=None, ww_method='magic',
                run_mode='fixed source', source_point=None, slab=None,
-               slab_fill=True):
+               slab_fill=True, subdivide_root=True):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
     by the mesh in mesh_path (read by a mesh library, directly or through
     XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2, with
     a mesh tally on that mesh or on another one, and optionally a cell (of the
-    material or void) in a slab of the given thickness past the box"""
+    material or void) in a slab of the given thickness past the box, to which
+    the mesh is applied unless subdivide_root is False"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -120,7 +121,8 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
     settings.random_ray['volume_estimator'] = 'hybrid'
     if source_shape != 'flat':
         settings.random_ray['source_shape'] = source_shape
-    settings.random_ray['source_region_meshes'] = [(umesh, [root])]
+    settings.random_ray['source_region_meshes'] = [
+        (umesh, [root if subdivide_root else cell])]
     if source_point is not None:
         settings.source = openmc.IndependentSource(
             space=openmc.stats.Point(source_point),
@@ -352,19 +354,34 @@ def test_random_ray_small_uncovered_cell(tmp_path):
     assert 'does not cover' in output
 
 
-def test_random_ray_void_cell_outside_of_mesh(tmp_path):
-    """Nothing happens to rays in a void cell without a source, so it can
-    extend beyond the mesh"""
+@pytest.mark.parametrize("subdivide_root", [True, False])
+def test_random_ray_void_cell_outside_of_mesh(subdivide_root, tmp_path):
+    """Flux is tallied in a void cell, so a mesh must cover it too if applied
+    to it, and if not, the void cell has its own flux"""
     openmc.reset_auto_ids()
     with change_directory(tmp_path):
-        make_model('regular', None, 'tally', slab=0.5,
-                   slab_fill=False).export_to_model_xml()
+        model = make_model('regular', None, 'tally', slab=0.5, slab_fill=False,
+                           subdivide_root=subdivide_root)
+        void_cell = next(cell for cell in model.geometry.get_all_cells().values()
+                         if cell.name == 'slab')
+        void_tally = openmc.Tally(name='void flux')
+        void_tally.filters = [openmc.CellFilter(void_cell)]
+        void_tally.scores = ['flux']
+        void_tally.estimator = 'tracklength'
+        model.tallies.append(void_tally)
+        model.export_to_model_xml()
 
     if config['build_inputs']:
         return
     returncode, output = run_openmc(tmp_path)
-    assert returncode == 0, output
-    check_tally_sums(tmp_path)
+    if subdivide_root:
+        assert returncode != 0
+        assert 'does not cover' in output
+    else:
+        assert returncode == 0, output
+        check_tally_sums(tmp_path)
+        with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
+            assert sp.get_tally(name='void flux').mean.sum() > 0.0
 
 
 @pytest.mark.parametrize("library,point", [
@@ -430,9 +447,13 @@ def run_openmc(path):
     args = [config['exe']]
     if config['mpi']:
         args = [config['mpiexec'], '-n', config['mpi_np']] + args
-    result = subprocess.run(args, cwd=path, capture_output=True, text=True)
-    # (messages are wrapped)
-    return result.returncode, ' '.join((result.stdout + result.stderr).split())
+    # To a file and within a time limit: a mistake here can mean endless output
+    with open(path / 'output.txt', 'w+') as output:
+        result = subprocess.run(args, cwd=path, stdout=output,
+                                stderr=subprocess.STDOUT, timeout=120)
+        output.seek(0)
+        # (messages are wrapped)
+        return result.returncode, ' '.join(output.read().split())
 
 
 def check_tally_sums(path):

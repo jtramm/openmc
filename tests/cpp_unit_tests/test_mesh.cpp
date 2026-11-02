@@ -620,20 +620,22 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
   };
   const Position away {2000.0, 1000.0, -3000.0};
 
-  enum class Variant { AS_IS, ROUNDOFF, MORE_ROUNDOFF, TURNED, AWAY };
-  for (Variant variant : {Variant::AS_IS, Variant::ROUNDOFF,
-         Variant::MORE_ROUNDOFF, Variant::TURNED, Variant::AWAY}) {
+  enum class Variant { AS_IS, ROUNDOFF, MORE_ROUNDOFF, TURNED, AWAY, LARGE };
+  for (Variant variant :
+    {Variant::AS_IS, Variant::ROUNDOFF, Variant::MORE_ROUNDOFF, Variant::TURNED,
+      Variant::AWAY, Variant::LARGE}) {
     std::mt19937_64 rng(41);
     std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+    const double scale = variant == Variant::LARGE ? 1e4 : 1.0;
     const auto from_cube = [&](Position p) {
       return variant == Variant::TURNED ? turn(p)
              : variant == Variant::AWAY ? p + away
-                                        : p;
+                                        : scale * p;
     };
     const auto to_cube = [&](Position p) {
       return variant == Variant::TURNED ? unturn(p)
              : variant == Variant::AWAY ? p - away
-                                        : p;
+                                        : p / scale;
     };
     MovedMeshFile file(original, [&](Position p) {
       const double noise = variant == Variant::ROUNDOFF        ? 2.3e-16
@@ -653,10 +655,15 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
       double total = 0.0;
       for (double f : lengths)
         total += f * length;
-      REQUIRE(
-        total == Catch::Approx(length_in_unit_cube(to_cube(r0), to_cube(r1)))
-                   .margin(1e-8));
+      REQUIRE(total / scale ==
+              Catch::Approx(length_in_unit_cube(to_cube(r0), to_cube(r1)))
+                .margin(1e-8));
     };
+
+    // A point just outside of the box of a large mesh is within the tolerance
+    // of the mesh, which is larger than MOAB's on the boxes of its tree
+    if (variant == Variant::LARGE)
+      REQUIRE(mesh.get_bin({5000.0 + 5e-9, 100.0, 200.0}) >= 0);
 
     // Beams along the axes of the cube, along the mesh's middle lines and in
     // its middle planes
