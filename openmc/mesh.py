@@ -473,7 +473,9 @@ class MeshBase(IDManagerMixin, ABC):
             Whether to compute an axis-aligned bounding box for each
             (mesh element, material) combination. When enabled, the bounding
             box encloses the ray-estimator prisms used for the volume
-            estimation.
+            estimation. For an unstructured mesh with the XDG interface, the
+            boxes are placed as if every ray crossed the mesh without leaving
+            and re-entering it, which XDG does not report.
         **kwargs : dict
             Keyword arguments passed to :func:`openmc.lib.init`
 
@@ -2763,14 +2765,17 @@ class UnstructuredMesh(MeshBase):
         For libMesh meshes, OpenMC treats element sides as flat (a
         quadrilateral side as two triangles through its corner nodes) in all
         mesh lookups, and reports the volumes of these flat-sided elements.
-        Curved sides of second-order elements are therefore approximated. The
-        elements must be valid polyhedra with flat sides (not inverted, wholly
-        or in part, as strongly curved elements can be), and a side where
-        elements touch without being neighbors in libMesh (at a non-conforming
-        interface, such as one with hanging nodes) must be flat, to within
-        1e-12 of the larger of the mesh's extent and the magnitude of its
-        coordinates, unless the side across from it has its corners at the
-        same positions. OpenMC checks both when it loads the mesh.
+        Curved sides of second-order elements and warped quadrilateral sides
+        are therefore approximated, which OpenMC reports with a warning (at a
+        non-conforming interface, where elements touch without being neighbors
+        in libMesh, such sides also leave gaps and overlaps between elements).
+        The elements must be valid polyhedra with flat sides (not inverted,
+        wholly or in part, as strongly curved elements can be), which OpenMC
+        checks when it loads the mesh. A point within 1e-12 of the larger of
+        the mesh's extent and the magnitude of its coordinates from a side is
+        on the side, so a track that runs that close to a side for a stretch
+        can have that stretch scored to the element on either side of it (or,
+        at the boundary of the mesh, to the element inside).
 
     Parameters
     ----------

@@ -189,7 +189,9 @@ public:
   //! The parts of the track outside of the mesh are not crossings, so there
   //! can be gaps between crossings. The default implementation takes the
   //! crossings to follow one another from r0, as they do on a mesh that the
-  //! track does not leave.
+  //! track does not leave (it is used by meshes that do not report where
+  //! their crossings are, which XDG meshes do not). The vectors are cleared
+  //! first.
   //
   //! \param[in] r0 Previous position of the particle
   //! \param[in] r1 Current position of the particle
@@ -360,6 +362,10 @@ public:
 
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
+
+  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths,
+    vector<double>& starts) const override;
 
   void surface_bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins) const override;
@@ -1102,6 +1108,10 @@ public:
     vector<int>& bins, vector<double>& lengths,
     vector<double>& starts) const override;
 
+  //! Warn, once, if the elements that are bins have curved or warped sides,
+  //! which the lookups take to be flat
+  void prepare_for_point_location() override;
+
   Position sample_element(int32_t bin, uint64_t* seed) const override;
 
   virtual int get_bin(Position r) const override;
@@ -1297,9 +1307,22 @@ private:
   void build_boundary_triangles();
 
   //! Stop with an error if the elements, with flat sides, are not valid
-  //! polyhedra, or if a side that touches other elements without being their
-  //! neighbor (at a non-conforming interface) is not flat
+  //! polyhedra
   void check_elements() const;
+
+  //! Number and first few ids of elements, for messages
+  std::string describe_elements(const vector<libMesh::dof_id_type>& ids) const;
+
+  //! Pair the sides that have no libMesh neighbor with the sides of other
+  //! elements whose corners are at the same positions (as where elements do
+  //! not share nodes)
+  void find_coincident_neighbors();
+
+  //! The element across side s of an element: its libMesh neighbor (which is
+  //! not active where the side faces refined elements), or else the element
+  //! whose side coincides with it; nullptr if there is none
+  const libMesh::Elem* elem_across(
+    const libMesh::Elem& elem, unsigned int s) const;
 
   //! Distance along dir from p (inside the element) to the side through
   //! which the track leaves the element
@@ -1363,6 +1386,10 @@ private:
   BoxTree elem_tree_;                       //!< tree over their boxes
   vector<BoundaryTriangle> boundary_tris_;  //!< triangulated mesh boundary
   BoxTree boundary_tree_;                   //!< tree over boundary_tris_
+  std::unordered_map<uint64_t, const libMesh::Elem*>
+    coincident_neighbors_;     //!< elements across sides without libMesh
+                               //!< neighbors, by 32 * element id + side
+  bool sides_checked_ {false}; //!< whether curved sides were looked for
   int64_t max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {
     false}; //!< whether a track that exceeded the bound was reported

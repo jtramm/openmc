@@ -430,10 +430,12 @@ includes :class:`openmc.UnstructuredMesh` (MOAB or libMesh), although ray
 tracing through an unstructured mesh is considerably slower than through a
 structured one. A mesh must cover every cell it is applied to, and OpenMC
 stops with an error when a ray crosses part of such a cell outside of the mesh
-(for instance in a hole of the mesh, or where a faceted mesh does not quite
-reach a curved cell boundary). To subdivide a cell with curved boundaries, use
-a mesh that extends beyond the cell. An example of overlaying a simple 2D mesh
-over a geometry is given as::
+(for instance in a hole of the mesh, where a faceted mesh does not quite reach
+a curved cell boundary, or in a gap between the flat sides OpenMC takes the
+elements of a non-conforming libMesh mesh to have), unless that part is less
+than a millionth of the ray's path through the cell. To subdivide a cell with
+curved boundaries, use a mesh that extends beyond the cell. An example of
+overlaying a simple 2D mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)

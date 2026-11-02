@@ -439,17 +439,20 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
                             1.0;
       if (std::abs(excess) > 1e-6 &&
           std::abs(excess) * reduced_distance > traversal_resolution(*mesh)) {
+        const int cell_id = model::cells[lowest_coord().cell()]->id_;
 #pragma omp critical(random_ray_mesh_coverage)
         fatal_error(
           excess < 0.0
             ? fmt::format(
                 "Source region mesh {} does not cover all of the cells it is "
-                "applied to: a ray crosses part of such a cell outside of the "
-                "mesh.",
-                mesh->id())
-            : fmt::format("The elements of source region mesh {} overlap: a "
-                          "ray crosses them for more than its length.",
-                mesh->id()));
+                "applied to: {:.6g} cm of a ray's path through cell {}, from "
+                "{} to {}, is outside of the mesh.",
+                mesh->id(), -excess * reduced_distance, cell_id, start, end)
+            : fmt::format(
+                "The elements of source region mesh {} overlap: they cover "
+                "{:.6g} cm more than a ray's path through cell {}, from {} to "
+                "{}.",
+                mesh->id(), excess * reduced_distance, cell_id, start, end));
       }
     }
 

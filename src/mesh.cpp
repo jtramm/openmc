@@ -460,8 +460,10 @@ void Mesh::bins_crossed_with_starts(Position r0, Position r1,
   vector<double>& starts) const
 {
   // The crossings follow one another from r0
-  bins_crossed(r0, r1, u, bins, lengths);
+  bins.clear();
+  lengths.clear();
   starts.clear();
+  bins_crossed(r0, r1, u, bins, lengths);
   double start = 0.0;
   for (double length : lengths) {
     starts.push_back(start);
@@ -1363,7 +1365,7 @@ void StructuredMesh::raytrace_mesh(
   // Only the current cell will score and no surfaces
   if (total_distance < 2 * TINY_BIT) {
     if (in_mesh) {
-      tally.track(ijk, 1.0);
+      tally.track(ijk, 1.0, 0.0);
     }
     return;
   }
@@ -1386,7 +1388,8 @@ void StructuredMesh::raytrace_mesh(
       // Tally track length delta since last step
       tally.track(ijk,
         (std::min(distances[k].distance, total_distance) - traveled_distance) /
-          total_distance);
+          total_distance,
+        traveled_distance / total_distance);
 
       // update position and leave, if we have reached end position
       traveled_distance = distances[k].distance;
@@ -1448,32 +1451,43 @@ void StructuredMesh::raytrace_mesh(
   }
 }
 
+namespace {
+
+//! Helper tally class for StructuredMesh::raytrace_mesh: stores the bins
+//! crossed, their length fractions and, if requested, where they start
+struct TrackAggregator {
+  using MeshIndex = StructuredMesh::MeshIndex;
+  void surface(const MeshIndex& ijk, int k, bool max, bool inward) const {}
+  void track(const MeshIndex& ijk, double l, double start) const
+  {
+    bins.push_back(mesh->get_bin_from_indices(ijk));
+    lengths.push_back(l);
+    if (starts)
+      starts->push_back(start);
+  }
+
+  const StructuredMesh* mesh;
+  vector<int>& bins;
+  vector<double>& lengths;
+  vector<double>* starts;
+};
+
+} // namespace
+
 void StructuredMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
+  raytrace_mesh(r0, r1, u, TrackAggregator {this, bins, lengths, nullptr});
+}
 
-  // Helper tally class.
-  // stores a pointer to the mesh class and references to bins and lengths
-  // parameters. Performs the actual tally through the track method.
-  struct TrackAggregator {
-    TrackAggregator(
-      const StructuredMesh* _mesh, vector<int>& _bins, vector<double>& _lengths)
-      : mesh(_mesh), bins(_bins), lengths(_lengths)
-    {}
-    void surface(const MeshIndex& ijk, int k, bool max, bool inward) const {}
-    void track(const MeshIndex& ijk, double l) const
-    {
-      bins.push_back(mesh->get_bin_from_indices(ijk));
-      lengths.push_back(l);
-    }
-
-    const StructuredMesh* mesh;
-    vector<int>& bins;
-    vector<double>& lengths;
-  };
-
-  // Perform the mesh raytrace with the helper class.
-  raytrace_mesh(r0, r1, u, TrackAggregator(this, bins, lengths));
+void StructuredMesh::bins_crossed_with_starts(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths,
+  vector<double>& starts) const
+{
+  bins.clear();
+  lengths.clear();
+  starts.clear();
+  raytrace_mesh(r0, r1, u, TrackAggregator {this, bins, lengths, &starts});
 }
 
 void StructuredMesh::surface_bins_crossed(
@@ -1497,7 +1511,7 @@ void StructuredMesh::surface_bins_crossed(
         i_bin += 1;
       bins.push_back(i_bin);
     }
-    void track(const MeshIndex& idx, double l) const {}
+    void track(const MeshIndex& idx, double l, double start) const {}
 
     const StructuredMesh* mesh;
     vector<int>& bins;
@@ -3311,11 +3325,10 @@ void MOABMesh::intersect_track(const moab::CartVect& start,
       "Failed to compute intersections on unstructured mesh: " + filename_);
   }
 
-  // remove duplicate intersection distances
-  std::unique(hits.begin(), hits.end());
-
-  // sorts by first component of std::pair by default
+  // sort the intersection distances and remove duplicates (where the track
+  // crosses an edge or vertex shared by several triangles)
   std::sort(hits.begin(), hits.end());
+  hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
 }
 
 void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
@@ -3344,72 +3357,42 @@ void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
   if (track_len == 0.0)
     return;
 
-  start -= TINY_BIT * dir;
-  end += TINY_BIT * dir;
-
-  vector<double> hits;
-  intersect_track(start, dir, track_len, hits);
-
   bins.clear();
   lengths.clear();
 
-  // if there are no intersections the track may lie entirely
-  // within a single tet. If this is the case, apply entire
-  // score to that tet and return.
-  if (hits.size() == 0) {
-    Position midpoint = r0 + u * (track_len * 0.5);
-    int bin = this->get_bin(midpoint);
-    if (bin != -1) {
-      bins.push_back(bin);
-      lengths.push_back(1.0);
-      if (starts)
-        starts->push_back(0.0);
-    }
-    return;
+  // Intersections with the faces of the tets, searched for from a tiny bit
+  // before r0 (so that one at r0 is found) up to r1, as distances from r0
+  // that are within the track
+  start -= TINY_BIT * dir;
+  vector<double> hits;
+  intersect_track(start, dir, track_len + TINY_BIT, hits);
+  vector<double> crossings;
+  for (double hit : hits) {
+    const double distance = hit - TINY_BIT;
+    if (distance > 0.0 && distance < track_len)
+      crossings.push_back(distance);
   }
 
-  // for each segment in the set of tracks, try to look up a tet
-  // at the midpoint of the segment
-  Position current = r0;
-  double last_dist = 0.0;
-  for (const auto& hit : hits) {
-    // get the segment length
-    double segment_length = hit - last_dist;
-    last_dist = hit;
-    // find the midpoint of this segment
-    Position midpoint = current + u * (segment_length * 0.5);
-    // try to find a tet for this position
-    int bin = this->get_bin(midpoint);
-
-    // determine the start point for this segment
-    current = r0 + u * hit;
-
-    if (bin == -1) {
-      continue;
-    }
-
+  // Score each piece of the track between consecutive crossings to the tet
+  // found at its midpoint (if any: the piece can be outside of the mesh)
+  auto score = [&](double s0, double s1) {
+    if (s1 <= s0)
+      return;
+    const int bin = this->get_bin(r0 + u * (0.5 * (s0 + s1)));
+    if (bin == -1)
+      return;
     bins.push_back(bin);
-    lengths.push_back(segment_length / track_len);
+    lengths.push_back((s1 - s0) / track_len);
     if (starts)
-      starts->push_back((hit - segment_length) / track_len);
+      starts->push_back(s0 / track_len);
+  };
+  double s = 0.0;
+  for (double crossing : crossings) {
+    score(s, crossing);
+    s = crossing;
   }
-
-  // tally remaining portion of track after last hit if
-  // the last segment of the track is in the mesh but doesn't
-  // reach the other side of the tet
-  if (hits.back() < track_len) {
-    Position segment_start = r0 + u * hits.back();
-    double segment_length = track_len - hits.back();
-    Position midpoint = segment_start + u * (segment_length * 0.5);
-    int bin = this->get_bin(midpoint);
-    if (bin != -1) {
-      bins.push_back(bin);
-      lengths.push_back(segment_length / track_len);
-      if (starts)
-        starts->push_back(hits.back() / track_len);
-    }
-  }
-};
+  score(s, track_len);
+}
 
 moab::EntityHandle MOABMesh::get_tet(const Position& r) const
 {
@@ -3965,6 +3948,7 @@ void LibMesh::initialize()
   find_inverted_elements();
   build_refined_sides();
   build_element_tree();
+  find_coincident_neighbors();
   build_boundary_triangles();
   check_elements();
 
@@ -4766,6 +4750,57 @@ void LibMesh::build_element_tree()
   elem_tree_.build(boxes);
 }
 
+void LibMesh::find_coincident_neighbors()
+{
+  // A side is identified by the positions of its corners, in node_before()
+  // order. Elements that do not share nodes (such as separately meshed parts,
+  // or a mesh written with nodes duplicated for every element) have no
+  // libMesh neighbors across their common sides, which would make those sides
+  // part of the mesh's boundary for the walk: slower, as every crossing
+  // would be a search, and with many more boundary triangles.
+  coincident_neighbors_.clear();
+  std::map<vector<double>, std::pair<const libMesh::Elem*, unsigned int>> open;
+  vector<unsigned int> corners;
+  vector<const libMesh::Node*> nodes;
+  vector<double> key;
+  for (const libMesh::Elem* elem : tree_elems_) {
+    for (auto s : elem->side_index_range()) {
+      if (s >= 32 || elem->neighbor_ptr(s))
+        continue;
+      side_corner_nodes(*elem, s, corners);
+      nodes.clear();
+      for (auto c : corners)
+        nodes.push_back(elem->node_ptr(c));
+      std::sort(nodes.begin(), nodes.end(), node_before);
+      key.clear();
+      for (const libMesh::Node* node : nodes) {
+        for (int d = 0; d < 3; d++)
+          key.push_back((*node)(d));
+      }
+      const auto [it, inserted] = open.try_emplace(key, elem, s);
+      if (inserted)
+        continue;
+      const auto [other, t] = it->second;
+      if (other != elem) {
+        coincident_neighbors_[32 * uint64_t(elem->id()) + s] = other;
+        coincident_neighbors_[32 * uint64_t(other->id()) + t] = elem;
+      }
+      open.erase(it);
+    }
+  }
+}
+
+const libMesh::Elem* LibMesh::elem_across(
+  const libMesh::Elem& elem, unsigned int s) const
+{
+  if (const libMesh::Elem* other = elem.neighbor_ptr(s))
+    return other;
+  if (s >= 32 || coincident_neighbors_.empty())
+    return nullptr;
+  const auto it = coincident_neighbors_.find(32 * uint64_t(elem.id()) + s);
+  return it == coincident_neighbors_.end() ? nullptr : it->second;
+}
+
 void LibMesh::build_boundary_triangles()
 {
   boundary_tris_.clear();
@@ -4773,7 +4808,7 @@ void LibMesh::build_boundary_triangles()
   for (const libMesh::Elem* elem : tree_elems_) {
     side_triangles(*elem, tris);
     for (const auto& tri : tris) {
-      if (!elem->neighbor_ptr(tri.side))
+      if (!elem_across(*elem, tri.side))
         boundary_tris_.push_back({tri.a, tri.b, tri.c, tri.normal, elem});
     }
   }
@@ -4841,119 +4876,78 @@ void LibMesh::check_elements() const
   // The traversal and the point lookup take the sides of the elements to be
   // flat (with the side triangles), so the elements have to be valid
   // polyhedra that way: a strongly curved element can turn inside out,
-  // wholly or in part, and overlap its neighbors. Elements sharing a side
-  // agree on its triangles, but elements that touch without being libMesh
-  // neighbors (at a non-conforming interface, such as one with hanging nodes
-  // that are not from refinement) only do if their sides have the same
-  // corners: other sides there have to be flat (with all their nodes in a
-  // plane, to within the surface tolerance), or they leave gaps and overlaps.
+  // wholly or in part, and overlap its neighbors. Every element is checked,
+  // as the walk goes through all of them and such an element could take
+  // track length from the elements around it.
   vector<SideTriangle> tris;
   vector<libMesh::dof_id_type> inverted;
-  vector<libMesh::dof_id_type> warped;
-  vector<const libMesh::Elem*> touching;
-  vector<unsigned int> corners;
-  vector<unsigned int> other_corners;
   for (const libMesh::Elem* elem : tree_elems_) {
     side_triangles(*elem, tris);
     if (!valid_polyhedron(tris, elem->vertex_average()))
       inverted.push_back(elem->id());
-    for (auto s : elem->side_index_range()) {
-      if (elem->neighbor_ptr(s))
-        continue;
-      // The side touches the elements that points just past its triangles
-      // are in
-      libMesh::Point normal;
-      touching.clear();
-      for (const auto& tri : tris) {
-        if (tri.side != s)
-          continue;
-        normal += tri.normal;
-        const double length = std::sqrt(std::max({(tri.b - tri.a).norm_sq(),
-          (tri.c - tri.b).norm_sq(), (tri.a - tri.c).norm_sq()}));
-        const libMesh::Point probe =
-          (tri.a + tri.b + tri.c) / 3.0 +
-          std::max(1e-6 * length, 10.0 * surface_tol_) * tri.normal.unit();
-        const libMesh::Elem* other = locate(probe, nullptr, elem);
-        if (other && std::find(touching.begin(), touching.end(), other) ==
-                       touching.end())
-          touching.push_back(other);
-      }
-      if (touching.empty() || normal.norm_sq() == 0.0)
-        continue;
-      // A side with the same corners (at exactly the same positions) as a
-      // side of an element it touches is triangulated the same way by both,
-      // which leaves no gap. Corners that are only close could be ordered
-      // differently by node_before() and split a warped side along the other
-      // diagonal.
-      side_corner_nodes(*elem, s, corners);
-      bool coincident = false;
-      for (const libMesh::Elem* other : touching) {
-        for (auto t : other->side_index_range()) {
-          side_corner_nodes(*other, t, other_corners);
-          coincident = other_corners.size() == corners.size();
-          for (size_t i = 0; i < corners.size() && coincident; i++) {
-            coincident = std::any_of(
-              other_corners.begin(), other_corners.end(), [&](unsigned int c) {
-                return other->point(c) == elem->point(corners[i]);
-              });
-          }
-          if (coincident)
-            break;
-        }
-        if (coincident)
-          break;
-      }
-      if (coincident)
-        continue;
-      // Otherwise, the side must be flat: all its nodes within the surface
-      // tolerance of the plane through their average
-      const auto nodes = elem->nodes_on_side(s);
-      libMesh::Point center;
-      for (auto n : nodes)
-        center += elem->point(n);
-      center /= static_cast<double>(nodes.size());
-      double distance = 0.0;
-      for (auto n : nodes) {
-        distance = std::max(
-          distance, std::abs((elem->point(n) - center) * normal.unit()));
-      }
-      if (distance > surface_tol_) {
-        warped.push_back(elem->id());
-        break;
-      }
-    }
   }
-
-  auto describe = [&](const vector<libMesh::dof_id_type>& ids) {
-    std::string list;
-    for (size_t i = 0; i < ids.size() && i < 5; i++)
-      list += fmt::format("{}{}", i > 0 ? ", " : "", ids[i]);
-    return fmt::format("{} elements of {} (libMesh element ids, counting from "
-                       "0: {}{})",
-      ids.size(),
-      id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
-               : std::string("an unstructured mesh"),
-      list, ids.size() > 5 ? ", ..." : "");
-  };
   if (!inverted.empty()) {
     fatal_error(fmt::format(
       "{} are inverted, wholly or in part, when their sides are made flat "
       "(OpenMC takes the sides of libMesh elements to be flat). Strongly "
       "curved elements may have to be subdivided or made less curved.",
-      describe(inverted)));
+      describe_elements(inverted)));
   }
-  if (!warped.empty()) {
-    fatal_error(fmt::format(
-      "{} have a side at a non-conforming interface (one touching other "
-      "elements that are not its neighbors in libMesh, and whose corners are "
-      "not at the corners of one of their sides) that is not flat to within "
-      "1e-12 of the larger of the mesh's extent and the magnitude of its "
-      "coordinates. OpenMC takes the sides of libMesh elements to be flat, so "
-      "such sides would leave gaps and overlaps. (In a mesh file with "
-      "single-precision coordinates, sides that are not aligned with the "
-      "axes are only flat to about 1e-7.)",
-      describe(warped)));
+}
+
+void LibMesh::prepare_for_point_location()
+{
+  // Point lookups and tallies follow the elements with flat sides, which
+  // differ from libMesh's elements where their sides are curved (second-order
+  // elements) or warped (quadrilaterals whose corners are not in a plane);
+  // at a non-conforming interface, such sides can also leave gaps and
+  // overlaps between elements. Report it once, for the elements that are
+  // bins.
+  if (sides_checked_)
+    return;
+  sides_checked_ = true;
+  vector<SideTriangle> tris;
+  vector<libMesh::dof_id_type> curved;
+  double max_difference = 0.0;
+  double total_difference = 0.0;
+  double total_volume = 0.0;
+  for (int bin = 0; bin < n_bins(); bin++) {
+    const libMesh::Elem& elem = get_element_from_bin(bin);
+    if (elem.dim() < 3)
+      continue;
+    side_triangles(elem, tris);
+    const double volume = std::abs(elem.volume());
+    const double difference = std::abs(triangulated_volume(tris) - volume);
+    total_volume += volume;
+    total_difference += difference;
+    if (difference > 1e-6 * volume) {
+      curved.push_back(elem.id());
+      max_difference = std::max(max_difference, difference / volume);
+    }
   }
+  if (!curved.empty() && mpi::master) {
+    warning(fmt::format(
+      "{} have curved or warped sides, which OpenMC takes to be flat (made of "
+      "triangles through their corners): point lookups and tallies in them "
+      "follow the flat sides, and their volumes differ from libMesh's by up "
+      "to {:.3g}% ({:.3g}% of the volume of the mesh's elements in all).",
+      describe_elements(curved), 100.0 * max_difference,
+      100.0 * total_difference / total_volume));
+  }
+}
+
+std::string LibMesh::describe_elements(
+  const vector<libMesh::dof_id_type>& ids) const
+{
+  std::string list;
+  for (size_t i = 0; i < ids.size() && i < 5; i++)
+    list += fmt::format("{}{}", i > 0 ? ", " : "", ids[i]);
+  return fmt::format(
+    "{} elements of {} (libMesh element ids, counting from 0: {}{})",
+    ids.size(),
+    id_ >= 0 ? fmt::format("unstructured mesh {}", id_)
+             : std::string("an unstructured mesh"),
+    list, ids.size() > 5 ? ", ..." : "");
 }
 
 // Sample position within a tet for LibMesh type tets
@@ -5227,6 +5221,8 @@ void LibMesh::bins_crossed_with_starts(Position r0, Position r1,
   const Direction& u, vector<int>& bins, vector<double>& lengths,
   vector<double>& starts) const
 {
+  bins.clear();
+  lengths.clear();
   starts.clear();
   traverse(r0, r1, u, bins, lengths, &starts);
 }
@@ -5606,7 +5602,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
     // ahead is in no element, it is in a gap between elements whose sides do
     // not quite meet.
     const libMesh::Elem* side_neighbor =
-      exit_side < elem->n_sides() ? elem->neighbor_ptr(exit_side) : nullptr;
+      exit_side < elem->n_sides() ? elem_across(*elem, exit_side) : nullptr;
     const libMesh::Elem* neighbor =
       side_neighbor && side_neighbor->active() ? side_neighbor : nullptr;
     const libMesh::Elem* next = neighbor;

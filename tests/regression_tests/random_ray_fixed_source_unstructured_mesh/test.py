@@ -30,7 +30,8 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
             os.remove(f)
 
 
-def make_model(library, mesh_path, case, x_max=0.5):
+def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
+               length_multiplier=None):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
     by the mesh in mesh_path (read by a mesh library, directly or through
     XDG), or by a regular mesh of [-0.5, 0.5]^3"""
@@ -75,6 +76,8 @@ def make_model(library, mesh_path, case, x_max=0.5):
         umesh.interface = 'xdg'
     else:
         umesh = openmc.UnstructuredMesh(mesh_path, library=library)
+    if length_multiplier is not None:
+        umesh.length_multiplier = length_multiplier
 
     settings = openmc.Settings()
     settings.energy_mode = 'multi-group'
@@ -87,6 +90,8 @@ def make_model(library, mesh_path, case, x_max=0.5):
     settings.random_ray['ray_source'] = openmc.IndependentSource(
         space=openmc.stats.Box((-0.5, -0.5, -0.5), (x_max, 0.5, 0.5)))
     settings.random_ray['volume_estimator'] = 'hybrid'
+    if source_shape != 'flat':
+        settings.random_ray['source_shape'] = source_shape
     settings.random_ray['source_region_meshes'] = [(umesh, [root])]
     settings.source = openmc.IndependentSource(
         energy=openmc.stats.Discrete([1.0e6], [1.0]),
@@ -169,19 +174,55 @@ def test_random_ray_unstructured_mesh_coverage(
 
     if config['build_inputs']:
         return
+    returncode, output = run_openmc(tmp_path)
+    if covered:
+        assert returncode == 0, output
+        check_tally_sums(tmp_path)
+    else:
+        assert returncode != 0
+        assert 'does not cover' in output
+
+
+@pytest.mark.parametrize("library,option", product(
+    ['moab', 'libmesh'], ['linear', 'scaled']))
+def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
+    """Runs with linear sources, and with the mesh scaled by a length
+    multiplier (the 24-tet mesh then tiles [-1, 1]^3), whose flux on the mesh
+    adds up to the flux in the cell"""
+    if not openmc.lib.feature_enabled(FEATURES[library]):
+        pytest.skip(f"{library} unstructured meshes are not enabled.")
+
+    openmc.reset_auto_ids()
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                 MESH_FILES[library])
+    with change_directory(tmp_path):
+        model = make_model(
+            library, mesh_path, 'tally',
+            source_shape='linear' if option == 'linear' else 'flat',
+            length_multiplier=2.0 if option == 'scaled' else None)
+        model.export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode == 0, output
+    check_tally_sums(tmp_path)
+
+
+def run_openmc(path):
+    """Run the model in path, returning the return code and the output"""
     args = [config['exe']]
     if config['mpi']:
         args = [config['mpiexec'], '-n', config['mpi_np']] + args
-    result = subprocess.run(args, cwd=tmp_path, capture_output=True,
-                            text=True)
-    output = result.stdout + result.stderr
-    if covered:
-        assert result.returncode == 0, output
-        with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
-            cell_flux = sp.get_tally(name='cell flux').mean.sum()
-            mesh_flux = sp.get_tally(name='tet flux').mean.sum()
-        assert cell_flux > 0.0
-        assert mesh_flux == pytest.approx(cell_flux, rel=1e-10)
-    else:
-        assert result.returncode != 0
-        assert 'does not cover' in output
+    result = subprocess.run(args, cwd=path, capture_output=True, text=True)
+    return result.returncode, result.stdout + result.stderr
+
+
+def check_tally_sums(path):
+    """The flux on the mesh of the run in path adds up to the flux in the
+    cell"""
+    with openmc.StatePoint(path / 'statepoint.10.h5') as sp:
+        cell_flux = sp.get_tally(name='cell flux').mean.sum()
+        mesh_flux = sp.get_tally(name='tet flux').mean.sum()
+    assert cell_flux > 0.0
+    assert mesh_flux == pytest.approx(cell_flux, rel=1e-10)

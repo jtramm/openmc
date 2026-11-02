@@ -1001,6 +1001,61 @@ TEST_CASE(
   }
 }
 
+TEST_CASE("libMesh meshes whose elements do not share nodes")
+{
+  // The same distorted tets, connected and with every element on nodes of
+  // its own (as in separately meshed parts, or a mesh written with nodes
+  // duplicated for every element): sides coincide without libMesh neighbor
+  // links, and the traversal and the point lookups give the same results
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  libMesh::MeshTools::Generation::build_cube(
+    mesh, 3, 3, 3, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+  libMesh::MeshTools::Modification::distort(mesh, 0.2, false);
+  libMesh::ReplicatedMesh split(libmesh.comm, 3);
+  for (const auto* elem : mesh.element_ptr_range()) {
+    auto copy = libMesh::Elem::build(elem->type());
+    for (unsigned int i = 0; i < elem->n_nodes(); i++)
+      copy->set_node(i) = split.add_point(elem->point(i));
+    copy->set_id(elem->id());
+    split.add_elem(std::move(copy));
+  }
+  split.prepare_for_use();
+  LibMesh connected(mesh);
+  LibMesh disconnected(split);
+  REQUIRE(disconnected.n_bins() == connected.n_bins());
+
+  auto scored = [](const LibMesh& umesh, Position r0, Position r1) {
+    const double length = (r1 - r0).norm();
+    vector<int> bins;
+    vector<double> lengths;
+    umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
+    std::map<int, double> by_bin;
+    for (int k = 0; k < bins.size(); k++)
+      by_bin[bins[k]] += lengths[k] * length;
+    return by_bin;
+  };
+  const Position lo {-1.0, -1.0, -1.0};
+  const Position hi {1.0, 1.0, 1.0};
+  auto tracks = make_tracks(lo, hi, 0.0, 500, 16);
+  for (const auto& track : node_tracks(mesh, 500, 17))
+    tracks.push_back(track);
+  for (const auto& [r0, r1] : tracks) {
+    auto expected = scored(connected, r0, r1);
+    auto found = scored(disconnected, r0, r1);
+    for (const auto& [bin, length] : found)
+      expected[bin] -= length;
+    for (const auto& [bin, difference] : expected)
+      REQUIRE(difference == Catch::Approx(0.0).margin(1e-12));
+  }
+  std::mt19937_64 rng(18);
+  std::uniform_real_distribution<double> uniform(-1.2, 1.2);
+  for (int i = 0; i < 10000; i++) {
+    const Position r {uniform(rng), uniform(rng), uniform(rng)};
+    REQUIRE(disconnected.get_bin(r) == connected.get_bin(r));
+  }
+}
+
 TEST_CASE("libMesh hexes with collapsed edges")
 {
   // Two hexes along x in [-1, 1] x [0, 1] x [0, 1], with the nodes of their

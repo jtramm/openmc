@@ -1418,27 +1418,90 @@ def test_umesh_material_volume_bounding_boxes(
     ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
     # A hex with its top turned 150 degrees from its bottom (its sides cross)
     ("test_mesh_hex_twisted.e", "are inverted, wholly or in part"),
-    # A hex whose warped side meets four smaller hexes at hanging nodes
-    ("test_mesh_hexes_warped_hanging.e", "is not flat to within"),
 ])
 def test_umesh_invalid_elements(mesh_file, message, run_in_tmpdir):
     """A libMesh mesh that is not valid with flat element sides is refused"""
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh not enabled.")
 
+    model = umesh_flux_model(UMESH_DIR / mesh_file)
+    with pytest.raises(RuntimeError, match=message):
+        model.run()
+
+
+@pytest.mark.parametrize('mesh_file, curved', [
+    # Hexes with warped sides (whose corners are not in a plane)
+    ("test_mesh_hexes_warped.e", True),
+    # A hex whose warped side meets four smaller hexes at hanging nodes, where
+    # flat sides leave gaps and overlaps
+    ("test_mesh_hexes_warped_hanging.e", True),
+    # HEX20 elements with straight edges, and tets
+    ("test_mesh_hexes20.e", False),
+    ("test_mesh_dagmc_tets.e", False),
+])
+def test_umesh_curved_sides_warning(mesh_file, curved, run_in_tmpdir, capfd):
+    """Lookups on a libMesh mesh whose elements have curved or warped sides,
+    which they take to be flat, come with a warning"""
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+
+    umesh_flux_model(UMESH_DIR / mesh_file).run()
+    output = capfd.readouterr()
+    assert ('have curved or warped sides' in output.out + output.err) == curved
+
+
+def umesh_flux_model(mesh_file):
+    """Fixed source model with a flux tally on a libMesh mesh"""
     model = openmc.Model()
     surf = openmc.Sphere(r=10.0, boundary_type="vacuum")
     model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
     tally = openmc.Tally()
     tally.filters = [openmc.MeshFilter(
-        openmc.UnstructuredMesh(UMESH_DIR / mesh_file, 'libmesh'))]
+        openmc.UnstructuredMesh(mesh_file, 'libmesh'))]
     tally.scores = ["flux"]
     model.tallies = [tally]
     model.settings.run_mode = "fixed source"
     model.settings.batches = 1
     model.settings.particles = 10
-    with pytest.raises(RuntimeError, match=message):
-        model.run()
+    return model
+
+
+def test_cylindrical_mesh_material_volume_bounding_boxes(run_in_tmpdir):
+    """The bounding boxes of the material volumes in the elements of a
+    cylindrical mesh with a hole, through which rays leave and re-enter it,
+    lie within the elements, give or take half the spacing of the rays"""
+    mat = openmc.Material()
+    mat.add_nuclide('H1', 1.0)
+    mat.set_density('g/cm3', 1.0)
+    box = openmc.model.RectangularParallelepiped(
+        -2, 2, -2, 2, -2, 2, boundary_type='vacuum')
+    model = openmc.Model()
+    model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-box)])
+    model.settings.run_mode = 'fixed source'
+    model.settings.batches = 1
+    model.settings.particles = 10
+    mesh = openmc.CylindricalMesh(
+        r_grid=[0.5, 1.0], phi_grid=np.linspace(0.0, 2.0*np.pi, 5),
+        z_grid=[-1.0, 1.0])
+
+    n = 40
+    mmv = mesh.material_volumes(model, (n, n, n), bounding_boxes=True)
+    tol = 0.5 * 2.0 / n + 1e-9
+    for i in range(mmv.num_elements):
+        # The extent of an element in x and y, from points on its arcs (its
+        # radial sides are straight lines between their ends)
+        phi = np.linspace(mesh.phi_grid[i], mesh.phi_grid[i + 1], 1001)
+        r = np.array([[0.5], [1.0]])
+        x = r * np.cos(phi)
+        y = r * np.sin(phi)
+        lower = np.array([x.min(), y.min(), -1.0])
+        upper = np.array([x.max(), y.max(), 1.0])
+        boxes = [bbox for mat_id, volume, bbox in
+                 mmv.by_element(i, include_bboxes=True) if mat_id is not None]
+        assert boxes
+        for bbox in boxes:
+            assert np.all(bbox.lower_left >= lower - tol)
+            assert np.all(bbox.upper_right <= upper + tol)
 
 
 def test_umesh_material_volumes(sphere_model):
