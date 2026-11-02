@@ -181,40 +181,6 @@ public:
   virtual void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const = 0;
 
-  //! Determine which bins were crossed by a particle, and where each of the
-  //! crossings starts
-  //
-  //! The parts of the track outside of the mesh are not crossings, so there
-  //! can be gaps between crossings. The default implementation takes the
-  //! crossings to follow one another from r0, as they do on a mesh that the
-  //! track does not leave (it is used by meshes that do not report where
-  //! their crossings are, which XDG meshes do not). The vectors are cleared
-  //! first.
-  //
-  //! \param[in] r0 Previous position of the particle
-  //! \param[in] r1 Current position of the particle
-  //! \param[in] u Particle direction
-  //! \param[out] bins Bins that were crossed
-  //! \param[out] lengths Fraction of tracklength in each bin
-  //! \param[out] starts Fraction of tracklength before each crossing starts
-  virtual void bins_crossed_with_starts(Position r0, Position r1,
-    const Direction& u, vector<int>& bins, vector<double>& lengths,
-    vector<double>& starts) const;
-
-  //! Determine the bins crossed by a track, in the order of the track, also
-  //! adding the parts that bins_crossed() skips although get_bin() finds them
-  //! in the mesh, as when roundoff puts the track outside of a curved surface
-  //! of the mesh that it is tangent to (slower than bins_crossed(), for when
-  //! the track is known to have lost length)
-  //
-  //! \param[in] r0 Previous position of the particle
-  //! \param[in] r1 Current position of the particle
-  //! \param[in] u Particle direction
-  //! \param[in,out] bins Bins that were crossed
-  //! \param[in,out] lengths Fraction of tracklength in each bin
-  virtual void bins_crossed_recovering(Position r0, Position r1,
-    const Direction& u, vector<int>& bins, vector<double>& lengths) const;
-
   //! Determine which surface bins were crossed by a particle
   //
   //! \param[in] r0 Previous position of the particle
@@ -374,10 +340,6 @@ public:
 
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
-
-  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
-    vector<int>& bins, vector<double>& lengths,
-    vector<double>& starts) const override;
 
   void surface_bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins) const override;
@@ -942,10 +904,6 @@ public:
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
 
-  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
-    vector<int>& bins, vector<double>& lengths,
-    vector<double>& starts) const override;
-
   int get_bin(Position r) const override;
 
   int n_bins() const override;
@@ -1000,11 +958,6 @@ private:
   //! \param[out] Mesh intersections
   void intersect_track(const moab::CartVect& start, const moab::CartVect& dir,
     double track_len, vector<double>& hits) const;
-
-  //! Determine the bins crossed by a track, and optionally where each of the
-  //! crossings starts (see bins_crossed_with_starts())
-  void traverse(Position r0, Position r1, const Direction& u, vector<int>& bins,
-    vector<double>& lengths, vector<double>* starts) const;
 
   //! Find the part of a line that is in a tetrahedron
   //
@@ -1104,7 +1057,8 @@ private:
   std::shared_ptr<moab::Interface> mbi_;    //!< MOAB instance
   unique_ptr<moab::AdaptiveKDTree> kdtree_; //!< MOAB KDTree instance
   vector<moab::Matrix3> baryc_data_;        //!< Barycentric data for tetrahedra
-  double surface_tol_ {0.0}; //!< roundoff in positions, from the mesh's scale
+  double surface_tol_ {0.0}; //!< distance from a face within which positions
+                             //!< cannot be told apart
   vector<std::string> tag_names_; //!< Names of score tags added to the mesh
 };
 

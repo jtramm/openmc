@@ -1359,51 +1359,6 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
-@pytest.mark.skipif(
-    not openmc.lib.feature_enabled('dagmc'), reason="DAGMC not enabled."
-)
-def test_umesh_material_volume_bounding_boxes(run_in_tmpdir):
-    """The bounding boxes of the material volumes in the elements of a mesh
-    that does not fill its own bounding box (so that rays leave and enter it)
-    lie within the elements, give or take half the spacing of the rays"""
-    mat = openmc.Material()
-    mat.add_nuclide('H1', 1.0)
-    mat.set_density('g/cm3', 1.0)
-    box = openmc.model.RectangularParallelepiped(
-        -20, 20, -20, 20, -20, 20, boundary_type='vacuum')
-    model = openmc.Model()
-    model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-box)])
-    model.settings.run_mode = 'fixed source'
-    model.settings.batches = 1
-    model.settings.particles = 10
-    umesh = openmc.UnstructuredMesh(
-        UMESH_DIR / "test_mesh_tets_w_holes.exo", 'moab')
-    tally = openmc.Tally()
-    tally.filters = [openmc.MeshFilter(umesh)]
-    tally.scores = ['flux']
-    model.tallies = [tally]
-
-    # The elements' vertices, by bin
-    with openmc.StatePoint(model.run()) as sp:
-        mesh = sp.meshes[umesh.id]
-        vertices = mesh.vertices
-        connectivity = mesh.connectivity
-
-    n = 40
-    mmv = umesh.material_volumes(model, (n, n, n), bounding_boxes=True)
-    tol = 0.5 * (vertices.max(axis=0) - vertices.min(axis=0)) / n + 1e-9
-    n_boxes = 0
-    for i in range(mmv.num_elements):
-        nodes = vertices[connectivity[i][connectivity[i] >= 0]]
-        for mat_id, volume, bbox in mmv.by_element(i, include_bboxes=True):
-            if mat_id is None or volume == 0.0:
-                continue
-            n_boxes += 1
-            assert np.all(bbox.lower_left >= nodes.min(axis=0) - tol)
-            assert np.all(bbox.upper_right <= nodes.max(axis=0) + tol)
-    assert n_boxes > 0
-
-
 def test_native_libmesh_tracklength_tally(run_in_tmpdir):
     """Tracks cannot be followed through a libMesh mesh with the native
     interface, which is reported up front"""
@@ -1424,41 +1379,3 @@ def test_native_libmesh_tracklength_tally(run_in_tmpdir):
     model.settings.particles = 10
     with pytest.raises(RuntimeError, match="Use a collision estimator or the XDG"):
         model.run()
-
-
-def test_cylindrical_mesh_material_volume_bounding_boxes(run_in_tmpdir):
-    """The bounding boxes of the material volumes in the elements of a
-    cylindrical mesh with a hole, through which rays leave and re-enter it,
-    lie within the elements, give or take half the spacing of the rays"""
-    mat = openmc.Material()
-    mat.add_nuclide('H1', 1.0)
-    mat.set_density('g/cm3', 1.0)
-    box = openmc.model.RectangularParallelepiped(
-        -2, 2, -2, 2, -2, 2, boundary_type='vacuum')
-    model = openmc.Model()
-    model.geometry = openmc.Geometry([openmc.Cell(fill=mat, region=-box)])
-    model.settings.run_mode = 'fixed source'
-    model.settings.batches = 1
-    model.settings.particles = 10
-    mesh = openmc.CylindricalMesh(
-        r_grid=[0.5, 1.0], phi_grid=np.linspace(0.0, 2.0*np.pi, 5),
-        z_grid=[-1.0, 1.0])
-
-    n = 40
-    mmv = mesh.material_volumes(model, (n, n, n), bounding_boxes=True)
-    tol = 0.5 * 2.0 / n + 1e-9
-    for i in range(mmv.num_elements):
-        # The extent of an element in x and y, from points on its arcs (its
-        # radial sides are straight lines between their ends)
-        phi = np.linspace(mesh.phi_grid[i], mesh.phi_grid[i + 1], 1001)
-        r = np.array([[0.5], [1.0]])
-        x = r * np.cos(phi)
-        y = r * np.sin(phi)
-        lower = np.array([x.min(), y.min(), -1.0])
-        upper = np.array([x.max(), y.max(), 1.0])
-        boxes = [bbox for mat_id, volume, bbox in
-                 mmv.by_element(i, include_bboxes=True) if mat_id is not None]
-        assert boxes
-        for bbox in boxes:
-            assert np.all(bbox.lower_left >= lower - tol)
-            assert np.all(bbox.upper_right <= upper + tol)

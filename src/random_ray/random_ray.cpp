@@ -376,24 +376,75 @@ void RandomRay::event_advance_ray()
 
 namespace {
 
-//! Length up to which a traversal of a mesh may lose or add to a track,
-//! from the magnitude of the mesh's coordinates (in the directions it has
-//! bounds in: a 1D or 2D mesh is unbounded in the others)
-double traversal_resolution(const Mesh& mesh)
-{
-  const BoundingBox box = mesh.bounding_box();
-  double scale = 0.0;
-  for (int d = 0; d < 3; d++) {
-    if (!std::isfinite(box.min[d]) || !std::isfinite(box.max[d]) ||
-        std::abs(box.min[d]) >= INFTY || std::abs(box.max[d]) >= INFTY)
-      continue;
-    scale = std::max({scale, std::abs(box.min[d]), std::abs(box.max[d]),
-      box.max[d] - box.min[d]});
-  }
-  return 1e-8 * scale;
-}
+//! What a thread has seen in a batch of the rays' path through the cells that
+//! a source region mesh is applied to
+struct MeshCoverage {
+  double path {0.0};  //!< length of that path
+  double lost {0.0};  //!< length of its parts outside of the mesh
+  double worst {0.0}; //!< the longest such part of a ray's path through a cell
+  int cell_id {C_NONE}; //!< that cell
+  Position start;       //!< start of that ray's path through the cell
+  Position end;         //!< end of that ray's path through the cell
+};
+
+thread_local vector<MeshCoverage> mesh_coverage; //!< by mesh, for this thread
 
 } // namespace
+
+void RandomRay::check_mesh_coverage()
+{
+  // What the threads have seen in this batch, from which they start over
+  vector<MeshCoverage> total(model::meshes.size());
+#pragma omp parallel
+  {
+#pragma omp critical(random_ray_mesh_coverage)
+    for (int i = 0; i < mesh_coverage.size(); i++) {
+      const MeshCoverage& seen = mesh_coverage[i];
+      total[i].path += seen.path;
+      total[i].lost += seen.lost;
+      if (seen.worst > total[i].worst) {
+        total[i].worst = seen.worst;
+        total[i].cell_id = seen.cell_id;
+        total[i].start = seen.start;
+        total[i].end = seen.end;
+      }
+    }
+    mesh_coverage.clear();
+  }
+
+  vector<double> path_and_lost;
+  for (const auto& coverage : total) {
+    path_and_lost.push_back(coverage.path);
+    path_and_lost.push_back(coverage.lost);
+  }
+#ifdef OPENMC_MPI
+  MPI_Allreduce(MPI_IN_PLACE, path_and_lost.data(), path_and_lost.size(),
+    MPI_DOUBLE, MPI_SUM, mpi::intracomm);
+#endif
+
+  // A mesh has to cover the cells it is applied to, as the parts of a ray's
+  // path outside of it are neither attenuated nor tallied. The odd sliver can
+  // be lost to roundoff, as where a mesh and a cell have the same boundary or
+  // a ray is tangent to a curved surface of the mesh.
+  for (int i = 0; i < total.size(); i++) {
+    const double path = path_and_lost[2 * i];
+    const double lost = path_and_lost[2 * i + 1];
+    if (lost > 1e-6 * path) {
+      std::string example;
+      if (total[i].cell_id != C_NONE) {
+        example = fmt::format(
+          ", such as {:.6g} cm of a ray's path through cell {}, from {} to {}",
+          total[i].worst, total[i].cell_id, total[i].start, total[i].end);
+      }
+      fatal_error(fmt::format(
+        "Source region mesh {} does not cover all of the cells it is applied "
+        "to: {:.3g}% of the rays' path through them in batch {} is outside of "
+        "the mesh{}.",
+        model::meshes[i]->id(), 100.0 * lost / path, simulation::current_batch,
+        example));
+    }
+  }
+}
 
 void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 {
@@ -433,35 +484,20 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
     // Portions of the segment outside the mesh are not returned, so they
-    // could be neither attenuated nor tallied: the mesh has to cover the
-    // cells it subdivides. The lengths returned add up to the segment's
-    // length to within roundoff, or to within the resolution of the mesh's
-    // traversal, which follows the magnitude of the mesh's coordinates. A
-    // traversal can also skip part of a segment that is in the mesh, where the
-    // segment is tangent to a curved surface of the mesh.
-    if (reduced_distance > 10.0 * TINY_BIT) {
-      const auto lost_fraction = [&]() {
-        return 1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
-                       mesh_fractional_lengths_.end(), 0.0);
-      };
-      const auto too_much = [&](double lost) {
-        return lost > 1e-6 &&
-               lost * reduced_distance > traversal_resolution(*mesh);
-      };
-      if (too_much(lost_fraction())) {
-        mesh->bins_crossed_recovering(
-          start, end, u(), mesh_bins_, mesh_fractional_lengths_);
-        const double lost = lost_fraction();
-        if (too_much(lost)) {
-          const int cell_id = model::cells[lowest_coord().cell()]->id_;
-#pragma omp critical(random_ray_mesh_coverage)
-          fatal_error(fmt::format(
-            "Source region mesh {} does not cover all of the cells it is "
-            "applied to: {:.6g} cm of a ray's path through cell {}, from {} to "
-            "{}, is outside of the mesh.",
-            mesh->id(), lost * reduced_distance, cell_id, start, end));
-        }
-      }
+    // could be neither attenuated nor tallied: see check_mesh_coverage()
+    if (mesh_coverage.size() <= mesh_idx)
+      mesh_coverage.resize(model::meshes.size());
+    MeshCoverage& coverage = mesh_coverage[mesh_idx];
+    const double lost = reduced_distance *
+                        (1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
+                                 mesh_fractional_lengths_.end(), 0.0));
+    coverage.path += reduced_distance;
+    coverage.lost += lost;
+    if (lost > coverage.worst) {
+      coverage.worst = lost;
+      coverage.cell_id = model::cells[lowest_coord().cell()]->id_;
+      coverage.start = start;
+      coverage.end = end;
     }
 
     // Loop over all mesh bins and attenuate flux

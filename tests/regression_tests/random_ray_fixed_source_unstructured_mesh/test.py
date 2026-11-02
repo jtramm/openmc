@@ -20,8 +20,14 @@ MESH_FILES = {
     'xdg-moab': 'test_mesh_dagmc_tets.vtk',
     'xdg-libmesh': 'test_mesh_dagmc_tets.e',
 }
-FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh', 'xdg-moab': 'xdg',
-            'xdg-libmesh': 'xdg'}
+# Features a mesh library needs; regular meshes need none
+FEATURES = {'moab': ['dagmc'], 'libmesh': ['libmesh'],
+            'xdg-moab': ['xdg', 'dagmc'], 'xdg-libmesh': ['xdg', 'libmesh']}
+
+
+def enabled(library):
+    return all(openmc.lib.feature_enabled(feature)
+               for feature in FEATURES.get(library, []))
 
 
 class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
@@ -129,7 +135,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
 @pytest.mark.parametrize("library,case", product(
     ['moab', 'xdg-libmesh'], ['tally_and_ww', 'subdivision_only']))
 def test_random_ray_fixed_source_unstructured_mesh(library, case):
-    if not openmc.lib.feature_enabled(FEATURES[library]):
+    if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     with change_directory(f'{library}_{case}'):
@@ -155,20 +161,25 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     ('xdg-moab', MESH_FILES['moab'], 0.5),
     ('xdg-libmesh', MESH_FILES['libmesh'], 0.5),
     ('xdg-libmesh', 'test_mesh_hexes.e', 0.5),
+    # The mesh falls short of the cell by a sliver that is of no consequence,
+    # or by enough to matter
+    ('regular', None, 0.5 + 1e-9),
+    ('moab', MESH_FILES['moab'], 0.5 + 1e-9),
+    ('regular', None, 0.5 + 1e-3),
+    ('moab', MESH_FILES['moab'], 0.5 + 1e-3),
 ])
 def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
     """A run with a mesh covering only half of the cell it subdivides stops
     with an error, and one with a mesh covering all of it does not, and its
     flux on the mesh adds up to the flux in the cell"""
-    if (not library.startswith('regular') and
-            not openmc.lib.feature_enabled(FEATURES[library])):
+    if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
     mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' / mesh_file
                  if mesh_file else None)
-    covered = x_max <= 0.5
+    covered = x_max < 0.5 + 1e-6
     with change_directory(tmp_path):
         model = make_model(library, mesh_path,
                            'tally' if covered else 'subdivision_only',
@@ -202,7 +213,7 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     (the 24-tet mesh then tiles [-1, 1]^3), and with a regular subdivision
     mesh and the tally and weight windows on the 24-tet mesh, whose flux on
     the mesh adds up to the flux in the cell"""
-    if not openmc.lib.feature_enabled(FEATURES[library]):
+    if not enabled(library):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
     openmc.reset_auto_ids()
@@ -228,6 +239,8 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     returncode, output = run_openmc(tmp_path)
     assert returncode == 0, output
     check_tally_sums(tmp_path)
+    if option == 'scaled':
+        assert mesh_volumes(tmp_path).sum() == pytest.approx(8.0)
     if option == 'tally_mesh':
         # Valid bounds, or -1 for a tet with no source region at its bin's point
         bounds = openmc.WeightWindowsList.from_hdf5(
@@ -281,14 +294,19 @@ def test_random_ray_mirrored_moab_mesh(tmp_path):
     returncode, output = run_openmc(tmp_path)
     assert returncode == 0, output
     check_tally_sums(tmp_path)
-    with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
-        volumes = sp.get_tally(name='tet flux').find_filter(
-            openmc.MeshFilter).mesh.volumes
+    volumes = mesh_volumes(tmp_path)
     assert np.all(volumes > 0.0)
     assert volumes.sum() == pytest.approx(1.0)
     weight_windows = openmc.WeightWindowsList.from_hdf5(
         tmp_path / 'weight_windows.h5')[0]
     assert np.all(weight_windows.lower_ww_bounds > 0.0)
+
+
+def mesh_volumes(path):
+    """The volumes of the elements of the tally mesh of the run in path"""
+    with openmc.StatePoint(path / 'statepoint.10.h5') as sp:
+        return sp.get_tally(name='tet flux').find_filter(
+            openmc.MeshFilter).mesh.volumes
 
 
 def run_openmc(path):

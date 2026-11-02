@@ -473,11 +473,7 @@ class MeshBase(IDManagerMixin, ABC):
             Whether to compute an axis-aligned bounding box for each
             (mesh element, material) combination. When enabled, the bounding
             box encloses the ray-estimator prisms used for the volume
-            estimation. For an unstructured mesh with the XDG interface, which
-            does not report where rays cross its elements, the boxes are
-            placed as if every ray entered the mesh where it starts (on a face
-            of the mesh's bounding box) and crossed it without leaving and
-            re-entering it.
+            estimation.
         **kwargs : dict
             Keyword arguments passed to :func:`openmc.lib.init`
 
@@ -2773,6 +2769,8 @@ class UnstructuredMesh(MeshBase):
         their node order must not be mirrored. This is not checked: a track
         loses length at such a place, which random ray mode reports as a mesh
         that does not cover a cell, while tallies in Monte Carlo mode are low.
+        A native MOAB mesh must consist of tetrahedra. A track that lies exactly
+        in the boundary of a mesh may or may not count as being in the mesh.
 
     Parameters
     ----------

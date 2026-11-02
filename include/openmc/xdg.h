@@ -66,13 +66,6 @@ public:
   //! Perform any preparation needed to support use in mesh filters
   void prepare_for_point_location() override;
 
-  //! XDG does not report where along a track its crossings are, so a part of
-  //! a track that it skipped cannot be found: the crossings are left as they
-  //! are
-  void bins_crossed_recovering(Position r0, Position r1, const Direction& u,
-    vector<int>& bins, vector<double>& lengths) const override
-  {}
-
   Position sample_element(int32_t bin, uint64_t* seed) const override;
 
   void bins_crossed(Position r0, Position r1, const Direction& u,

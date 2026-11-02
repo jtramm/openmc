@@ -455,69 +455,6 @@ std::string Mesh::surface_bin_label(int surf_index) const
     labels[dim], max ? "max" : "min");
 }
 
-void Mesh::bins_crossed_with_starts(Position r0, Position r1,
-  const Direction& u, vector<int>& bins, vector<double>& lengths,
-  vector<double>& starts) const
-{
-  // The crossings follow one another from r0
-  bins.clear();
-  lengths.clear();
-  starts.clear();
-  bins_crossed(r0, r1, u, bins, lengths);
-  double start = 0.0;
-  for (double length : lengths) {
-    starts.push_back(start);
-    start += length;
-  }
-}
-
-void Mesh::bins_crossed_recovering(Position r0, Position r1, const Direction& u,
-  vector<int>& bins, vector<double>& lengths) const
-{
-  vector<int> crossed_bins;
-  vector<double> crossed_lengths;
-  vector<double> crossed_starts;
-  this->bins_crossed_with_starts(
-    r0, r1, u, crossed_bins, crossed_lengths, crossed_starts);
-  bins.clear();
-  lengths.clear();
-
-  // Add a skipped part of the track to the bin found along it, halving it
-  // until points along it, up to its ends, are in one bin (or in none, where
-  // the part is really outside of the mesh)
-  const double distance = (r1 - r0).norm();
-  auto bin_at = [&](double f) { return this->get_bin(r0 + f * distance * u); };
-  auto add_skipped = [&](auto&& self, double f0, double f1, int depth) -> void {
-    const double middle = 0.5 * (f0 + f1);
-    const int bin = bin_at(middle);
-    bool same_bin = true;
-    if (depth < 8) {
-      for (double position : {1e-6, 0.25, 0.75, 1.0 - 1e-6})
-        same_bin = same_bin && bin_at(f0 + position * (f1 - f0)) == bin;
-    }
-    if (!same_bin) {
-      self(self, f0, middle, depth + 1);
-      self(self, middle, f1, depth + 1);
-    } else if (bin >= 0) {
-      bins.push_back(bin);
-      lengths.push_back(f1 - f0);
-    }
-  };
-
-  // In the order of the track, which the caller may rely on
-  constexpr double roundoff = 1e-12;
-  double covered = 0.0;
-  for (size_t i = 0; i < crossed_bins.size(); i++) {
-    if (crossed_starts[i] - covered > roundoff)
-      add_skipped(add_skipped, covered, crossed_starts[i], 0);
-    bins.push_back(crossed_bins[i]);
-    lengths.push_back(crossed_lengths[i]);
-    covered = std::max(covered, crossed_starts[i] + crossed_lengths[i]);
-  }
-  if (1.0 - covered > roundoff)
-    add_skipped(add_skipped, covered, 1.0, 0);
-}
-
 void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
   int32_t* materials, double* volumes) const
 {
@@ -563,7 +500,6 @@ void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
     // Preallocate vector for mesh indices and length fractions and particle
     vector<int> bins;
     vector<double> length_fractions;
-    vector<double> start_fractions;
     Particle p;
 
     SourceSite site;
@@ -635,22 +571,18 @@ void Mesh::material_volumes(int nx, int ny, int nz, int table_size,
 
         bins.clear();
         length_fractions.clear();
-        start_fractions.clear();
-        if (compute_bboxes) {
-          this->bins_crossed_with_starts(
-            r0, r1, site.u, bins, length_fractions, start_fractions);
-        } else {
-          this->bins_crossed(r0, r1, site.u, bins, length_fractions);
-        }
+        this->bins_crossed(r0, r1, site.u, bins, length_fractions);
 
+        double cumulative_frac = 0.0;
         for (int i_bin = 0; i_bin < bins.size(); i_bin++) {
           int mesh_index = bins[i_bin];
           double length = distance * length_fractions[i_bin];
           double volume = length * d1 * d2;
 
           if (compute_bboxes) {
-            double axis_start = r0[axis] + distance * start_fractions[i_bin];
+            double axis_start = r0[axis] + distance * cumulative_frac;
             double axis_end = axis_start + length;
+            cumulative_frac += length_fractions[i_bin];
 
             Position contrib_min = site.r;
             Position contrib_max = site.r;
@@ -1388,7 +1320,7 @@ void StructuredMesh::raytrace_mesh(
 
   // Compute the length of the entire track.
   double total_distance = (r1 - r0).norm();
-  if (total_distance == 0.0)
+  if (total_distance == 0.0 && settings::solver_type != SolverType::RANDOM_RAY)
     return;
 
   // keep a copy of the original global position to pass to get_indices,
@@ -1412,7 +1344,7 @@ void StructuredMesh::raytrace_mesh(
   // Only the current cell will score and no surfaces
   if (total_distance < 2 * TINY_BIT) {
     if (in_mesh) {
-      tally.track(ijk, 1.0, 0.0);
+      tally.track(ijk, 1.0);
     }
     return;
   }
@@ -1435,8 +1367,7 @@ void StructuredMesh::raytrace_mesh(
       // Tally track length delta since last step
       tally.track(ijk,
         (std::min(distances[k].distance, total_distance) - traveled_distance) /
-          total_distance,
-        traveled_distance / total_distance);
+          total_distance);
 
       // update position and leave, if we have reached end position
       traveled_distance = distances[k].distance;
@@ -1498,43 +1429,32 @@ void StructuredMesh::raytrace_mesh(
   }
 }
 
-namespace {
-
-//! Helper tally class for StructuredMesh::raytrace_mesh: stores the bins
-//! crossed, their length fractions and, if requested, where they start
-struct TrackAggregator {
-  using MeshIndex = StructuredMesh::MeshIndex;
-  void surface(const MeshIndex& ijk, int k, bool max, bool inward) const {}
-  void track(const MeshIndex& ijk, double l, double start) const
-  {
-    bins.push_back(mesh->get_bin_from_indices(ijk));
-    lengths.push_back(l);
-    if (starts)
-      starts->push_back(start);
-  }
-
-  const StructuredMesh* mesh;
-  vector<int>& bins;
-  vector<double>& lengths;
-  vector<double>* starts;
-};
-
-} // namespace
-
 void StructuredMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   vector<int>& bins, vector<double>& lengths) const
 {
-  raytrace_mesh(r0, r1, u, TrackAggregator {this, bins, lengths, nullptr});
-}
 
-void StructuredMesh::bins_crossed_with_starts(Position r0, Position r1,
-  const Direction& u, vector<int>& bins, vector<double>& lengths,
-  vector<double>& starts) const
-{
-  bins.clear();
-  lengths.clear();
-  starts.clear();
-  raytrace_mesh(r0, r1, u, TrackAggregator {this, bins, lengths, &starts});
+  // Helper tally class.
+  // stores a pointer to the mesh class and references to bins and lengths
+  // parameters. Performs the actual tally through the track method.
+  struct TrackAggregator {
+    TrackAggregator(
+      const StructuredMesh* _mesh, vector<int>& _bins, vector<double>& _lengths)
+      : mesh(_mesh), bins(_bins), lengths(_lengths)
+    {}
+    void surface(const MeshIndex& ijk, int k, bool max, bool inward) const {}
+    void track(const MeshIndex& ijk, double l) const
+    {
+      bins.push_back(mesh->get_bin_from_indices(ijk));
+      lengths.push_back(l);
+    }
+
+    const StructuredMesh* mesh;
+    vector<int>& bins;
+    vector<double>& lengths;
+  };
+
+  // Perform the mesh raytrace with the helper class.
+  raytrace_mesh(r0, r1, u, TrackAggregator(this, bins, lengths));
 }
 
 void StructuredMesh::surface_bins_crossed(
@@ -1558,7 +1478,7 @@ void StructuredMesh::surface_bins_crossed(
         i_bin += 1;
       bins.push_back(i_bin);
     }
-    void track(const MeshIndex& idx, double l, double start) const {}
+    void track(const MeshIndex& idx, double l) const {}
 
     const StructuredMesh* mesh;
     vector<int>& bins;
@@ -3227,9 +3147,10 @@ void MOABMesh::initialize()
   }
 
   if (!ehs_.all_of_type(moab::MBTET)) {
-    warning("Non-tetrahedral elements found in unstructured "
-            "mesh file: " +
-            filename_);
+    fatal_error("Non-tetrahedral elements found in unstructured mesh file " +
+                filename_ +
+                ", which the native MOAB interface does not support. Use the "
+                "XDG interface (interface='xdg' on openmc.UnstructuredMesh).");
   }
 
   // set member range of vertices
@@ -3279,14 +3200,19 @@ void MOABMesh::initialize()
     }
   }
 
-  // Determine bounds of mesh, and the tolerance that follows from them
+  // Determine bounds of mesh, and the distance from a face within which
+  // positions cannot be told apart: a little more than the roundoff in the
+  // mesh's coordinates, and no less than a small part of its extent
   this->determine_bounds();
-  double scale = 0.0;
+  double extent = 0.0;
+  double magnitude = 0.0;
   for (int d = 0; d < 3; d++) {
-    scale = std::max({scale, std::abs(lower_left_[d]),
-      std::abs(upper_right_[d]), upper_right_[d] - lower_left_[d]});
+    extent = std::max(extent, upper_right_[d] - lower_left_[d]);
+    magnitude = std::max(
+      {magnitude, std::abs(lower_left_[d]), std::abs(upper_right_[d])});
   }
-  surface_tol_ = 1e-12 * (scale > 0.0 ? scale : 1.0);
+  surface_tol_ = std::max(
+    1e-12 * extent, 8.0 * std::numeric_limits<double>::epsilon() * magnitude);
 }
 
 void MOABMesh::prepare_for_point_location()
@@ -3384,22 +3310,6 @@ void MOABMesh::intersect_track(const moab::CartVect& start,
   hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
 }
 
-void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
-  vector<int>& bins, vector<double>& lengths) const
-{
-  traverse(r0, r1, u, bins, lengths, nullptr);
-}
-
-void MOABMesh::bins_crossed_with_starts(Position r0, Position r1,
-  const Direction& u, vector<int>& bins, vector<double>& lengths,
-  vector<double>& starts) const
-{
-  bins.clear();
-  lengths.clear();
-  starts.clear();
-  traverse(r0, r1, u, bins, lengths, &starts);
-}
-
 void MOABMesh::tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
   const moab::CartVect& dir, double& s_in, double& s_out) const
 {
@@ -3416,16 +3326,20 @@ void MOABMesh::tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
   }
 
   // The line is inside the tet where it is on the same side as the fourth
-  // corner of the plane through each face
+  // corner of the plane through each face. A line in such a plane, to within
+  // roundoff, is not cut by it.
   s_in = -INFTY;
   s_out = INFTY;
   for (int i = 0; i < 4; i++) {
     const moab::CartVect& a = p[(i + 1) % 4];
     moab::CartVect normal = (p[(i + 2) % 4] - a) * (p[(i + 3) % 4] - a);
+    normal.normalize();
     if ((p[i] - a) % normal > 0.0)
       normal = -normal;
     const double along = dir % normal;
     const double distance = (a - origin) % normal;
+    if (std::abs(along) <= 1e-12 && std::abs(distance) <= surface_tol_)
+      continue;
     if (along > 0.0) {
       s_out = std::min(s_out, distance / along);
     } else if (along < 0.0) {
@@ -3437,8 +3351,8 @@ void MOABMesh::tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
   }
 }
 
-void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
-  vector<int>& bins, vector<double>& lengths, vector<double>* starts) const
+void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
+  vector<int>& bins, vector<double>& lengths) const
 {
   moab::CartVect dir(u.x, u.y, u.z);
   dir.normalize();
@@ -3454,7 +3368,9 @@ void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
   // times the surface tolerance: no point outside of it is in a tet
   double t_lo = 0.0;
   double t_hi = track_len;
+  double extent = 0.0;
   for (int i = 0; i < 3; i++) {
+    extent = std::max(extent, upper_right_[i] - lower_left_[i]);
     const double lo = lower_left_[i] - 4.0 * surface_tol_;
     const double hi = upper_right_[i] + 4.0 * surface_tol_;
     if (u[i] == 0.0) {
@@ -3471,10 +3387,10 @@ void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
     return;
 
   // Distances along the track are measured from its start, unless it starts
-  // more than about 100 times the mesh's scale away: they would then be too
-  // large for the intersections to be told from the end of the track in the
+  // more than about 100 times the mesh's extent away: they would then be too
+  // coarse for the intersections to be told from the end of the track in the
   // mesh, so they are measured from where the track enters that box
-  const double offset = t_lo > 1e14 * surface_tol_ ? t_lo : 0.0;
+  const double offset = t_lo > 100.0 * extent ? t_lo : 0.0;
   const Position origin = r0 + offset * u;
   const moab::CartVect ray_origin(origin.x, origin.y, origin.z);
   const double s_begin = t_lo - offset;
@@ -3485,23 +3401,16 @@ void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
   // the box, as distances from the origin
   vector<double> hits;
   intersect_track(ray_origin - TINY_BIT * dir, dir, s_end + TINY_BIT, hits);
-  vector<double> crossings;
-  for (double hit : hits) {
-    const double distance = hit - TINY_BIT;
-    if (distance > s_begin && distance < s_end)
-      crossings.push_back(distance);
-  }
 
-  // Score each piece of the track between consecutive crossings to the tet
-  // found at its midpoint (if any: the piece can be outside of the mesh). A
-  // crossing can be missed where the track passes through an edge or vertex,
-  // or where roundoff puts it just past the mesh, so that the piece runs on
-  // past the tet: only the part in the tet is scored to it, and the rest of
-  // the piece is looked at in turn, also near its ends if its midpoint is in
-  // no tet.
+  // Score each piece of the track between consecutive intersections to the
+  // tet found at its midpoint (if any: the piece can be outside of the mesh).
+  // An intersection can be missed where the track passes through an edge or
+  // vertex, or runs along a face, so that the piece runs on past the tet: only
+  // the part in the tet is scored to it, and the rest of the piece is looked
+  // at in turn, also near its ends if its midpoint is in no tet.
   const double resolution = 16.0 * surface_tol_;
   auto point = [&](double s) { return origin + s * u; };
-  auto score = [&](auto&& self, double s0, double s1) -> void {
+  auto score = [&](auto&& self, double s0, double s1, int depth) -> void {
     if (s1 <= s0)
       return;
     moab::EntityHandle tet = get_tet(point(0.5 * (s0 + s1)));
@@ -3520,26 +3429,27 @@ void MOABMesh::traverse(Position r0, Position r1, const Direction& u,
     const double out = s1 - chord_out <= resolution ? s1 : chord_out;
     if (out <= in) {
       // The track only touches the tet at that point
-      if (s1 - s0 > 2.0 * resolution) {
+      if (depth < 8 && s1 - s0 > 2.0 * resolution) {
         const double middle = 0.5 * (s0 + s1);
-        self(self, s0, middle);
-        self(self, middle, s1);
+        self(self, s0, middle, depth + 1);
+        self(self, middle, s1, depth + 1);
       }
       return;
     }
-    self(self, s0, in);
+    self(self, s0, in, depth + 1);
     bins.push_back(get_bin_from_ent_handle(tet));
     lengths.push_back((out - in) / track_len);
-    if (starts)
-      starts->push_back((offset + in) / track_len);
-    self(self, out, s1);
+    self(self, out, s1, depth + 1);
   };
   double s = s_begin;
-  for (double crossing : crossings) {
-    score(score, s, crossing);
-    s = crossing;
+  for (double hit : hits) {
+    const double distance = hit - TINY_BIT;
+    if (distance > s && distance < s_end) {
+      score(score, s, distance, 0);
+      s = distance;
+    }
   }
-  score(score, s, s_end);
+  score(score, s, s_end, 0);
 }
 
 moab::EntityHandle MOABMesh::get_tet(const Position& r) const

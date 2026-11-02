@@ -429,11 +429,10 @@ the mesh can be any kind and is not restricted to 3D regular voxels. This
 includes :class:`openmc.UnstructuredMesh`, with MOAB or, through the XDG
 interface (``interface='xdg'``), libMesh, although ray tracing through an
 unstructured mesh is considerably slower than through a structured one. A mesh
-must cover every cell it is applied to, and OpenMC stops with an error when a
-ray crosses part of such a cell outside of the mesh (for instance in a hole of
-the mesh, or where a faceted mesh does not quite reach a curved cell boundary),
-unless that part is less than a millionth of the ray's path through the cell or
-shorter than 1e-8 of the magnitude of the mesh's coordinates. To subdivide a
+must cover every cell it is applied to, and OpenMC stops with an error at the
+end of a batch in which more than a millionth of the rays' path through such
+cells is outside of the mesh (for instance in a hole of the mesh, or where a
+faceted mesh does not quite reach a curved cell boundary). To subdivide a
 cell with curved boundaries, use a mesh that extends beyond the cell. An example of
 overlaying a simple 2D mesh over a geometry is given as::
 
