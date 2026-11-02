@@ -1328,10 +1328,7 @@ def test_SphericalMesh_get_indices_at_coords():
 
 volume_tests = [
     (UMESH_DIR / "test_mesh_dagmc_tets.vtk", "moab", 1.0),
-    (UMESH_DIR / "test_mesh_hexes_warped.e", "libmesh", 8.0),
-    (UMESH_DIR / "test_mesh_hexes20.e", "libmesh", 8.0),
-    # Two hexes touching across a warped side without sharing its nodes
-    (UMESH_DIR / "test_mesh_hexes_warped_interface.e", "libmesh", 8.0),
+    (UMESH_DIR / "test_mesh_dagmc_tets.e", "libmesh", 1.0),
 ]
 @pytest.mark.parametrize('mesh_file, mesh_library, total', volume_tests)
 def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
@@ -1349,6 +1346,7 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     tally = openmc.Tally()
     tally.filters = [openmc.MeshFilter(umesh)]
     tally.scores = ["flux"]
+    tally.estimator = "collision"
     model.tallies = [tally]
     model.settings.run_mode = "fixed source"
     model.settings.batches = 2
@@ -1361,21 +1359,13 @@ def test_umesh_volumes(mesh_file, mesh_library, total, run_in_tmpdir):
     assert np.sum(volumes) == pytest.approx(total, rel=1e-12)
 
 
-@pytest.mark.parametrize('mesh_file, mesh_library', [
-    ("test_mesh_tets_w_holes.exo", "moab"),
-    ("test_mesh_tets_w_holes.exo", "libmesh"),
-    ("test_mesh_delaunay_patches.e", "libmesh"),
-])
-def test_umesh_material_volume_bounding_boxes(
-        mesh_file, mesh_library, run_in_tmpdir):
+@pytest.mark.skipif(
+    not openmc.lib.feature_enabled('dagmc'), reason="DAGMC not enabled."
+)
+def test_umesh_material_volume_bounding_boxes(run_in_tmpdir):
     """The bounding boxes of the material volumes in the elements of a mesh
     that does not fill its own bounding box (so that rays leave and enter it)
     lie within the elements, give or take half the spacing of the rays"""
-    if mesh_library == 'moab' and not openmc.lib.feature_enabled('dagmc'):
-        pytest.skip("DAGMC not enabled.")
-    if mesh_library == 'libmesh' and not openmc.lib.feature_enabled('libmesh'):
-        pytest.skip("LibMesh not enabled.")
-
     mat = openmc.Material()
     mat.add_nuclide('H1', 1.0)
     mat.set_density('g/cm3', 1.0)
@@ -1386,7 +1376,8 @@ def test_umesh_material_volume_bounding_boxes(
     model.settings.run_mode = 'fixed source'
     model.settings.batches = 1
     model.settings.particles = 10
-    umesh = openmc.UnstructuredMesh(UMESH_DIR / mesh_file, mesh_library)
+    umesh = openmc.UnstructuredMesh(
+        UMESH_DIR / "test_mesh_tets_w_holes.exo", 'moab')
     tally = openmc.Tally()
     tally.filters = [openmc.MeshFilter(umesh)]
     tally.scores = ['flux']
@@ -1413,59 +1404,26 @@ def test_umesh_material_volume_bounding_boxes(
     assert n_boxes > 0
 
 
-@pytest.mark.parametrize('mesh_file, message', [
-    # Tets around a node pushed past its neighbors (some are inverted), which
-    # do and do not share their nodes
-    ("test_mesh_tets_folded.e", "are inverted, wholly or in part"),
-    ("test_mesh_tets_folded_split.e", "are inverted, wholly or in part"),
-    # A hex with its top turned 150 degrees from its bottom (its sides cross)
-    ("test_mesh_hex_twisted.e", "are inverted, wholly or in part"),
-])
-def test_umesh_invalid_elements(mesh_file, message, run_in_tmpdir):
-    """A libMesh mesh that is not valid with flat element sides is refused"""
+def test_native_libmesh_tracklength_tally(run_in_tmpdir):
+    """Tracks cannot be followed through a libMesh mesh with the native
+    interface, which is reported up front"""
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh not enabled.")
 
-    model = umesh_flux_model(UMESH_DIR / mesh_file)
-    with pytest.raises(RuntimeError, match=message):
-        model.run()
-
-
-@pytest.mark.parametrize('mesh_file, curved', [
-    # Hexes with warped sides (whose corners are not in a plane)
-    ("test_mesh_hexes_warped.e", True),
-    # A hex whose warped side meets four smaller hexes at hanging nodes, where
-    # flat sides leave gaps and overlaps
-    ("test_mesh_hexes_warped_hanging.e", True),
-    # HEX20 elements with straight edges, and tets
-    ("test_mesh_hexes20.e", False),
-    ("test_mesh_dagmc_tets.e", False),
-])
-def test_umesh_curved_sides_warning(mesh_file, curved, run_in_tmpdir, capfd):
-    """Lookups on a libMesh mesh whose elements have curved or warped sides,
-    which they take to be flat, come with a warning"""
-    if not openmc.lib.feature_enabled('libmesh'):
-        pytest.skip("LibMesh not enabled.")
-
-    umesh_flux_model(UMESH_DIR / mesh_file).run()
-    output = capfd.readouterr()
-    assert ('have curved or warped sides' in output.out + output.err) == curved
-
-
-def umesh_flux_model(mesh_file):
-    """Fixed source model with a flux tally on a libMesh mesh"""
     model = openmc.Model()
     surf = openmc.Sphere(r=10.0, boundary_type="vacuum")
     model.geometry = openmc.Geometry([openmc.Cell(region=-surf)])
     tally = openmc.Tally()
-    tally.filters = [openmc.MeshFilter(
-        openmc.UnstructuredMesh(mesh_file, 'libmesh'))]
+    tally.filters = [openmc.MeshFilter(openmc.UnstructuredMesh(
+        UMESH_DIR / "test_mesh_dagmc_tets.e", 'libmesh'))]
     tally.scores = ["flux"]
+    tally.estimator = "tracklength"
     model.tallies = [tally]
     model.settings.run_mode = "fixed source"
     model.settings.batches = 1
     model.settings.particles = 10
-    return model
+    with pytest.raises(RuntimeError, match="Use a collision estimator or the XDG"):
+        model.run()
 
 
 def test_cylindrical_mesh_material_volume_bounding_boxes(run_in_tmpdir):
@@ -1504,18 +1462,3 @@ def test_cylindrical_mesh_material_volume_bounding_boxes(run_in_tmpdir):
         for bbox in boxes:
             assert np.all(bbox.lower_left >= lower - tol)
             assert np.all(bbox.upper_right <= upper + tol)
-
-
-def test_umesh_material_volumes(sphere_model):
-    """Material volumes on a libMesh mesh, found by tracing rays through it:
-    each element of the mesh lies in one material region"""
-    if not openmc.lib.feature_enabled('libmesh'):
-        pytest.skip("LibMesh not enabled.")
-    mesh = openmc.UnstructuredMesh(
-        UMESH_DIR / "test_mesh_hexes_nonconforming.e", 'libmesh')
-    volumes = mesh.material_volumes(sphere_model, (10, 10, 10))
-    mats = sphere_model.materials
-    for mat, total in zip(mats, (2.0, 2.0, 4.0)):
-        assert volumes[mat.id].sum() == pytest.approx(total)
-    for i in range(volumes.num_elements):
-        assert len(volumes.by_element(i)) == 1

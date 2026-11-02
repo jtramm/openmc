@@ -559,10 +559,8 @@ class TolerantWeightWindowPyAPITestHarness(TolerantPyAPITestHarness):
 
     def _cleanup(self):
         super()._cleanup()
-        # libMesh mesh tallies also write their results to an Exodus file
-        for f in ['weight_windows.h5'] + glob.glob('tally_*.e'):
-            if os.path.exists(f):
-                os.remove(f)
+        if os.path.exists('weight_windows.h5'):
+            os.remove('weight_windows.h5')
 
 
 class PlotTestHarness(TestHarness):

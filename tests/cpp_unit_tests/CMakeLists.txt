@@ -30,7 +30,3 @@ endforeach()
 if(OPENMC_USE_XDG)
   target_compile_definitions(test_mesh PRIVATE OPENMC_XDG_ENABLED)
 endif()
-
-if(OPENMC_USE_LIBMESH)
-  target_compile_definitions(test_mesh PRIVATE OPENMC_LIBMESH_ENABLED)
-endif()

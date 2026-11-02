@@ -4,10 +4,8 @@
 #ifndef OPENMC_MESH_H
 #define OPENMC_MESH_H
 
-#include <map>
 #include <set>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "hdf5.h"
 #include "openmc/tensor.h"
@@ -202,6 +200,20 @@ public:
   virtual void bins_crossed_with_starts(Position r0, Position r1,
     const Direction& u, vector<int>& bins, vector<double>& lengths,
     vector<double>& starts) const;
+
+  //! Determine the bins crossed by a track, in the order of the track, also
+  //! adding the parts that bins_crossed() skips although get_bin() finds them
+  //! in the mesh, as when roundoff puts the track outside of a curved surface
+  //! of the mesh that it is tangent to (slower than bins_crossed(), for when
+  //! the track is known to have lost length)
+  //
+  //! \param[in] r0 Previous position of the particle
+  //! \param[in] r1 Current position of the particle
+  //! \param[in] u Particle direction
+  //! \param[in,out] bins Bins that were crossed
+  //! \param[in,out] lengths Fraction of tracklength in each bin
+  virtual void bins_crossed_recovering(Position r0, Position r1,
+    const Direction& u, vector<int>& bins, vector<double>& lengths) const;
 
   //! Determine which surface bins were crossed by a particle
   //
@@ -994,6 +1006,16 @@ private:
   void traverse(Position r0, Position r1, const Direction& u, vector<int>& bins,
     vector<double>& lengths, vector<double>* starts) const;
 
+  //! Find the part of a line that is in a tetrahedron
+  //
+  //! \param[in] tet MOAB EntityHandle of the tetrahedron
+  //! \param[in] origin Point on the line
+  //! \param[in] dir Normalized direction of the line
+  //! \param[out] s_in Distance from origin to where the line enters the tet
+  //! \param[out] s_out Distance from origin to where the line leaves the tet
+  void tet_chord(moab::EntityHandle tet, const moab::CartVect& origin,
+    const moab::CartVect& dir, double& s_in, double& s_out) const;
+
   //! Calculate the volume for a given tetrahedron handle.
   //
   // \param[in] tet MOAB EntityHandle of the tetrahedron
@@ -1082,6 +1104,7 @@ private:
   std::shared_ptr<moab::Interface> mbi_;    //!< MOAB instance
   unique_ptr<moab::AdaptiveKDTree> kdtree_; //!< MOAB KDTree instance
   vector<moab::Matrix3> baryc_data_;        //!< Barycentric data for tetrahedra
+  double surface_tol_ {0.0}; //!< roundoff in positions, from the mesh's scale
   vector<std::string> tag_names_; //!< Names of score tags added to the mesh
 };
 
@@ -1103,14 +1126,6 @@ public:
   // Overridden Methods
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
-
-  void bins_crossed_with_starts(Position r0, Position r1, const Direction& u,
-    vector<int>& bins, vector<double>& lengths,
-    vector<double>& starts) const override;
-
-  //! Warn, once, if the elements that are bins have curved or warped sides,
-  //! which the lookups take to be flat
-  void prepare_for_point_location() override;
 
   Position sample_element(int32_t bin, uint64_t* seed) const override;
 
@@ -1158,203 +1173,18 @@ protected:
   //! Translate an element pointer to a bin index
   virtual int get_bin_from_element(const libMesh::Elem* elem) const;
 
-  //! Whether an element is one of the mesh bins (as opposed to an element
-  //! that is only traversed, e.g., outside of a block restriction)
-  virtual bool is_bin_element(const libMesh::Elem* elem) const { return true; }
-
-  //! Find the active element containing a point
-  //
-  //! \param[in] p Point in mesh coordinates
-  //! \param[in] exclude An element not to consider, if any
-  //! \return Element containing the point: one that contains it by more than
-  //!   roundoff if there is one, or else the one with the lowest id among
-  //!   those whose surface it is on; nullptr if it is outside the mesh
-  const libMesh::Elem* locate(
-    const libMesh::Point& p, const libMesh::Elem* exclude = nullptr) const;
-
   // Data members
   libMesh::MeshBase* m_; //!< pointer to libMesh MeshBase instance, always set
                          //!< during intialization
+  vector<unique_ptr<libMesh::PointLocatorBase>>
+    pl_;                      //!< per-thread point locators
   libMesh::BoundingBox bbox_; //!< bounding box of the mesh
 
 private:
-  //! Triangle of an element side. Sides are triangulated from the corner
-  //! with the smallest coordinates, so that the two elements on either side of
-  //! a side use the same triangles for it and agree on where it is even when
-  //! it is warped (and even if they do not share its nodes).
-  struct SideTriangle {
-    libMesh::Point a, b, c; //!< vertices
-    libMesh::Point normal;  //!< (b - a) x (c - a), pointing out of the element
-    unsigned int side;      //!< side of the element the triangle belongs to
-  };
-
-  //! Triangle on the boundary of the mesh, used to find where a track that
-  //! is outside of the mesh enters it
-  struct BoundaryTriangle {
-    libMesh::Point a, b, c;    //!< vertices
-    libMesh::Point normal;     //!< (b - a) x (c - a), pointing out of the mesh
-    const libMesh::Elem* elem; //!< element the triangle is a side of
-  };
-
-  //! Triangles replacing the sides of an element that refinement changes: a
-  //! side facing a refined neighbor is made of the sides of the neighbor's
-  //! active descendants, and a side with an edge that refinement splits is
-  //! triangulated with the nodes splitting the edge
-  struct RefinedSides {
-    unsigned int sides {0};    //!< bit mask of the replaced sides
-    vector<SideTriangle> tris; //!< replacement triangles
-  };
-
-  //! Node splitting each edge of a refined second-order element (its
-  //! mid-edge node, a vertex of the descendants), by the edge's end vertices
-  using EdgeSplits =
-    std::map<std::pair<libMesh::dof_id_type, libMesh::dof_id_type>,
-      const libMesh::Node*>;
-
-  //! Bounding volume hierarchy over items (elements or boundary triangles),
-  //! by their bounding boxes. The items are split in halves at the median of
-  //! their boxes' centers along the longest extent of the centers, down to a
-  //! few items per leaf, so a search takes logarithmic time however unevenly
-  //! the items are spread (as they are on a strongly graded mesh). Bounds are
-  //! kept in single precision relative to a corner of all the boxes, rounded
-  //! outward, so that a search reads little memory.
-  struct BoxTree {
-    struct Bounds {
-      std::array<float, 3> lo, hi; //!< corners, relative to origin
-
-      //! Whether the bounds contain a point given relative to origin
-      bool contain(const libMesh::Point& q) const
-      {
-        return q(0) >= lo[0] && q(0) <= hi[0] && q(1) >= lo[1] &&
-               q(1) <= hi[1] && q(2) >= lo[2] && q(2) <= hi[2];
-      }
-    };
-    struct Node {
-      Bounds bounds; //!< bounds of the boxes of the items below
-      int first;     //!< first of two children, or first leaf item
-      int count;     //!< number of items of a leaf, 0 otherwise
-    };
-    struct Item {
-      Bounds bounds; //!< bounds of the item's box
-      int index;     //!< index of the item
-    };
-    libMesh::Point origin; //!< lower corner of the boxes, which the bounds
-                           //!< are relative to
-    vector<Node> nodes;    //!< nodes, the root first
-    vector<Item> items;    //!< items, by leaf
-
-    //! Build the tree over the items' bounding boxes
-    void build(const vector<std::pair<libMesh::Point, libMesh::Point>>& boxes);
-    //! Bounds containing the box from lo to hi, relative to origin
-    Bounds bounds_of(const libMesh::Point& lo, const libMesh::Point& hi) const;
-    //! Call f(item) for each item whose box (with bounds rounded outward)
-    //! contains a point, until f returns true
-    //
-    //! \return Whether f returned true
-    template<typename F>
-    bool for_point(const libMesh::Point& p, F f) const;
-    //! Call f(item) for each item whose box (with bounds rounded outward) the
-    //! track p0 + t dir passes through for some t in [t_min, t_max], where f
-    //! can lower t_max
-    template<typename F>
-    void for_track(const libMesh::Point& p0, const libMesh::Point& dir,
-      double t_min, double& t_max, F f) const;
-  };
-
   // Methods
   void initialize() override;
   void set_mesh_pointer_from_filename(const std::string& filename);
   void build_eqn_sys();
-
-  //! Triangulate the sides of an element from its own corner nodes and, if
-  //! splits are given, the nodes splitting its edges
-  //
-  //! \return Bit mask of the sides with a split edge
-  static unsigned int own_side_triangles(const libMesh::Elem& elem,
-    vector<SideTriangle>& tris, const EdgeSplits* splits = nullptr);
-
-  //! Triangulate the sides of an element as used for traversal: oriented
-  //! outward even for an inverted element, and with the sides that face a
-  //! refined neighbor replaced by the sides of the neighbor's descendants
-  void side_triangles(
-    const libMesh::Elem& elem, vector<SideTriangle>& tris) const;
-
-  //! Position of a point relative to an element, judged by its side
-  //! triangles: 1 inside, 0 on the surface (within tol), -1 outside
-  static int classify(
-    const vector<SideTriangle>& tris, const libMesh::Point& p, double tol);
-
-  //! Signed volume enclosed by an element's side triangles
-  static double triangulated_volume(const vector<SideTriangle>& tris);
-
-  //! Whether an element's side triangles bound a polyhedron that is not
-  //! inverted, wholly or in part
-  static bool valid_polyhedron(
-    const vector<SideTriangle>& tris, const libMesh::Point& center);
-
-  //! Find the elements whose node order is inverted
-  void find_inverted_elements();
-
-  //! Collect the triangles replacing the sides that refinement changes
-  void build_refined_sides();
-
-  //! Gather the active elements and their bounding boxes in a tree
-  void build_element_tree();
-
-  //! Collect the triangles making up the boundary of the mesh in a tree
-  void build_boundary_triangles();
-
-  //! Stop with an error if the elements, with flat sides, are not valid
-  //! polyhedra
-  void check_elements() const;
-
-  //! Number and first few ids of elements, for messages
-  std::string describe_elements(const vector<libMesh::dof_id_type>& ids) const;
-
-  //! Pair the sides that have no libMesh neighbor with the sides of other
-  //! elements whose corners are at the same positions (as where elements do
-  //! not share nodes)
-  void find_coincident_neighbors();
-
-  //! The element across side s of an element: its libMesh neighbor (which is
-  //! not active where the side faces refined elements), or else the element
-  //! whose side coincides with it; nullptr if there is none
-  const libMesh::Elem* elem_across(
-    const libMesh::Elem& elem, unsigned int s) const;
-
-  //! Distance along dir from p (inside the element) to the side through
-  //! which the track leaves the element
-  //
-  //! \param[in] tris Side triangles of the element
-  //! \param[in] p Starting point, in mesh coordinates
-  //! \param[in] dir Unit direction of travel
-  //! \param[out] exit_side Side the track leaves through, or the largest
-  //!   unsigned int if none is found
-  //! \param[in] min_distance If positive, exits closer than this are ignored;
-  //!   otherwise an exit up to a probe step behind p is at distance 0
-  //! \param[in] planes Whether to fall back on the nearest outward plane when
-  //!   no side triangle is hit (p marginally outside the element)
-  //! \return Distance to the exit side, or INFTY if none is found
-  double exit_distance(const vector<SideTriangle>& tris,
-    const libMesh::Point& p, const libMesh::Point& dir, unsigned int& exit_side,
-    double min_distance = 0.0, bool planes = true) const;
-
-  //! Determine the bins crossed by a track, and optionally where each of the
-  //! crossings starts (see bins_crossed_with_starts())
-  void traverse(Position r0, Position r1, const Direction& u, vector<int>& bins,
-    vector<double>& lengths, vector<double>* starts) const;
-
-  //! Find where a track that is outside of the mesh enters it
-  //
-  //! \param[in] p0 Starting point of the track, in mesh coordinates
-  //! \param[in] dir Unit direction of travel
-  //! \param[in] t_min Distance along the track to start searching from
-  //! \param[in] t_max Distance along the track to stop searching at
-  //! \param[out] t_entry Distance along the track at which the mesh is entered
-  //! \return Element entered, or nullptr if the track does not enter the mesh
-  const libMesh::Elem* find_entry(const libMesh::Point& p0,
-    const libMesh::Point& dir, double t_min, double t_max,
-    double& t_entry) const;
 
   // Data members
   unique_ptr<libMesh::MeshBase> unique_m_ =
@@ -1369,39 +1199,9 @@ private:
     variable_map_; //!< mapping of variable names (tally scores) to libMesh
                    //!< variable numbers
   libMesh::dof_id_type
-    first_element_id_;  //!< id of the first element in the mesh
-  double surface_tol_;  //!< distance within which a point is on an element's
-                        //!< surface, in mesh coordinates
-  double probe_step_;   //!< step past an exit point at which the next element
-                        //!< is located, in mesh coordinates
-  double roundoff_tol_; //!< distance from an element's surface within which
-                        //!< roundoff decides the side, in mesh coordinates
-  std::unordered_set<libMesh::dof_id_type>
-    inverted_; //!< ids of elements whose node order is inverted
-  std::unordered_map<libMesh::dof_id_type, RefinedSides>
-    refined_sides_; //!< sides that refinement changes, by element id
-  vector<const libMesh::Elem*> tree_elems_; //!< active 3D elements, by id
-  BoxTree elem_tree_;                       //!< tree over their boxes
-  vector<BoundaryTriangle> boundary_tris_;  //!< triangulated mesh boundary
-  BoxTree boundary_tree_;                   //!< tree over boundary_tris_
-  std::unordered_map<uint64_t, std::pair<const libMesh::Elem*, unsigned int>>
-    coincident_neighbors_;     //!< element and side across sides without
-                               //!< libMesh neighbors, by 32 * element id + side
-  bool sides_checked_ {false}; //!< whether curved sides were looked for
-  bool elements_overlap_ {false}; //!< whether elements were found to overlap
-  int64_t max_track_steps_; //!< bound on element crossings for a single track
-  mutable bool warned_unterminated_ {
-    false}; //!< whether a track that exceeded the bound was reported
+    first_element_id_; //!< id of the first element in the mesh
 };
 
-//! libMesh mesh owned by another application, possibly refined and restricted
-//! to a set of subdomains
-//
-//! The element data gathered when the object is constructed (the bin maps,
-//! the element and boundary trees, and the sides that refinement changes)
-//! refer to the mesh as it is then: if the application refines or coarsens
-//! the mesh, or moves its nodes, afterwards, the object has to be constructed
-//! again.
 class AdaptiveLibMesh : public LibMesh {
 public:
   // Constructor
@@ -1426,12 +1226,6 @@ protected:
   int get_bin_from_element(const libMesh::Elem* elem) const override;
 
   const libMesh::Elem& get_element_from_bin(int bin) const override;
-
-  bool is_bin_element(const libMesh::Elem* elem) const override
-  {
-    return elem->id() < elem_to_bin_map_.size() &&
-           elem_to_bin_map_[elem->id()] >= 0;
-  }
 
 private:
   // Data members

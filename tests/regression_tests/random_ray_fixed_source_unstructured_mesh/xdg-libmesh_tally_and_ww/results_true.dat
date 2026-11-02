@@ -104,7 +104,7 @@ UnstructuredMesh
 	Name           =	
 	Filename       =	../../unstructured_mesh/test_mesh_dagmc_tets.e
 	Mesh Library   =	libmesh
-	Interface      =	native
+	Interface      =	xdg
 Lower Bounds
 4.424446e-01
 3.835155e-01

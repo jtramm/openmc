@@ -2438,6 +2438,18 @@ void FlatSourceDomain::apply_meshes()
     if (mesh_domain_map_.find(mesh_id) == mesh_domain_map_.end())
       continue;
 
+#ifdef OPENMC_LIBMESH_ENABLED
+    // Rays have to be followed through the mesh, which the native libMesh
+    // interface does not do
+    if (dynamic_cast<LibMesh*>(mesh)) {
+      fatal_error(fmt::format(
+        "Source region mesh {} is a libMesh mesh with the native interface, "
+        "through which rays cannot be followed. Use the XDG interface "
+        "(interface='xdg' on openmc.UnstructuredMesh).",
+        mesh_id));
+    }
+#endif
+
     // Ray tracing through the mesh and locating source regions within it
     // require the mesh's point-location acceleration structures, which some
     // unstructured meshes (MOAB and XDG) only build on request (normally

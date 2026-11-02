@@ -436,27 +436,31 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     // could be neither attenuated nor tallied: the mesh has to cover the
     // cells it subdivides. The lengths returned add up to the segment's
     // length to within roundoff, or to within the resolution of the mesh's
-    // traversal, which follows the magnitude of the mesh's coordinates.
+    // traversal, which follows the magnitude of the mesh's coordinates. A
+    // traversal can also skip part of a segment that is in the mesh, where the
+    // segment is tangent to a curved surface of the mesh.
     if (reduced_distance > 10.0 * TINY_BIT) {
-      const double excess = std::accumulate(mesh_fractional_lengths_.begin(),
-                              mesh_fractional_lengths_.end(), 0.0) -
-                            1.0;
-      if (std::abs(excess) > 1e-6 &&
-          std::abs(excess) * reduced_distance > traversal_resolution(*mesh)) {
-        const int cell_id = model::cells[lowest_coord().cell()]->id_;
+      const auto lost_fraction = [&]() {
+        return 1.0 - std::accumulate(mesh_fractional_lengths_.begin(),
+                       mesh_fractional_lengths_.end(), 0.0);
+      };
+      const auto too_much = [&](double lost) {
+        return lost > 1e-6 &&
+               lost * reduced_distance > traversal_resolution(*mesh);
+      };
+      if (too_much(lost_fraction())) {
+        mesh->bins_crossed_recovering(
+          start, end, u(), mesh_bins_, mesh_fractional_lengths_);
+        const double lost = lost_fraction();
+        if (too_much(lost)) {
+          const int cell_id = model::cells[lowest_coord().cell()]->id_;
 #pragma omp critical(random_ray_mesh_coverage)
-        fatal_error(
-          excess < 0.0
-            ? fmt::format(
-                "Source region mesh {} does not cover all of the cells it is "
-                "applied to: {:.6g} cm of a ray's path through cell {}, from "
-                "{} to {}, is outside of the mesh.",
-                mesh->id(), -excess * reduced_distance, cell_id, start, end)
-            : fmt::format(
-                "The elements of source region mesh {} overlap: they cover "
-                "{:.6g} cm more than a ray's path through cell {}, from {} to "
-                "{}.",
-                mesh->id(), excess * reduced_distance, cell_id, start, end));
+          fatal_error(fmt::format(
+            "Source region mesh {} does not cover all of the cells it is "
+            "applied to: {:.6g} cm of a ray's path through cell {}, from {} to "
+            "{}, is outside of the mesh.",
+            mesh->id(), lost * reduced_distance, cell_id, start, end));
+        }
       }
     }
 

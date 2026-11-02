@@ -17,6 +17,8 @@ from tests.testing_harness import TolerantWeightWindowPyAPITestHarness
 MESH_FILES = {
     'moab': 'test_mesh_dagmc_tets.vtk',
     'libmesh': 'test_mesh_dagmc_tets.e',
+    'xdg-moab': 'test_mesh_dagmc_tets.vtk',
+    'xdg-libmesh': 'test_mesh_dagmc_tets.e',
 }
 FEATURES = {'moab': 'dagmc', 'libmesh': 'libmesh', 'xdg-moab': 'xdg',
             'xdg-libmesh': 'xdg'}
@@ -119,13 +121,13 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
         tallies.append(mesh_tally)
     if case == 'tally_and_ww':
         settings.weight_window_generators = openmc.WeightWindowGenerator(
-            mesh=umesh, method='magic', max_realizations=5)
+            mesh=tally_mesh or umesh, method='magic', max_realizations=5)
 
     return openmc.Model(geometry, materials, settings, tallies)
 
 
 @pytest.mark.parametrize("library,case", product(
-    ['moab', 'libmesh'], ['tally_and_ww', 'subdivision_only']))
+    ['moab', 'xdg-libmesh'], ['tally_and_ww', 'subdivision_only']))
 def test_random_ray_fixed_source_unstructured_mesh(library, case):
     if not openmc.lib.feature_enabled(FEATURES[library]):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
@@ -142,24 +144,17 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
 @pytest.mark.parametrize("library,mesh_file,x_max", [
     # The cell is twice as long as the mesh
     ('moab', MESH_FILES['moab'], 1.5),
-    ('libmesh', MESH_FILES['libmesh'], 1.5),
     ('xdg-libmesh', MESH_FILES['libmesh'], 1.5),
     ('regular', None, 1.5),
     ('regular-2d', None, 1.5),
     # The mesh covers the cell: the 24-tet mesh and the regular mesh tile it,
-    # the others tile [-1, 1]^3 with other element types
+    # and the hex mesh extends beyond it
     ('regular', None, 0.5),
     ('regular-2d', None, 0.5),
     ('moab', MESH_FILES['moab'], 0.5),
-    ('libmesh', MESH_FILES['libmesh'], 0.5),
     ('xdg-moab', MESH_FILES['moab'], 0.5),
     ('xdg-libmesh', MESH_FILES['libmesh'], 0.5),
-    ('libmesh', 'test_mesh_hexes_warped.e', 0.5),
-    ('libmesh', 'test_mesh_hexes_nonconforming.e', 0.5),
-    ('libmesh', 'test_mesh_hexes20.e', 0.5),
-    ('libmesh', 'test_mesh_tets10.e', 0.5),
-    ('libmesh', 'test_mesh_prisms.e', 0.5),
-    ('libmesh', 'test_mesh_pyramids.e', 0.5),
+    ('xdg-libmesh', 'test_mesh_hexes.e', 0.5),
 ])
 def test_random_ray_unstructured_mesh_coverage(
         library, mesh_file, x_max, tmp_path):
@@ -191,13 +186,22 @@ def test_random_ray_unstructured_mesh_coverage(
         assert 'does not cover' in output
 
 
-@pytest.mark.parametrize("library,option", product(
-    ['moab', 'libmesh'], ['linear', 'scaled', 'tally_mesh']))
+@pytest.mark.parametrize("library,option", [
+    ('moab', 'linear'),
+    ('moab', 'scaled'),
+    ('moab', 'tally_mesh'),
+    ('xdg-libmesh', 'linear'),
+    ('xdg-libmesh', 'scaled'),
+    ('xdg-libmesh', 'tally_mesh'),
+    # Rays are not followed through a tally mesh, so the native interface will
+    # do
+    ('libmesh', 'tally_mesh'),
+])
 def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     """Runs with linear sources, with the mesh scaled by a length multiplier
     (the 24-tet mesh then tiles [-1, 1]^3), and with a regular subdivision
-    mesh and the tally on the 24-tet mesh, whose flux on the mesh adds up to
-    the flux in the cell"""
+    mesh and the tally and weight windows on the 24-tet mesh, whose flux on
+    the mesh adds up to the flux in the cell"""
     if not openmc.lib.feature_enabled(FEATURES[library]):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 
@@ -206,9 +210,12 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
                  MESH_FILES[library])
     with change_directory(tmp_path):
         if option == 'tally_mesh':
-            model = make_model(
-                'regular', None, 'tally',
-                tally_mesh=openmc.UnstructuredMesh(mesh_path, library=library))
+            tally_mesh = openmc.UnstructuredMesh(
+                mesh_path, library=library.removeprefix('xdg-'))
+            if library.startswith('xdg-'):
+                tally_mesh.interface = 'xdg'
+            model = make_model('regular', None, 'tally_and_ww',
+                               tally_mesh=tally_mesh)
         else:
             model = make_model(
                 library, mesh_path, 'tally',
@@ -221,6 +228,67 @@ def test_random_ray_unstructured_mesh_options(library, option, tmp_path):
     returncode, output = run_openmc(tmp_path)
     assert returncode == 0, output
     check_tally_sums(tmp_path)
+    if option == 'tally_mesh':
+        # Valid bounds, or -1 for a tet with no source region at its bin's point
+        bounds = openmc.WeightWindowsList.from_hdf5(
+            tmp_path / 'weight_windows.h5')[0].lower_ww_bounds
+        assert np.any(bounds > 0.0)
+        assert np.all((bounds > 0.0) | (bounds == -1.0))
+
+
+def test_random_ray_native_libmesh_subdivision(tmp_path):
+    """Rays cannot be followed through a libMesh mesh with the native
+    interface, which is reported up front"""
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("libmesh unstructured meshes are not enabled.")
+
+    openmc.reset_auto_ids()
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                 MESH_FILES['libmesh'])
+    with change_directory(tmp_path):
+        make_model('libmesh', mesh_path, 'subdivision_only').export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode != 0
+    assert 'Use the XDG interface' in output
+
+
+def test_random_ray_mirrored_moab_mesh(tmp_path):
+    """A mirrored copy of a MOAB mesh keeps its node order, which turns its
+    tets inside out: their volumes must still be positive for weight windows
+    to be generated on them"""
+    if not openmc.lib.feature_enabled('dagmc'):
+        pytest.skip("moab unstructured meshes are not enabled.")
+
+    # x -> -x in the VTK file of the 24-tet mesh of the unit cube
+    source = Path(__file__).parents[1] / 'unstructured_mesh' / MESH_FILES['moab']
+    lines = source.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith('POINTS'))
+    for i in range(start + 1, start + 1 + int(lines[start].split()[1])):
+        x, y, z = lines[i].split()
+        lines[i] = f'{-float(x)} {y} {z}'
+    mesh_path = tmp_path / 'mirrored.vtk'
+    mesh_path.write_text('\n'.join(lines) + '\n')
+
+    openmc.reset_auto_ids()
+    with change_directory(tmp_path):
+        make_model('moab', mesh_path, 'tally_and_ww').export_to_model_xml()
+
+    if config['build_inputs']:
+        return
+    returncode, output = run_openmc(tmp_path)
+    assert returncode == 0, output
+    check_tally_sums(tmp_path)
+    with openmc.StatePoint(tmp_path / 'statepoint.10.h5') as sp:
+        volumes = sp.get_tally(name='tet flux').find_filter(
+            openmc.MeshFilter).mesh.volumes
+    assert np.all(volumes > 0.0)
+    assert volumes.sum() == pytest.approx(1.0)
+    weight_windows = openmc.WeightWindowsList.from_hdf5(
+        tmp_path / 'weight_windows.h5')[0]
+    assert np.all(weight_windows.lower_ww_bounds > 0.0)
 
 
 def run_openmc(path):

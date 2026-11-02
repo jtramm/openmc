@@ -426,15 +426,15 @@ mesh to a list of domains, with each domain being of type
 idea of defining a source region as a combination of a base geometry cell and a
 mesh element is known as "cell-under-voxel" style geometry, although in OpenMC
 the mesh can be any kind and is not restricted to 3D regular voxels. This
-includes :class:`openmc.UnstructuredMesh` (MOAB or libMesh), although ray
-tracing through an unstructured mesh is considerably slower than through a
-structured one. A mesh must cover every cell it is applied to, and OpenMC
-stops with an error when a ray crosses part of such a cell outside of the mesh
-(for instance in a hole of the mesh, where a faceted mesh does not quite reach
-a curved cell boundary, or in a gap between the flat sides OpenMC takes the
-elements of a non-conforming libMesh mesh to have), unless that part is less
-than a millionth of the ray's path through the cell. To subdivide a cell with
-curved boundaries, use a mesh that extends beyond the cell. An example of
+includes :class:`openmc.UnstructuredMesh`, with MOAB or, through the XDG
+interface (``interface='xdg'``), libMesh, although ray tracing through an
+unstructured mesh is considerably slower than through a structured one. A mesh
+must cover every cell it is applied to, and OpenMC stops with an error when a
+ray crosses part of such a cell outside of the mesh (for instance in a hole of
+the mesh, or where a faceted mesh does not quite reach a curved cell boundary),
+unless that part is less than a millionth of the ray's path through the cell or
+shorter than 1e-8 of the magnitude of the mesh's coordinates. To subdivide a
+cell with curved boundaries, use a mesh that extends beyond the cell. An example of
 overlaying a simple 2D mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()

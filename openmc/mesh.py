@@ -2764,23 +2764,15 @@ class UnstructuredMesh(MeshBase):
         Support for libMesh unstructured meshes was added.
 
     .. note::
-        For libMesh meshes, OpenMC treats element sides as flat (a
-        quadrilateral side as two triangles through its corner nodes) in all
-        mesh lookups, and reports the volumes of these flat-sided elements.
-        Curved sides of second-order elements and warped quadrilateral sides
-        are therefore approximated, which OpenMC reports with a warning (at a
-        non-conforming interface, where elements touch without being neighbors
-        in libMesh, such sides also leave gaps and overlaps between elements).
-        The elements must be valid polyhedra with flat sides (not inverted,
-        wholly or in part, as strongly curved elements can be), which OpenMC
-        checks when it loads the mesh. A point within 1e-12 of the larger of
-        the mesh's extent and the magnitude of its coordinates from a side is
-        on the side, so a track that runs that close to a side for a stretch
-        can have that stretch scored to the element on either side of it (or,
-        at the boundary of the mesh, to the element inside), and track length
-        is attributed to elements to within about 1e-9 of that scale, so an
-        element thinner than that can have part of its length given to its
-        neighbors.
+        With the native interface, a libMesh mesh supports point lookups and
+        collision estimators. Following tracks through it (for track-length
+        tallies, material volumes and the subdivision of source regions in
+        random ray mode) requires ``interface='xdg'``. XDG handles linear
+        tetrahedra and hexahedra, and refuses other elements when it loads the
+        mesh. Their faces must be shared between neighboring elements, and
+        their node order must not be mirrored. This is not checked: a track
+        loses length at such a place, which random ray mode reports as a mesh
+        that does not cover a cell, while tallies in Monte Carlo mode are low.
 
     Parameters
     ----------
