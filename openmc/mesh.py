@@ -473,9 +473,11 @@ class MeshBase(IDManagerMixin, ABC):
             Whether to compute an axis-aligned bounding box for each
             (mesh element, material) combination. When enabled, the bounding
             box encloses the ray-estimator prisms used for the volume
-            estimation. For an unstructured mesh with the XDG interface, the
-            boxes are placed as if every ray crossed the mesh without leaving
-            and re-entering it, which XDG does not report.
+            estimation. For an unstructured mesh with the XDG interface, which
+            does not report where rays cross its elements, the boxes are
+            placed as if every ray entered the mesh where it starts (on a face
+            of the mesh's bounding box) and crossed it without leaving and
+            re-entering it.
         **kwargs : dict
             Keyword arguments passed to :func:`openmc.lib.init`
 
@@ -2775,7 +2777,10 @@ class UnstructuredMesh(MeshBase):
         the mesh's extent and the magnitude of its coordinates from a side is
         on the side, so a track that runs that close to a side for a stretch
         can have that stretch scored to the element on either side of it (or,
-        at the boundary of the mesh, to the element inside).
+        at the boundary of the mesh, to the element inside), and track length
+        is attributed to elements to within about 1e-9 of that scale, so an
+        element thinner than that can have part of its length given to its
+        neighbors.
 
     Parameters
     ----------

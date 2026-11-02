@@ -1386,9 +1386,9 @@ private:
   BoxTree elem_tree_;                       //!< tree over their boxes
   vector<BoundaryTriangle> boundary_tris_;  //!< triangulated mesh boundary
   BoxTree boundary_tree_;                   //!< tree over boundary_tris_
-  std::unordered_map<uint64_t, const libMesh::Elem*>
-    coincident_neighbors_;     //!< elements across sides without libMesh
-                               //!< neighbors, by 32 * element id + side
+  std::unordered_map<uint64_t, std::pair<const libMesh::Elem*, unsigned int>>
+    coincident_neighbors_;     //!< element and side across sides without
+                               //!< libMesh neighbors, by 32 * element id + side
   bool sides_checked_ {false}; //!< whether curved sides were looked for
   int64_t max_track_steps_; //!< bound on element crossings for a single track
   mutable bool warned_unterminated_ {

@@ -34,7 +34,7 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
                length_multiplier=None):
     """Random ray model of the box [-0.5, x_max] x [-0.5, 0.5]^2, subdivided
     by the mesh in mesh_path (read by a mesh library, directly or through
-    XDG), or by a regular mesh of [-0.5, 0.5]^3"""
+    XDG), or by a regular mesh of [-0.5, 0.5]^3 or (in 2D) [-0.5, 0.5]^2"""
 
     # One-group material with half scattering
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -71,6 +71,11 @@ def make_model(library, mesh_path, case, x_max=0.5, source_shape='flat',
         umesh.lower_left = (-0.5, -0.5, -0.5)
         umesh.upper_right = (0.5, 0.5, 0.5)
         umesh.dimension = (3, 3, 3)
+    elif library == 'regular-2d':
+        umesh = openmc.RegularMesh()
+        umesh.lower_left = (-0.5, -0.5)
+        umesh.upper_right = (0.5, 0.5)
+        umesh.dimension = (3, 3)
     elif library.startswith('xdg-'):
         umesh = openmc.UnstructuredMesh(mesh_path, library=library[4:])
         umesh.interface = 'xdg'
@@ -139,9 +144,11 @@ def test_random_ray_fixed_source_unstructured_mesh(library, case):
     ('libmesh', MESH_FILES['libmesh'], 1.5),
     ('xdg-libmesh', MESH_FILES['libmesh'], 1.5),
     ('regular', None, 1.5),
+    ('regular-2d', None, 1.5),
     # The mesh covers the cell: the 24-tet mesh and the regular mesh tile it,
     # the others tile [-1, 1]^3 with other element types
     ('regular', None, 0.5),
+    ('regular-2d', None, 0.5),
     ('moab', MESH_FILES['moab'], 0.5),
     ('libmesh', MESH_FILES['libmesh'], 0.5),
     ('xdg-moab', MESH_FILES['moab'], 0.5),
@@ -158,7 +165,7 @@ def test_random_ray_unstructured_mesh_coverage(
     """A run with a mesh covering only half of the cell it subdivides stops
     with an error, and one with a mesh covering all of it does not, and its
     flux on the mesh adds up to the flux in the cell"""
-    if (library != 'regular' and
+    if (not library.startswith('regular') and
             not openmc.lib.feature_enabled(FEATURES[library])):
         pytest.skip(f"{library} unstructured meshes are not enabled.")
 

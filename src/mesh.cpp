@@ -3341,6 +3341,8 @@ void MOABMesh::bins_crossed_with_starts(Position r0, Position r1,
   const Direction& u, vector<int>& bins, vector<double>& lengths,
   vector<double>& starts) const
 {
+  bins.clear();
+  lengths.clear();
   starts.clear();
   traverse(r0, r1, u, bins, lengths, &starts);
 }
@@ -3945,10 +3947,10 @@ void LibMesh::initialize()
   roundoff_tol_ = 1e-2 * surface_tol_;
   probe_step_ = 1e3 * surface_tol_;
 
+  find_coincident_neighbors();
   find_inverted_elements();
   build_refined_sides();
   build_element_tree();
-  find_coincident_neighbors();
   build_boundary_triangles();
   check_elements();
 
@@ -4107,43 +4109,45 @@ bool in_side_mask(unsigned int mask, unsigned int s)
   return s < 32 && ((mask >> s) & 1u);
 }
 
-//! Distinct nodes of the corners of side s of an element, in order around
-//! it: a collapsed (degenerate) side lists some of its corners twice in a row
-void side_corner_ids(
-  const libMesh::Elem& elem, unsigned int s, vector<libMesh::dof_id_type>& ids)
+//! Positions of the corners of side s of an element, in order around it,
+//! without repeats: a collapsed (degenerate) side lists some of its corners
+//! twice in a row, or has two of them at the same position
+void side_corner_points(
+  const libMesh::Elem& elem, unsigned int s, vector<libMesh::Point>& points)
 {
   static thread_local vector<unsigned int> corners;
   side_corner_nodes(elem, s, corners);
-  ids.clear();
+  points.clear();
   for (auto c : corners) {
-    if (ids.empty() || elem.node_id(c) != ids.back())
-      ids.push_back(elem.node_id(c));
+    if (points.empty() || elem.point(c) != points.back())
+      points.push_back(elem.point(c));
   }
-  while (ids.size() > 1 && ids.back() == ids.front())
-    ids.pop_back();
+  while (points.size() > 1 && points.back() == points.front())
+    points.pop_back();
 }
 
-//! Whether two elements that share a side list its corners in the same
-//! direction around it, which they do if one of them is mirrored relative to
-//! the other: 1 if they do, 0 if they do not, and -1 if the side has fewer
-//! than three distinct corners (it is collapsed to an edge or a point) or the
-//! elements do not list the same ones
+//! Whether two elements whose sides coincide (with the same corners, shared
+//! or at the same positions) list its corners in the same direction around
+//! it, which they do if one of them is mirrored relative to the other: 1 if
+//! they do, 0 if they do not, and -1 if the side has fewer than three
+//! distinct corners (it is collapsed to an edge or a point) or the sides do
+//! not have the same corners
 int same_sense(const libMesh::Elem& a, unsigned int side_a,
   const libMesh::Elem& b, unsigned int side_b)
 {
-  vector<libMesh::dof_id_type> ids_a;
-  vector<libMesh::dof_id_type> ids_b;
-  side_corner_ids(a, side_a, ids_a);
-  side_corner_ids(b, side_b, ids_b);
-  const size_t n = ids_a.size();
-  if (n < 3 || ids_b.size() != n)
+  vector<libMesh::Point> points_a;
+  vector<libMesh::Point> points_b;
+  side_corner_points(a, side_a, points_a);
+  side_corner_points(b, side_b, points_b);
+  const size_t n = points_a.size();
+  if (n < 3 || points_b.size() != n)
     return -1;
   for (size_t j = 0; j < n; j++) {
-    if (ids_b[j] != ids_a[0])
+    if (points_b[j] != points_a[0])
       continue;
-    if (ids_b[(j + 1) % n] == ids_a[1])
+    if (points_b[(j + 1) % n] == points_a[1])
       return 1;
-    if (ids_b[(j + n - 1) % n] == ids_a[1])
+    if (points_b[(j + n - 1) % n] == points_a[1])
       return 0;
     return -1;
   }
@@ -4570,9 +4574,10 @@ const libMesh::Elem* LibMesh::locate(const libMesh::Point& p,
 void LibMesh::find_inverted_elements()
 {
   // An element whose node order is mirrored has inward oriented sides and is
-  // reoriented. Two elements sharing a side list its corners in opposite
-  // directions unless one is mirrored relative to the other, which orients
-  // the elements connected through shared sides relative to one another; such
+  // reoriented. Two elements sharing a side (or with sides that coincide)
+  // list its corners in opposite directions unless one is mirrored relative
+  // to the other, which orients the elements connected through shared sides
+  // relative to one another; such
   // a group is reoriented as a whole if, so oriented, it encloses a negative
   // volume. (An element of a group that is still inverted is turned inside
   // out by its flat sides, which check_elements() reports.)
@@ -4595,14 +4600,26 @@ void LibMesh::find_inverted_elements()
       group.push_back(elem);
       total += sense[elem->id()] * triangulated_volume(tris);
       for (auto s : elem->side_index_range()) {
+        // Through sides shared whole (not those facing a coarser neighbor),
+        // with a libMesh neighbor or coinciding with another element's side,
+        // and with enough corners to tell the direction they are listed in
         const libMesh::Elem* neighbor = elem->neighbor_ptr(s);
-        if (!neighbor || !neighbor->active() || neighbor->dim() < 3 ||
+        unsigned int t;
+        if (neighbor) {
+          t = neighbor->which_neighbor_am_i(elem);
+          if (t >= neighbor->n_sides() || neighbor->neighbor_ptr(t) != elem)
+            continue;
+        } else {
+          const auto it =
+            s < 32 ? coincident_neighbors_.find(32 * uint64_t(elem->id()) + s)
+                   : coincident_neighbors_.end();
+          if (it == coincident_neighbors_.end())
+            continue;
+          neighbor = it->second.first;
+          t = it->second.second;
+        }
+        if (!neighbor->active() || neighbor->dim() < 3 ||
             sense[neighbor->id()] != 0)
-          continue;
-        // Only sides shared whole (not those facing a coarser neighbor), and
-        // with enough corners to tell the direction they are listed in
-        const unsigned int t = neighbor->which_neighbor_am_i(elem);
-        if (t >= neighbor->n_sides() || neighbor->neighbor_ptr(t) != elem)
           continue;
         const int same = same_sense(*elem, s, *neighbor, t);
         if (same < 0)
@@ -4763,7 +4780,9 @@ void LibMesh::find_coincident_neighbors()
   vector<unsigned int> corners;
   vector<const libMesh::Node*> nodes;
   vector<double> key;
-  for (const libMesh::Elem* elem : tree_elems_) {
+  for (const libMesh::Elem* elem : m_->active_element_ptr_range()) {
+    if (elem->dim() < 3)
+      continue;
     for (auto s : elem->side_index_range()) {
       if (s >= 32 || elem->neighbor_ptr(s))
         continue;
@@ -4782,8 +4801,8 @@ void LibMesh::find_coincident_neighbors()
         continue;
       const auto [other, t] = it->second;
       if (other != elem) {
-        coincident_neighbors_[32 * uint64_t(elem->id()) + s] = other;
-        coincident_neighbors_[32 * uint64_t(other->id()) + t] = elem;
+        coincident_neighbors_[32 * uint64_t(elem->id()) + s] = {other, t};
+        coincident_neighbors_[32 * uint64_t(other->id()) + t] = {elem, s};
       }
       open.erase(it);
     }
@@ -4798,7 +4817,7 @@ const libMesh::Elem* LibMesh::elem_across(
   if (s >= 32 || coincident_neighbors_.empty())
     return nullptr;
   const auto it = coincident_neighbors_.find(32 * uint64_t(elem.id()) + s);
-  return it == coincident_neighbors_.end() ? nullptr : it->second;
+  return it == coincident_neighbors_.end() ? nullptr : it->second.first;
 }
 
 void LibMesh::build_boundary_triangles()
@@ -5264,14 +5283,20 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   if (t_lo >= t_hi)
     return;
 
+  // Distances along the track are measured from where it enters that box,
+  // so that they stay small next to the mesh's tolerances however far from
+  // the mesh the track starts, and the walk ends where the track leaves the
+  // box. The lengths and starts scored are fractions of the whole track.
+  const double offset = t_lo;
+  p0 += offset * dir;
+  const double end = t_hi - offset;
+
   static thread_local vector<SideTriangle> tris;
   static thread_local vector<SideTriangle> other_tris;
   const double step = probe_step_;
   auto point = [&](double s) { return p0 + s * dir; };
-  // Distance along the track a short step past s, short of the track's end
-  auto ahead = [&](double s) {
-    return s + std::min(step, 0.5 * (track_len - s));
-  };
+  // Distance along the track a short step past s, short of the walk's end
+  auto ahead = [&](double s) { return s + std::min(step, 0.5 * (end - s)); };
 
   // Score the part of the track between s0 and s1 to an element, by default
   // the one that locate() finds at its midpoint: as in MOABMesh, so that the
@@ -5286,7 +5311,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       bins.push_back(get_bin_from_element(owner));
       lengths.push_back((s1 - s0) / track_len);
       if (starts)
-        starts->push_back(s0 / track_len);
+        starts->push_back((offset + s0) / track_len);
     }
   };
 
@@ -5299,7 +5324,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   auto score_located = [&](auto&& self, double s0, double s1) -> void {
     const double middle = 0.5 * (s0 + s1);
     const libMesh::Elem* owner = locate(point(middle));
-    if (s1 - s0 > resolution) {
+    if (s1 - s0 > resolution && middle > s0 && middle < s1) {
       const double inset = 0.25 * resolution;
       for (double s :
         {s0 + inset, 0.5 * (s0 + middle), 0.5 * (middle + s1), s1 - inset}) {
@@ -5323,8 +5348,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   // scored to the elements found along it. Nothing is past the end of the
   // bounding box.
   auto resume = [&](double& s, double h) -> const libMesh::Elem* {
-    if (s >= t_hi) {
-      s = track_len;
+    if (s >= end) {
+      s = end;
       return nullptr;
     }
     if (const libMesh::Elem* found = locate(point(ahead(s)))) {
@@ -5332,7 +5357,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       s = ahead(s);
       return found;
     }
-    const double s_max = std::min(s + h, t_hi);
+    const double s_max = std::min(s + h, end);
     double t_entry;
     const libMesh::Elem* entered = find_entry(p0, dir, s, s_max, t_entry);
     const double limit = entered ? t_entry : s_max;
@@ -5358,8 +5383,8 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       }
     }
     if (!entered)
-      entered = find_entry(p0, dir, s_max, t_hi, t_entry);
-    s = entered ? t_entry : track_len;
+      entered = find_entry(p0, dir, s_max, end, t_entry);
+    s = entered ? t_entry : end;
     return entered;
   };
 
@@ -5370,7 +5395,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   int n_skips = 0;
   int n_redone = 0;
   double redo_exit = 0.0;
-  double t = t_lo;
+  double t = 0.0;
   // The walk starts in the element the track moves into, if the start of the
   // track is in it; otherwise in the element that does contain the start (the
   // track leaves it within a step), or, if the track starts outside of the
@@ -5391,20 +5416,20 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
   // of track.
   auto step_past = [&]() {
     const double t_past =
-      std::min(t + std::ldexp(step, std::min(n_skips++, 60)), track_len);
+      std::min(t + std::ldexp(step, std::min(n_skips++, 60)), end);
     score_located(score_located, t, t_past);
     const double h = elem->hmax();
     t = t_past;
     n_stalled = 0;
     n_redone = 0;
-    if (t < t_hi) {
+    if (t < end) {
       elem = locate(point(t));
       if (!elem)
         elem = resume(t, h);
     }
   };
 
-  while (t < t_hi) {
+  while (t < end) {
     if (++n_steps > max_track_steps_) {
       // The random ray solver would silently lose transport, so stop; a
       // Monte Carlo tally drops the rest of the track and reports it once
@@ -5424,7 +5449,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
     }
     if (!elem) {
       double t_entry;
-      elem = find_entry(p0, dir, t, t_hi, t_entry);
+      elem = find_entry(p0, dir, t, end, t_entry);
       if (!elem)
         return;
       t = t_entry;
@@ -5501,7 +5526,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
         d_exit = exit_distance(tris, point(t), dir, exit_side);
       }
     }
-    double t_exit = std::min(t + d_exit, track_len);
+    double t_exit = std::min(t + d_exit, end);
 
     // A hit within the tolerance of a side triangle's edge can report an
     // exit at (almost) zero distance for a track that stays inside the
@@ -5513,7 +5538,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       const double d =
         exit_distance(tris, point(t), dir, retry_side, step, false);
       if (d < INFTY) {
-        t_exit = std::min(t + d, track_len);
+        t_exit = std::min(t + d, end);
         exit_side = retry_side;
       }
     }
@@ -5575,7 +5600,7 @@ void LibMesh::traverse(Position r0, Position r1, const Direction& u,
       else
         score_located(score_located, t, t_exit);
     }
-    if (t_exit >= track_len)
+    if (t_exit >= end)
       return;
     const bool progressed = t_exit - t > step;
     t = t_exit;

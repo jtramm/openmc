@@ -1001,6 +1001,44 @@ TEST_CASE(
   }
 }
 
+TEST_CASE("Track-length traversal of tracks starting far from a libMesh mesh")
+{
+  // Tracks from points 1e5 and 1e6 away from a cube of width 2 through it:
+  // distances along them are much larger than the mesh's tolerances, which
+  // once lost crossings or halved a step forever. Every tet gets its chord.
+  LibMeshComm libmesh;
+  libMesh::ReplicatedMesh mesh(libmesh.comm, 3);
+  libMesh::MeshTools::Generation::build_cube(
+    mesh, 4, 4, 4, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, libMesh::TET4);
+  LibMesh umesh(mesh);
+
+  std::mt19937_64 rng(19);
+  std::uniform_real_distribution<double> uniform(-1.0, 1.0);
+  for (double distance : {1e5, 1e6}) {
+    for (int i = 0; i < 300; i++) {
+      Position v {uniform(rng), uniform(rng), uniform(rng)};
+      v /= v.norm();
+      const Position r0 = distance * v;
+      const Position r1 {
+        1.2 * uniform(rng), 1.2 * uniform(rng), 1.2 * uniform(rng)};
+      const double length = (r1 - r0).norm();
+      vector<int> bins;
+      vector<double> lengths;
+      umesh.bins_crossed(r0, r1, (r1 - r0) / length, bins, lengths);
+      std::map<int, double> scored;
+      for (int k = 0; k < bins.size(); k++)
+        scored[bins[k]] += lengths[k] * length;
+      double worst = 0.0;
+      for (int bin = 0; bin < umesh.n_bins(); bin++) {
+        const double chord = tet_chord(mesh.elem_ref(bin), r0, r1);
+        const double found = scored.count(bin) ? scored[bin] : 0.0;
+        worst = std::max(worst, std::abs(found - chord));
+      }
+      REQUIRE(worst <= 1e-7);
+    }
+  }
+}
+
 TEST_CASE("libMesh meshes whose elements do not share nodes")
 {
   // The same distorted tets, connected and with every element on nodes of

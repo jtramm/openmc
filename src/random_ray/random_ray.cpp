@@ -377,12 +377,16 @@ void RandomRay::event_advance_ray()
 namespace {
 
 //! Length up to which a traversal of a mesh may lose or add to a track,
-//! from the magnitude of the mesh's coordinates
+//! from the magnitude of the mesh's coordinates (in the directions it has
+//! bounds in: a 1D or 2D mesh is unbounded in the others)
 double traversal_resolution(const Mesh& mesh)
 {
   const BoundingBox box = mesh.bounding_box();
   double scale = 0.0;
   for (int d = 0; d < 3; d++) {
+    if (!std::isfinite(box.min[d]) || !std::isfinite(box.max[d]) ||
+        std::abs(box.min[d]) >= INFTY || std::abs(box.max[d]) >= INFTY)
+      continue;
     scale = std::max({scale, std::abs(box.min[d]), std::abs(box.max[d]),
       box.max[d] - box.min[d]});
   }
