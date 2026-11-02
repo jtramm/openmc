@@ -653,7 +653,9 @@ private:
     } else if (full) {
       return (idx + N - 1) % N + 1;
     } else {
-      return 0;
+      // Outside of the mesh is index 0: one way round, the way in is the first
+      // surface, and the other way round, the last
+      return idx < 0 ? N : 0;
     }
   }
 
@@ -718,7 +720,9 @@ private:
     } else if (full) {
       return (idx + N - 1) % N + 1;
     } else {
-      return 0;
+      // Outside of the mesh is index 0: one way round, the way in is the first
+      // surface, and the other way round, the last
+      return idx < 0 ? N : 0;
     }
   }
 
@@ -1050,6 +1054,7 @@ private:
   std::shared_ptr<moab::Interface> mbi_;    //!< MOAB instance
   unique_ptr<moab::AdaptiveKDTree> kdtree_; //!< MOAB KDTree instance
   vector<moab::Matrix3> baryc_data_;        //!< Barycentric data for tetrahedra
+  double extent_ {0.0};      //!< largest side of the mesh's bounding box
   double surface_tol_ {0.0}; //!< distance from a face within which positions
                              //!< cannot be told apart
   vector<std::string> tag_names_; //!< Names of score tags added to the mesh

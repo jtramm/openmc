@@ -9,6 +9,7 @@ import openmc
 import openmc.lib
 from openmc.utility_funcs import change_directory
 import pytest
+from scipy.io import netcdf_file
 
 from tests.regression_tests import config
 from tests.testing_harness import TolerantWeightWindowPyAPITestHarness
@@ -39,7 +40,7 @@ class MGXSTestHarness(TolerantWeightWindowPyAPITestHarness):
             os.remove(f)
 
 
-def one_group_materials(run_mode='fixed source'):
+def one_group_materials(run_mode='fixed source', density=1.0):
     """One-group material with half scattering"""
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
     xsdata = openmc.XSdata('mat', groups)
@@ -56,7 +57,7 @@ def one_group_materials(run_mode='fixed source'):
     mgxs_lib.export_to_hdf5('mgxs.h5')
 
     mat = openmc.Material(name='mat')
-    mat.set_density('macro', 1.0)
+    mat.set_density('macro', density)
     mat.add_macroscopic(openmc.Macroscopic('mat'))
     materials = openmc.Materials([mat])
     materials.cross_sections = 'mgxs.h5'
@@ -433,12 +434,33 @@ def test_random_ray_cell_outside_of_mesh(slab, slab_fill, rel, tmp_path):
         results[1]['slab flux'], rel=rel)
 
 
-def part_of_box_mesh(library, mesh_path):
-    """A mesh inside of the box [-1.5, 1.5]^3, and the region it covers"""
+def part_of_box_mesh(library, mesh_path, scale=1.0):
+    """A mesh inside of the box [-1.5, 1.5]^3 (times a scale, for an
+    unstructured mesh), and the region it covers"""
     def cube(x0, x1):
         return -openmc.model.RectangularParallelepiped(
-            x0, x1, -0.5, 0.5, -0.5, 0.5)
+            scale * x0, scale * x1, -0.5 * scale, 0.5 * scale, -0.5 * scale,
+            0.5 * scale)
 
+    # Meshes that do not span all angles: a ray can come at them from anywhere
+    z_range = +openmc.ZPlane(-0.5) & -openmc.ZPlane(0.5)
+    if library == 'half-cylinder':
+        mesh = openmc.CylindricalMesh(
+            r_grid=[0.0, 0.5, 1.0], z_grid=[-0.5, 0.0, 0.5],
+            phi_grid=[0.0, 1.5, np.pi])
+        return mesh, -openmc.ZCylinder(r=1.0) & +openmc.YPlane(0.0) & z_range
+    if library == 'quarter-cylinder':
+        mesh = openmc.CylindricalMesh(
+            r_grid=[0.0, 0.5, 1.0], z_grid=[-0.5, 0.0, 0.5],
+            phi_grid=[0.5 * np.pi, 2.0, np.pi])
+        return mesh, (-openmc.ZCylinder(r=1.0) & -openmc.XPlane(0.0)
+                      & +openmc.YPlane(0.0) & z_range)
+    if library == 'cone':
+        mesh = openmc.SphericalMesh(
+            r_grid=[0.0, 0.5, 1.0], theta_grid=[0.0, 0.4, 0.25 * np.pi],
+            phi_grid=[0.0, 2.0 * np.pi])
+        return mesh, (-openmc.Sphere(r=1.0) & -openmc.ZCone(r2=1.0)
+                      & +openmc.ZPlane(0.0))
     if library == 'regular':
         mesh = openmc.RegularMesh()
         mesh.lower_left = (-0.5, -0.5, -0.5)
@@ -469,20 +491,29 @@ def part_of_box_mesh(library, mesh_path):
         mesh_path, library=library.removeprefix('two-').removeprefix('xdg-'))
     if 'xdg' in library:
         mesh.interface = 'xdg'
+    if scale != 1.0:
+        mesh.length_multiplier = scale
     if library.startswith('two-'):
         return mesh, cube(-1.25, -0.25) | cube(0.25, 1.25)
     return mesh, cube(-0.5, 0.5)
 
 
 def make_comparison_model(cells, half_width, mesh, source_shape='flat',
-                          run_mode='fixed source', source_point=None):
+                          run_mode='fixed source', source_point=None,
+                          sample_method=None, scale=1.0):
     """Model of cells filling a box of a given half width, all subdivided by
     the mesh, with their fluxes and that on the mesh as tallies. A mesh is also
     what makes runs comparable for linear sources: the position of the start of
-    a ray in its active length is not right in a cell without one."""
+    a ray in its active length is not right in a cell without one. All lengths
+    are times a scale, including a half width that is not given as such, and
+    cross sections divided by it."""
     settings = random_ray_settings(
         (-half_width, -half_width, -half_width),
         (half_width, half_width, half_width), source_shape, run_mode)
+    settings.random_ray['distance_active'] *= scale
+    settings.random_ray['distance_inactive'] *= scale
+    if sample_method is not None:
+        settings.random_ray['sample_method'] = sample_method
     settings.random_ray['source_region_meshes'] = [(mesh, cells)]
     if source_point is not None:
         settings.source = openmc.IndependentSource(
@@ -496,37 +527,46 @@ def make_comparison_model(cells, half_width, mesh, source_shape='flat',
     tallies = openmc.Tallies(
         [flux_tally('cell flux', openmc.CellFilter(cells)),
          flux_tally('mesh flux', openmc.MeshFilter(mesh))])
-    materials = one_group_materials(run_mode)
+    materials = one_group_materials(run_mode, 1.0 / scale)
     for cell in cells:
         cell.fill = materials[0]
     return openmc.Model(openmc.Geometry(cells), materials, settings, tallies)
 
 
-@pytest.mark.parametrize("library,source_shape,run_mode,source_point", [
-    ('regular', 'flat', 'fixed source', None),
-    ('regular', 'linear', 'fixed source', None),
-    ('regular', 'flat', 'eigenvalue', None),
+@pytest.mark.parametrize("library,options", [
+    ('regular', {}),
+    ('regular', {'source_shape': 'linear'}),
+    ('regular', {'run_mode': 'eigenvalue'}),
     # A point source in the mesh, and one outside of it
-    ('regular', 'flat', 'fixed source', (0.45, 0.1, 0.1)),
-    ('regular', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
-    ('regular-2d', 'flat', 'fixed source', None),
-    ('cylindrical', 'flat', 'fixed source', None),
-    ('cylindrical', 'linear', 'fixed source', None),
-    ('spherical', 'flat', 'fixed source', None),
-    ('moab', 'flat', 'fixed source', None),
-    ('moab', 'linear', 'fixed source', None),
-    ('moab', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
-    ('xdg-moab', 'flat', 'fixed source', None),
-    ('xdg-libmesh', 'flat', 'fixed source', None),
-    ('xdg-libmesh', 'linear', 'fixed source', None),
-    ('xdg-libmesh', 'flat', 'fixed source', (1.4, 1.4, 1.4)),
-    # A mesh in two parts, of the 24-tet mesh moved to either side
-    ('two-moab', 'flat', 'fixed source', None),
-    ('two-moab', 'linear', 'fixed source', None),
-    ('two-xdg-moab', 'flat', 'fixed source', None),
+    ('regular', {'source_point': (0.45, 0.1, 0.1)}),
+    ('regular', {'source_point': (1.4, 1.4, 1.4)}),
+    ('regular-2d', {}),
+    ('cylindrical', {}),
+    ('cylindrical', {'source_shape': 'linear'}),
+    ('spherical', {}),
+    ('half-cylinder', {}),
+    ('quarter-cylinder', {}),
+    ('quarter-cylinder', {'source_shape': 'linear'}),
+    ('cone', {}),
+    ('moab', {}),
+    ('moab', {'source_shape': 'linear'}),
+    ('moab', {'source_point': (1.4, 1.4, 1.4)}),
+    # A mesh large enough for a tolerance to matter
+    ('moab', {'scale': 2.5e4}),
+    ('xdg-moab', {}),
+    ('xdg-libmesh', {}),
+    ('xdg-libmesh', {'source_shape': 'linear'}),
+    ('xdg-libmesh', {'source_point': (1.4, 1.4, 1.4)}),
+    # A mesh in two parts, of the 24-tet mesh moved to either side, and with
+    # what comes before them as wide as each, which makes lengths coincide
+    ('two-moab', {}),
+    ('two-moab', {'source_shape': 'linear'}),
+    ('two-xdg-moab', {}),
+    ('two-moab', {'half_width': 2.25}),
+    ('two-moab', {'half_width': 2.25, 'sample_method': 's2'}),
+    ('two-xdg-moab', {'half_width': 2.25}),
 ])
-def test_random_ray_mesh_over_part_of_cell(
-        library, source_shape, run_mode, source_point, tmp_path):
+def test_random_ray_mesh_over_part_of_cell(library, options, tmp_path):
     """What is outside of a mesh that covers part of a cell counts as one more
     bin of the mesh. Rays go through it in its place along them, so a run is
     the same as one with that part as a cell of its own, whatever the shape of
@@ -538,7 +578,9 @@ def test_random_ray_mesh_over_part_of_cell(
     # way out again (find_r_crossing takes it to still be on the surface), so
     # that a few rays score to the wrong bin, which is not what is being tested
     # here.
-    if config['mpi'] and library in ('cylindrical', 'spherical'):
+    if config['mpi'] and library in ('cylindrical', 'spherical',
+                                     'half-cylinder', 'quarter-cylinder',
+                                     'cone'):
         pytest.skip("Radial crossings of restarted rays")
 
     mesh_path = None
@@ -553,20 +595,24 @@ def test_random_ray_mesh_over_part_of_cell(
         mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
                      MESH_FILES[library])
 
+    options = dict(options)
+    scale = options.get('scale', 1.0)
+    half_width = scale * options.pop('half_width', 1.5)
     results = []
     for split in (False, True):
         path = tmp_path / str(split)
         path.mkdir()
         openmc.reset_auto_ids()
         with change_directory(path):
-            mesh, covered = part_of_box_mesh(library, mesh_path)
+            mesh, covered = part_of_box_mesh(library, mesh_path, scale)
             box = -openmc.model.RectangularParallelepiped(
-                -1.5, 1.5, -1.5, 1.5, -1.5, 1.5, boundary_type='vacuum')
+                -half_width, half_width, -half_width, half_width, -half_width,
+                half_width, boundary_type='vacuum')
             cells = ([openmc.Cell(region=box & covered),
                       openmc.Cell(region=box & ~covered)] if split
                      else [openmc.Cell(region=box)])
-            make_comparison_model(cells, 1.5, mesh, source_shape, run_mode,
-                                  source_point).export_to_model_xml()
+            make_comparison_model(cells, half_width, mesh,
+                                  **options).export_to_model_xml()
 
         if config['build_inputs']:
             return
@@ -710,6 +756,42 @@ def test_random_ray_weight_windows_normalized_tallies(ww_method, tmp_path):
 
     assert np.all(bounds[0] > 0.0)
     assert bounds[0] == pytest.approx(bounds[1], rel=0.1)
+
+
+def test_random_ray_exodus_output_normalized_tallies(tmp_path):
+    """The flux per volume in the Exodus file of a libMesh tally mesh does not
+    depend on whether or not flux tallies are divided by volume"""
+    if not enabled('xdg-libmesh'):
+        pytest.skip("xdg-libmesh unstructured meshes are not enabled.")
+
+    mesh_path = (Path(__file__).parents[1] / 'unstructured_mesh' /
+                 MESH_FILES['libmesh'])
+    fluxes_in_file = []
+    for normalized in (False, True):
+        path = tmp_path / str(normalized)
+        path.mkdir()
+        openmc.reset_auto_ids()
+        with change_directory(path):
+            tally_mesh = openmc.UnstructuredMesh(mesh_path, library='libmesh')
+            model = make_model('xdg-libmesh', mesh_path, 'tally',
+                               tally_mesh=tally_mesh)
+            model.settings.random_ray[
+                'volume_normalized_flux_tallies'] = normalized
+            model.settings.particles = 500
+            model.export_to_model_xml()
+
+        if config['build_inputs']:
+            return
+        returncode, output = run_openmc(path)
+        assert returncode == 0, output
+        with netcdf_file(next(path.glob('tally_*.e')), mmap=False) as exodus:
+            names = [b''.join(name).decode().strip('\x00')
+                     for name in exodus.variables['name_nod_var'].data]
+            variable = f'vals_nod_var{names.index("flux_total_mean") + 1}'
+            fluxes_in_file.append(exodus.variables[variable].data[-1].copy())
+
+    assert np.all(fluxes_in_file[0] > 0.0)
+    assert fluxes_in_file[0] == pytest.approx(fluxes_in_file[1], rel=0.1)
 
 
 def test_random_ray_material_volumes(tmp_path):

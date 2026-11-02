@@ -37,7 +37,6 @@
 #include "openmc/random_dist.h"
 #include "openmc/search.h"
 #include "openmc/settings.h"
-#include "openmc/simulation.h"
 #include "openmc/string_utils.h"
 #include "openmc/tallies/filter.h"
 #include "openmc/tallies/tally.h"
@@ -3227,8 +3226,10 @@ void MOABMesh::initialize()
     magnitude = std::max(
       {magnitude, std::abs(lower_left_[d]), std::abs(upper_right_[d])});
   }
-  surface_tol_ = std::max(
-    1e-12 * extent, 8.0 * std::numeric_limits<double>::epsilon() * magnitude);
+  extent_ = extent;
+  // (well below TINY_BIT, which points just past a face are found by)
+  surface_tol_ = std::max(std::min(1e-12 * extent, 0.25 * TINY_BIT),
+    8.0 * std::numeric_limits<double>::epsilon() * magnitude);
 }
 
 void MOABMesh::prepare_for_point_location()
@@ -3343,9 +3344,7 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // times the surface tolerance: no point outside of it is in a tet
   double t_lo = 0.0;
   double t_hi = track_len;
-  double extent = 0.0;
   for (int i = 0; i < 3; i++) {
-    extent = std::max(extent, upper_right_[i] - lower_left_[i]);
     const double lo = lower_left_[i] - 4.0 * surface_tol_;
     const double hi = upper_right_[i] + 4.0 * surface_tol_;
     if (u[i] == 0.0) {
@@ -3369,16 +3368,12 @@ void MOABMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   // MOAB's test of a triangle has no tolerance, so a track exactly through an
   // edge or vertex of a tet or in a face can miss intersections. Moving the
   // track by a tiny amount, in a fixed direction unrelated to the mesh, leaves
-  // no such ties. Random rays have no ties to begin with, and the random ray
-  // solver checks the bins it gets at points on the ray. (The rays of material
-  // volume calculations, which come before a simulation, can have ties.)
-  const double offset = t_lo > 100.0 * extent ? t_lo : 0.0;
-  Position origin = r0 + offset * u;
-  if (settings::solver_type != SolverType::RANDOM_RAY ||
-      !simulation::initialized) {
-    origin += surface_tol_ * Position {0.5773502691896258, -0.3141592653589793,
-                               0.7539822368615503};
-  }
+  // no such ties.
+  const double offset = t_lo > 100.0 * extent_ ? t_lo : 0.0;
+  const Position origin =
+    r0 + offset * u +
+    surface_tol_ *
+      Position {0.5773502691896258, -0.3141592653589793, 0.7539822368615503};
   const moab::CartVect ray_origin(origin.x, origin.y, origin.z);
   const double s_end = t_hi - offset;
 

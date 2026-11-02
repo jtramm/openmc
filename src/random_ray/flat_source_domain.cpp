@@ -2529,8 +2529,8 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   // bounding the current source region.
   //
   // To filter out this case, before we create the new source region, we double
-  // check that the actual starting point of this segment (r) is still in the
-  // same geometry source region that we started in. If an artifact is detected,
+  // check that a point on this segment (r) is still in the same geometry source
+  // region that we started in. If an artifact is detected,
   // we discard the segment (and attenuation through it) as it is not really a
   // valid source region and will have only an infinitessimally small cell
   // combined with the mesh bin. Thankfully, this is a fairly rare condition,

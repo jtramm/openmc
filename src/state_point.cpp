@@ -841,9 +841,14 @@ void write_unstructured_mesh_results()
           // construct result vectors
           vector<double> mean_vec(umesh->n_bins()),
             std_dev_vec(umesh->n_bins());
+          // (random ray flux tallies can be divided by volume already)
+          const bool per_volume =
+            settings::solver_type == SolverType::RANDOM_RAY &&
+            FlatSourceDomain::volume_normalized_flux_tallies_ &&
+            tally->scores_[score_idx] == SCORE_FLUX;
           for (int j = 0; j < tally->results_.shape(0); j++) {
             // get the volume for this bin
-            double volume = umesh->volume(j);
+            double volume = per_volume ? 1.0 : umesh->volume(j);
             // compute the mean
             double mean = tally->results_(j, nuc_score_idx, TallyResult::SUM) /
                           n_realizations;

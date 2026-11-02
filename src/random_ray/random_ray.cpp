@@ -390,30 +390,33 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
     return;
   }
 
-  // Suppose that the bins follow each other without a gap, after some length
-  // outside of the mesh and before the rest of it. The mesh then has to start
-  // and end where that puts them.
-  const auto in_mesh = [&](double s) {
-    return mesh.get_bin(r + s * u()) != C_NONE;
-  };
-  const auto fits = [&](double before) {
-    const double end = before + inside;
-    return (before <= min_length ||
-             (!in_mesh(before - TINY_BIT) && in_mesh(before + TINY_BIT))) &&
-           (length - end <= min_length ||
-             (in_mesh(end - TINY_BIT) && !in_mesh(end + TINY_BIT)));
+  // The length in the mesh of a stretch of the path
+  const auto length_in_mesh = [&](double s0, double s1) {
+    vector<int> stretch_bins;
+    vector<double> stretch_fractions;
+    mesh.bins_crossed(
+      r + s0 * u(), r + s1 * u(), u(), stretch_bins, stretch_fractions);
+    return (s1 - s0) * sum(stretch_fractions);
   };
 
-  // There may be nothing before them. If not, a trace up to a bit past all that
-  // is outside gives the length before them, unless it ends past the bins.
-  double before = 0.0;
+  // Suppose that the bins follow each other without a gap, after some length
+  // outside of the mesh. All of their length then has to be in a stretch that
+  // long from there, which leaves none for anywhere else.
+  const auto fits = [&](double before) {
+    const double stretch = inside - 2.0 * TINY_BIT;
+    return stretch -
+             length_in_mesh(before + TINY_BIT, before + inside - TINY_BIT) <=
+           min_length;
+  };
+
+  // The length before them is no more than all that is outside, so a trace that
+  // far and a bit further gives it, unless that ends past the bins. In that
+  // case there may be nothing before them.
+  const double probe = outside + 0.1 * inside;
+  double before = std::min(probe - length_in_mesh(0.0, probe), outside);
   bool found = fits(before);
-  if (!found) {
-    const double probe = outside + 0.1 * inside;
-    vector<int> probe_bins;
-    vector<double> probe_fractions;
-    mesh.bins_crossed(r, r + probe * u(), u(), probe_bins, probe_fractions);
-    before = std::min(probe * (1.0 - sum(probe_fractions)), outside);
+  if (!found && before > min_length) {
+    before = 0.0;
     found = fits(before);
   }
   if (found) {
@@ -566,11 +569,11 @@ void RandomRay::attenuate_flux_inner(
   double distance, bool is_active, int64_t sr, int mesh_bin, Position r)
 {
   SourceRegionKey sr_key {sr, mesh_bin};
+  Position midpoint = r + u() * (distance / 2.0);
 
 #ifdef OPENMC_MPI
   if (mpi::n_procs > 1) {
     // Check which rank owns the source region at the current position
-    Position midpoint = r + u() * (distance / 2.0);
     int owner = mpi::decomp_map.find_owner(SourceRegionKey(sr, mesh_bin),
       midpoint, domain_->discovered_source_regions_);
 
@@ -584,7 +587,7 @@ void RandomRay::attenuate_flux_inner(
 #endif
 
   SourceRegionHandle srh;
-  srh = domain_->get_subdivided_source_region_handle(sr_key, r, u());
+  srh = domain_->get_subdivided_source_region_handle(sr_key, midpoint, u());
   if (srh.is_numerical_fp_artifact_) {
     return;
   }

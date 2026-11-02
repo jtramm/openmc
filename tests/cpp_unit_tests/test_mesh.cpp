@@ -14,8 +14,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pugixml.hpp>
 
+#include "openmc/geometry.h"
 #include "openmc/hdf5_interface.h"
 #include "openmc/mesh.h"
+#include "openmc/random_ray/random_ray.h"
 #include "openmc/xdg.h"
 
 #ifdef OPENMC_XDG_ENABLED
@@ -663,7 +665,7 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
     // A point just outside of the box of a large mesh is within the tolerance
     // of the mesh, which is larger than MOAB's on the boxes of its tree
     if (variant == Variant::LARGE)
-      REQUIRE(mesh.get_bin({5000.0 + 5e-9, 100.0, 200.0}) >= 0);
+      REQUIRE(mesh.get_bin({5000.0 + 2e-9, 100.0, 200.0}) >= 0);
 
     // Beams along the axes of the cube, along the mesh's middle lines and in
     // its middle planes
@@ -718,3 +720,206 @@ TEST_CASE("MOAB tracks and points in the faces and along the edges of tets")
   }
 }
 #endif
+
+namespace {
+
+//! Slabs in x, each one bin, of which a track gets to know its crossings in
+//! order but not where they are
+class SlabMesh : public Mesh {
+public:
+  explicit SlabMesh(vector<std::pair<double, double>> slabs) : slabs_(slabs) {}
+
+  void bins_crossed(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths) const override
+  {
+    for (int i = 0; i < slabs_.size(); i++) {
+      const double overlap =
+        std::min(r1.x, slabs_[i].second) - std::max(r0.x, slabs_[i].first);
+      if (overlap > 0.0) {
+        bins.push_back(i);
+        lengths.push_back(overlap / (r1.x - r0.x));
+      }
+    }
+  }
+  int get_bin(Position r) const override
+  {
+    for (int i = 0; i < slabs_.size(); i++) {
+      if (r.x >= slabs_[i].first && r.x <= slabs_[i].second)
+        return i;
+    }
+    return -1;
+  }
+
+  // What is left of the interface is of no use here
+  Position sample_element(int32_t, uint64_t*) const override { return {}; }
+  void surface_bins_crossed(
+    Position, Position, const Direction&, vector<int>&) const override
+  {}
+  int n_bins() const override { return slabs_.size(); }
+  int n_surface_bins() const override { return 0; }
+  void to_hdf5_inner(hid_t) const override {}
+  std::pair<vector<double>, vector<double>> plot(
+    Position, Position) const override
+  {
+    return {};
+  }
+  std::string bin_label(int) const override { return ""; }
+  double volume(int) const override { return 1.0; }
+  std::string get_mesh_type() const override { return "slabs"; }
+  Position lower_left() const override { return {}; }
+  Position upper_right() const override { return {}; }
+
+private:
+  vector<std::pair<double, double>> slabs_;
+};
+
+} // namespace
+
+TEST_CASE("Random rays place what is outside of a mesh along the track")
+{
+  model::n_coord_levels = 1;
+  RandomRay ray;
+  ray.u() = {0.8, 0.6, 0.0};
+
+  // The pieces of a track along x (in bins, with lengths in x), each with what
+  // the mesh does not return between them
+  auto check = [&](vector<std::pair<double, double>> slabs, double x0,
+                 double x1) {
+    SlabMesh mesh(slabs);
+    const double length = (x1 - x0) / ray.u().x;
+    Position r0 {x0, 0.0, 0.0};
+    vector<int> bins;
+    vector<double> fractions;
+    mesh.bins_crossed(r0, r0 + length * ray.u(), ray.u(), bins, fractions);
+    ray.add_mesh_gaps(mesh, r0, length, bins, fractions);
+
+    vector<int> expected_bins;
+    vector<double> expected;
+    double x = x0;
+    for (int i = 0; i < slabs.size() && slabs[i].first < x1; i++) {
+      if (slabs[i].first > x) {
+        expected_bins.push_back(C_NONE);
+        expected.push_back(slabs[i].first - x);
+      }
+      expected_bins.push_back(i);
+      expected.push_back(slabs[i].second - slabs[i].first);
+      x = slabs[i].second;
+    }
+    if (x1 > x) {
+      expected_bins.push_back(C_NONE);
+      expected.push_back(x1 - x);
+    }
+
+    REQUIRE(bins == expected_bins);
+    for (int i = 0; i < bins.size(); i++) {
+      REQUIRE(fractions[i] * (x1 - x0) == Catch::Approx(expected[i]));
+    }
+  };
+
+  SECTION("no gaps, and all gap")
+  {
+    check({{0.0, 1.0}, {1.0, 2.0}}, 0.0, 2.0);
+    check({{5.0, 6.0}}, 0.0, 2.0);
+  }
+  SECTION("a gap at either end, or at both")
+  {
+    check({{1.0, 2.0}}, 0.0, 2.0);
+    check({{0.0, 1.0}}, 0.0, 2.0);
+    check({{1.0, 2.0}}, 0.0, 3.0);
+    check({{50.0, 51.0}}, 0.0, 100.0);
+  }
+  SECTION("gaps between pieces")
+  {
+    check({{0.0, 1.0}, {1.5, 2.0}}, 0.0, 2.0);
+    check({{0.25, 1.0}, {1.5, 1.75}, {3.0, 3.5}}, 0.0, 4.0);
+  }
+  SECTION("lengths that coincide")
+  {
+    // What comes before as wide as a piece, and pieces and gaps all of a width
+    check({{1.0, 2.0}, {3.0, 4.0}}, 0.0, 5.0);
+    check({{0.0, 1.0}, {2.0, 3.0}, {4.0, 5.0}}, 0.0, 6.0);
+    check({{1.0, 2.0}, {2.5, 3.5}}, 0.0, 4.5);
+  }
+  SECTION("plates at multiples of a pitch")
+  {
+    std::mt19937_64 rng(1);
+    for (int n = 0; n < 2000; n++) {
+      vector<std::pair<double, double>> slabs;
+      double x = 0.25 * (rng() % 4);
+      for (int i = 0; i < 1 + rng() % 6; i++) {
+        const double width = 0.25 * (1 + rng() % 4);
+        slabs.push_back({x, x + width});
+        x += width + 0.25 * (1 + rng() % 4);
+      }
+      check(
+        slabs, -0.25 * (rng() % 4), slabs.back().second + 0.25 * (rng() % 4));
+    }
+  }
+}
+
+TEST_CASE("Tracks from anywhere find meshes that do not span all angles")
+{
+  auto check = [](const Mesh& mesh) {
+    std::mt19937_64 rng(1);
+    std::uniform_real_distribution<double> position(-1.5, 1.5);
+    std::uniform_real_distribution<double> direction(-1.0, 1.0);
+    const int n_steps = 2000;
+    const double length = 3.0;
+    const double step = length / n_steps;
+    for (int n = 0; n < 500; n++) {
+      Position r {position(rng), position(rng), position(rng)};
+      Direction u {direction(rng), direction(rng), direction(rng)};
+      u /= u.norm();
+
+      // The length in each bin, from the track and from points along it
+      vector<int> bins;
+      vector<double> fractions;
+      mesh.bins_crossed(r, r + length * u, u, bins, fractions);
+      std::map<int, double> traced;
+      for (int i = 0; i < bins.size(); i++)
+        traced[bins[i]] += fractions[i] * length;
+      std::map<int, double> sampled;
+      for (int i = 0; i < n_steps; i++) {
+        const int bin = mesh.get_bin(r + (i + 0.5) * step * u);
+        if (bin >= 0)
+          sampled[bin] += step;
+      }
+
+      for (const auto& [bin, sampled_length] : sampled)
+        REQUIRE(
+          traced[bin] == Catch::Approx(sampled_length).margin(4.0 * step));
+      for (const auto& [bin, traced_length] : traced)
+        REQUIRE(
+          sampled[bin] == Catch::Approx(traced_length).margin(4.0 * step));
+    }
+  };
+
+  auto cylindrical = [&](const char* r, const char* phi) {
+    pugi::xml_document doc;
+    auto node = doc.append_child("mesh");
+    node.append_attribute("id") = 1;
+    node.append_child("r_grid").text() = r;
+    node.append_child("phi_grid").text() = phi;
+    node.append_child("z_grid").text() = "-1 0 1";
+    node.append_child("origin").text() = "0 0 0";
+    check(CylindricalMesh(node));
+  };
+  auto spherical = [&](const char* r, const char* theta, const char* phi) {
+    pugi::xml_document doc;
+    auto node = doc.append_child("mesh");
+    node.append_attribute("id") = 1;
+    node.append_child("r_grid").text() = r;
+    node.append_child("theta_grid").text() = theta;
+    node.append_child("phi_grid").text() = phi;
+    node.append_child("origin").text() = "0 0 0";
+    check(SphericalMesh(node));
+  };
+
+  cylindrical("0 0.5 1", "0 1.5 3");
+  cylindrical("0 0.5 1", "1 1.8 2.5");
+  cylindrical("0.3 0.6 1", "4 4.7 5.5");
+  spherical("0 0.5 1", "0 0.4 0.8", "0 6.283185307179586");
+  spherical("0.3 0.6 1", "1 1.3 2", "0 6.283185307179586");
+  spherical("0 0.5 1", "0 0.7 1.5", "0 0.8 1.5");
+  spherical("0.3 0.6 1", "1 1.3 2", "4 4.7 5.5");
+}
