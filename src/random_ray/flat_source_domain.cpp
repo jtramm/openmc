@@ -914,16 +914,15 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
       continue;
     }
 
-    // A particle located at the recorded midpoint of a ray
-    // crossing through this source region is used to estabilish
-    // the spatial location of the source region
+    // A particle located at the point checked to lie in this source region
+    // when it was created is used to establish the spatial location of the
+    // source region
     Particle p;
     p.r() = source_regions_.position(sr);
     p.r_last() = source_regions_.position(sr);
     p.u() = {1.0, 0.0, 0.0};
-    // The return value is not checked because the position was recorded by a
-    // ray that actually traversed this source region, so the search cannot
-    // fail.
+    // The return value is not checked because the position was checked to lie
+    // in this source region when it was created, so the search cannot fail.
     exhaustive_find_cell(p);
 
     // Loop over energy groups (so as to support energy filters)

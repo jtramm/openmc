@@ -436,10 +436,11 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
   double before = std::min(box_start, outside);
   bool found = outside_in_box <= min_length;
   if (!found) {
-    const double probe = outside_in_box + 0.1 * inside;
+    // (traced from the start of the stretch rather than from the face of the
+    // box, which can be a surface of the mesh)
+    const double probe = box_start + outside_in_box + 0.1 * inside;
     before =
-      box_start + std::min(probe - length_in_mesh(box_start, box_start + probe),
-                    outside_in_box);
+      std::min(probe - length_in_mesh(0.0, probe), box_start + outside_in_box);
     found = fits(before);
     if (!found && before > box_start + min_length) {
       before = box_start;
@@ -698,13 +699,6 @@ void RandomRay::attenuate_flux_flat_source(
     srh.n_hits() += 1;
   }
 
-  // Tally valid position inside the source region (e.g., midpoint of
-  // the ray) if not done already
-  if (!srh.position_recorded()) {
-    srh.position() = midpoint;
-    srh.position_recorded() = 1;
-  }
-
   // Release lock
   srh.unlock();
 }
@@ -737,13 +731,6 @@ void RandomRay::attenuate_flux_flat_source_void(
     srh.centroid_iteration() += midpoint * distance;
     srh.volume_sq() += distance * distance;
     srh.n_hits() += 1;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!srh.position_recorded()) {
-      srh.position() = midpoint;
-      srh.position_recorded() = 1;
-    }
 
     // Release lock
     srh.unlock();
@@ -882,13 +869,6 @@ void RandomRay::attenuate_flux_linear_source(
     srh.n_hits() += 1;
   }
 
-  // Tally valid position inside the source region (e.g., midpoint of
-  // the ray) if not done already
-  if (!srh.position_recorded()) {
-    srh.position() = midpoint;
-    srh.position_recorded() = 1;
-  }
-
   // Release lock
   srh.unlock();
 }
@@ -983,13 +963,6 @@ void RandomRay::attenuate_flux_linear_source_void(
     srh.centroid_iteration() += midpoint * distance;
     moment_matrix_estimate *= distance;
     srh.mom_matrix() += moment_matrix_estimate;
-
-    // Tally valid position inside the source region (e.g., midpoint of
-    // the ray) if not done already
-    if (!srh.position_recorded()) {
-      srh.position() = midpoint;
-      srh.position_recorded() = 1;
-    }
 
     srh.n_hits() += 1;
 
