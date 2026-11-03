@@ -344,12 +344,24 @@ public:
   void surface_bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins) const override;
 
+  //! Determine which bins were crossed by a track, in order along it, with
+  //! each stretch of the track outside of the mesh as bin C_NONE
+  //
+  //! \param[in] r0 Previous position of the particle
+  //! \param[in] r1 Current position of the particle
+  //! \param[in] u Particle direction
+  //! \param[out] bins Bins crossed, and C_NONE for each stretch outside
+  //! \param[out] lengths Fraction of the track's length in each
+  void bins_crossed_with_outside(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths) const;
+
   //! Determine which cell or surface bins were crossed by a particle
   //
   //! \param[in] r0 Previous position of the particle
   //! \param[in] r1 Current position of the particle
   //! \param[in] u Particle direction
-  //! \param[in] tally Functor that eventually stores the tally data
+  //! \param[in] tally Functor that eventually stores the tally data, and
+  //!   is told the length of each stretch outside of the mesh
   template<class T>
   void raytrace_mesh(
     Position r0, Position r1, const Direction& u, T tally) const;

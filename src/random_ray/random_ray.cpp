@@ -519,15 +519,28 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
     Position end = start + (distance - 2.0 * TINY_BIT) * u();
     double reduced_distance = (end - start).norm();
 
-    // Ray trace through the mesh and record bins and lengths
+    // Ray trace through the mesh and record bins and lengths. Portions of the
+    // segment outside of the mesh go, in order and at the right places on the
+    // ray, to a source region of their own: structured meshes report them as
+    // they trace, and for other meshes they are found by tracing again.
     mesh_bins_.resize(0);
     mesh_fractional_lengths_.resize(0);
-    mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
-
-    // Portions of the segment outside the mesh are not returned. In order, and
-    // at the right places on the ray, they go to a source region of their own.
-    add_mesh_gaps(
-      *mesh, start, reduced_distance, mesh_bins_, mesh_fractional_lengths_);
+    if (auto smesh = dynamic_cast<StructuredMesh*>(mesh)) {
+      smesh->bins_crossed_with_outside(
+        start, end, u(), mesh_bins_, mesh_fractional_lengths_);
+      // (Portions no longer than roundoff are left out, as by add_mesh_gaps)
+      for (int b = static_cast<int>(mesh_bins_.size()) - 1; b >= 0; b--) {
+        if (mesh_bins_[b] == C_NONE &&
+            mesh_fractional_lengths_[b] * reduced_distance <= 2.0 * TINY_BIT) {
+          mesh_bins_.erase(mesh_bins_.begin() + b);
+          mesh_fractional_lengths_.erase(mesh_fractional_lengths_.begin() + b);
+        }
+      }
+    } else {
+      mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
+      add_mesh_gaps(
+        *mesh, start, reduced_distance, mesh_bins_, mesh_fractional_lengths_);
+    }
 
     // Loop over all mesh bins and attenuate flux
     for (int b = 0; b < mesh_bins_.size(); b++) {

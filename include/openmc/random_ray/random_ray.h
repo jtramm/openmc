@@ -109,15 +109,16 @@ public:
   void attenuate_flux(double distance, bool is_active, double offset = 0.0);
 
   //! Add the parts of a stretch of the ray's path outside of a source region
-  //! mesh, as bin C_NONE, in their place among what the mesh returned for it.
+  //! mesh that does not report them itself (unlike structured meshes), as bin
+  //! C_NONE, in their place among what the mesh returned for it.
   //! Further traces of parts of the stretch place them, which relies on those
   //! traces agreeing with the trace of all of it. Where a trace loses length,
   //! as some do in degenerate cases, that length counts as outside of the
   //! mesh, and what was found around it can be placed off. A stretch that
   //! enters or leaves the mesh other than through its bounding box costs a few
   //! more traces, and one that leaves the mesh and comes back several more per
-  //! gap, the more the smaller the gap, as bins_crossed (and, for unstructured
-  //! meshes, XDG) does not report where its crossings are.
+  //! gap, the more the smaller the gap, as bins_crossed (and XDG) does not
+  //! report where its crossings are.
   //! \param[in] mesh Mesh the stretch was traced through
   //! \param[in] r Start of the stretch
   //! \param[in] length Length of the stretch

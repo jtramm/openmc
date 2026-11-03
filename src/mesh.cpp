@@ -1345,6 +1345,8 @@ void StructuredMesh::raytrace_mesh(
   if (total_distance < 2 * TINY_BIT) {
     if (in_mesh) {
       tally.track(ijk, 1.0);
+    } else {
+      tally.outside(1.0);
     }
     return;
   }
@@ -1397,6 +1399,7 @@ void StructuredMesh::raytrace_mesh(
       // For all directions outside the mesh, find the distance that we need
       // to travel to reach the next surface. Use the largest distance, as
       // only this will cross all outer surfaces.
+      const double outside_from = traveled_distance;
       int k_max {-1};
       for (int k = 0; k < n; ++k) {
         if ((ijk[k] < 1 || ijk[k] > shape_[k]) &&
@@ -1409,6 +1412,11 @@ void StructuredMesh::raytrace_mesh(
       if (k_max == -1) {
         traveled_distance += TINY_BIT;
       }
+
+      // Tally the track length outside of the mesh
+      tally.outside(
+        (std::min(traveled_distance, total_distance) - outside_from) /
+        total_distance);
 
       // If r1 is not inside the mesh, exit here
       if (traveled_distance >= total_distance)
@@ -1447,6 +1455,7 @@ void StructuredMesh::bins_crossed(Position r0, Position r1, const Direction& u,
       bins.push_back(mesh->get_bin_from_indices(ijk));
       lengths.push_back(l);
     }
+    void outside(double l) const {}
 
     const StructuredMesh* mesh;
     vector<int>& bins;
@@ -1454,6 +1463,39 @@ void StructuredMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   };
 
   // Perform the mesh raytrace with the helper class.
+  raytrace_mesh(r0, r1, u, TrackAggregator(this, bins, lengths));
+}
+
+void StructuredMesh::bins_crossed_with_outside(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths) const
+{
+  // As for bins_crossed, but with each stretch outside of the mesh as C_NONE
+  struct TrackAggregator {
+    TrackAggregator(
+      const StructuredMesh* _mesh, vector<int>& _bins, vector<double>& _lengths)
+      : mesh(_mesh), bins(_bins), lengths(_lengths)
+    {}
+    void surface(const MeshIndex& ijk, int k, bool max, bool inward) const {}
+    void track(const MeshIndex& ijk, double l) const
+    {
+      bins.push_back(mesh->get_bin_from_indices(ijk));
+      lengths.push_back(l);
+    }
+    void outside(double l) const
+    {
+      if (!bins.empty() && bins.back() == C_NONE) {
+        lengths.back() += l;
+      } else {
+        bins.push_back(C_NONE);
+        lengths.push_back(l);
+      }
+    }
+
+    const StructuredMesh* mesh;
+    vector<int>& bins;
+    vector<double>& lengths;
+  };
+
   raytrace_mesh(r0, r1, u, TrackAggregator(this, bins, lengths));
 }
 
@@ -1479,6 +1521,7 @@ void StructuredMesh::surface_bins_crossed(
       bins.push_back(i_bin);
     }
     void track(const MeshIndex& idx, double l) const {}
+    void outside(double l) const {}
 
     const StructuredMesh* mesh;
     vector<int>& bins;
