@@ -181,7 +181,8 @@ def make_model(case):
         main = umesh(path, 'xdg')
         ww_mesh = umesh(flipped, 'native')
         # This one only subdivides, and is scaled to cover the middle box. A
-        # tally on that box has the same mesh through the native interface.
+        # tally on that box has the same mesh with its node order flipped
+        # through the native interface.
         scaled = umesh(path, 'xdg', multiplier=8.0)
         meshes = [(main, [cells[0]]), (scaled, [cells[1]])]
         mesh_filters = [
@@ -189,7 +190,7 @@ def make_model(case):
             [openmc.MeshFilter(ww_mesh)],
             [openmc.MeshFilter(umesh(flipped, 'xdg'))],
             [openmc.CellFilter(cells[1]),
-             openmc.MeshFilter(umesh(path, 'native', multiplier=8.0))],
+             openmc.MeshFilter(umesh(flipped, 'native', multiplier=8.0))],
         ]
 
     settings = openmc.Settings()

@@ -433,8 +433,8 @@ structured one. A mesh does not have to cover the cells it is applied to:
 whatever is outside of the mesh counts as one more mesh bin, so that each cell
 instance has one source region for its part outside of the mesh, which is not
 subdivided any further. A ray that enters or leaves an unstructured mesh within
-a cell other than through the mesh's bounding box takes a few more traces to
-place what is outside of the mesh, and several more for each gap where it
+a cell other than through the mesh's bounding box takes more traces to place
+what is outside of the mesh, a few on average, and more for each gap where it
 leaves the mesh and comes back, the more the smaller the gap.
 As with any source region, a mesh tally on another mesh does not resolve it:
 all of its flux goes to the one bin holding the point where a ray first found

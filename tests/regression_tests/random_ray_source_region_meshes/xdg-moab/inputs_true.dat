@@ -88,7 +88,7 @@
       <filename>flipped_tets.vtk</filename>
     </mesh>
     <mesh id="6" type="unstructured" library="moab" length_multiplier="8.0">
-      <filename>tets.vtk</filename>
+      <filename>flipped_tets.vtk</filename>
     </mesh>
     <filter id="6" type="cell">
       <bins>1 2 3</bins>

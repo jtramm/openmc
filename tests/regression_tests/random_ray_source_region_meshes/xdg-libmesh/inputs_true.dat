@@ -88,7 +88,7 @@
       <filename>flipped_tets.e</filename>
     </mesh>
     <mesh id="6" type="unstructured" library="libmesh" length_multiplier="8.0">
-      <filename>../../unstructured_mesh/test_mesh_dagmc_tets.e</filename>
+      <filename>flipped_tets.e</filename>
     </mesh>
     <filter id="6" type="cell">
       <bins>1 2 3</bins>

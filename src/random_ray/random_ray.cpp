@@ -426,7 +426,7 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
   // as the bins were, along the same path, rather than from a surface of the
   // mesh.)
   const auto fits = [&](double before) {
-    return (before <= min_length ||
+    return (before <= box_start + min_length ||
              length_in_mesh(0.0, before) <= min_length) &&
            inside - length_in_mesh(0.0, before + inside) <= min_length;
   };
