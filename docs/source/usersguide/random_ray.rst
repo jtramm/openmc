@@ -429,13 +429,16 @@ the mesh can be any kind and is not restricted to 3D regular voxels. This
 includes :class:`openmc.UnstructuredMesh`, with MOAB or libMesh, through the XDG
 interface (by setting its ``interface`` attribute to ``'xdg'``), although ray
 tracing through an unstructured mesh is considerably slower than through a
-structured one. A mesh does not have to cover the cells it is applied
-to: whatever is outside of the mesh counts as one more mesh bin, so that each
-cell instance has one source region for its part outside of the mesh, which is
-not subdivided any further. As with any source region, a mesh tally on another
-mesh does not resolve it: all of its flux goes to the one bin holding the point
-where a ray first found it, which can differ from run to run. An example of
-overlaying a simple 2D mesh over a geometry is given as::
+structured one. A mesh does not have to cover the cells it is applied to:
+whatever is outside of the mesh counts as one more mesh bin, so that each cell
+instance has one source region for its part outside of the mesh, which is not
+subdivided any further. Where a ray leaves the mesh and comes back within the
+same cell, as through a mesh in several parts or with holes that the cell does
+not have, placing what is outside takes several more traces for each such gap.
+As with any source region, a mesh tally on another mesh does not resolve it:
+all of its flux goes to the one bin holding the point where a ray first found
+it, which can differ from run to run. An example of overlaying a simple 2D mesh
+over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()
   sr_mesh.dimension = (n, n)
