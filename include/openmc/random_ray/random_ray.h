@@ -113,7 +113,10 @@ public:
   //! Further traces of parts of the stretch place them, which relies on those
   //! traces agreeing with the trace of all of it. Where a trace loses length,
   //! as some do in degenerate cases, that length counts as outside of the
-  //! mesh, and what was found around it can be placed off.
+  //! mesh, and what was found around it can be placed off. A stretch that
+  //! leaves the mesh and comes back costs several traces more per gap, the
+  //! more the smaller the gap, as bins_crossed (and, for unstructured meshes,
+  //! XDG) does not report where its crossings are.
   //! \param[in] mesh Mesh the stretch was traced through
   //! \param[in] r Start of the stretch
   //! \param[in] length Length of the stretch

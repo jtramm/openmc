@@ -433,7 +433,8 @@ structured one. A mesh does not have to cover the cells it is applied
 to: whatever is outside of the mesh counts as one more mesh bin, so that each
 cell instance has one source region for its part outside of the mesh, which is
 not subdivided any further. As with any source region, a mesh tally on another
-mesh does not resolve it: all of its flux goes to a single bin. An example of
+mesh does not resolve it: all of its flux goes to the one bin holding the point
+where a ray first found it, which can differ from run to run. An example of
 overlaying a simple 2D mesh over a geometry is given as::
 
   sr_mesh = openmc.RegularMesh()

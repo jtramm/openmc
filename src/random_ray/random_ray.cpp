@@ -391,10 +391,13 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
     return;
   }
 
-  // The length in the mesh of a stretch of the path
+  // The length in the mesh of a stretch of the path (with buffers kept from
+  // one call to the next)
   const auto length_in_mesh = [&](double s0, double s1) {
-    vector<int> stretch_bins;
-    vector<double> stretch_fractions;
+    thread_local vector<int> stretch_bins;
+    thread_local vector<double> stretch_fractions;
+    stretch_bins.clear();
+    stretch_fractions.clear();
     mesh.bins_crossed(
       r + s0 * u(), r + s1 * u(), u(), stretch_bins, stretch_fractions);
     return (s1 - s0) * sum(stretch_fractions);
