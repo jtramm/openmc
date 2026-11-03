@@ -241,12 +241,16 @@ def test_random_ray_source_region_meshes(case, capfd):
 
     with change_directory(case):
         openmc.reset_auto_ids()
-        harness = SourceRegionMeshHarness('statepoint.15.h5', make_model(case))
+        model = make_model(case)
+        harness = SourceRegionMeshHarness('statepoint.15.h5', model)
         harness.main()
 
+    # Only the mesh nowhere near its cell is reported, once
     if not config['build_inputs']:
+        far = model.settings.random_ray['source_region_meshes'][-1][0]
         output = ' '.join(capfd.readouterr().out.split())
-        assert 'so it subdivides nothing' in output
+        assert output.count('so it subdivides nothing') == 1
+        assert f'source region mesh {far.id} is applied' in output
 
 
 @pytest.mark.parametrize("library,use", [

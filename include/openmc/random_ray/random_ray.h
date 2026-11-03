@@ -109,7 +109,11 @@ public:
   void attenuate_flux(double distance, bool is_active, double offset = 0.0);
 
   //! Add the parts of a stretch of the ray's path outside of a source region
-  //! mesh, as bin C_NONE, in their place among what the mesh returned for it
+  //! mesh, as bin C_NONE, in their place among what the mesh returned for it.
+  //! Further traces of parts of the stretch place them, which relies on those
+  //! traces agreeing with the trace of all of it. Where a trace loses length,
+  //! as some do in degenerate cases, that length counts as outside of the
+  //! mesh, and what was found around it can be placed off.
   //! \param[in] mesh Mesh the stretch was traced through
   //! \param[in] r Start of the stretch
   //! \param[in] length Length of the stretch

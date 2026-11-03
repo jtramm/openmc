@@ -2447,16 +2447,16 @@ void FlatSourceDomain::apply_meshes()
     if (dynamic_cast<UnstructuredMesh*>(mesh) && !through_xdg) {
       fatal_error(fmt::format(
         "Source region mesh {} is an unstructured mesh with the native "
-        "interface, through which rays are not followed. Use the XDG interface "
-        "(set the interface attribute of the openmc.UnstructuredMesh to "
-        "'xdg').",
+        "interface, which random ray subdivision does not support. Use the XDG "
+        "interface (set the interface attribute of the openmc.UnstructuredMesh "
+        "to 'xdg').",
         mesh_id));
     }
 
     // Ray tracing through the mesh and locating source regions within it
-    // require the mesh's point-location acceleration structures, which some
-    // unstructured meshes (MOAB and XDG) only build on request (normally
-    // triggered by a mesh filter or weight windows referencing the mesh).
+    // require the mesh's point-location acceleration structures, which XDG
+    // meshes only build on request (normally triggered by a mesh filter or
+    // weight windows referencing the mesh).
     mesh->prepare_for_point_location();
 
     // Loop over domains associated with the mesh
