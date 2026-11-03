@@ -2730,10 +2730,6 @@ int FlatSourceDomain::lookup_mesh_idx(int64_t sr) const
   return mesh_idx;
 }
 
-// Determines the source region key that corresponds to a particular location in
-// the geometry. This takes into account both the base source region index as
-// well as the mesh bin if a mesh is applied to this source region for
-// subdivision.
 void FlatSourceDomain::warn_about_missed_meshes() const
 {
   vector<int> found(model::meshes.size(), 0);
@@ -2748,17 +2744,24 @@ void FlatSourceDomain::warn_about_missed_meshes() const
   MPI_Allreduce(MPI_IN_PLACE, found.data(), static_cast<int>(found.size()),
     MPI_INT, MPI_MAX, mpi::intracomm);
 #endif
-  for (const auto& entry : mesh_domain_map_) {
-    if (!found[model::mesh_map[entry.first]]) {
+  if (!mpi::master)
+    return;
+  for (int i = 0; i < model::meshes.size(); i++) {
+    const int32_t mesh_id = model::meshes[i]->id();
+    if (!found[i] && mesh_domain_map_.count(mesh_id)) {
       warning(fmt::format(
         "Rays found no part of the cells that source region mesh {} is applied "
         "to inside of the mesh, so it subdivides nothing. Check its position "
         "and its length multiplier.",
-        entry.first));
+        mesh_id));
     }
   }
 }
 
+// Determines the source region key that corresponds to a particular location in
+// the geometry. This takes into account both the base source region index as
+// well as the mesh bin if a mesh is applied to this source region for
+// subdivision.
 SourceRegionKey FlatSourceDomain::lookup_source_region_key(
   const GeometryState& gs) const
 {
