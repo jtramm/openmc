@@ -2593,6 +2593,11 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   SourceRegionHandle handle {*sr_ptr};
   handle.key() = sr_key;
 
+  // Tallies locate the source region by the point just checked to lie in it,
+  // not by the midpoint of whichever ray happens to lock it first
+  handle.position() = r + TINY_BIT * u;
+  handle.position_recorded() = 1;
+
   // Determine the material
   int gs_i_cell = gs.lowest_coord().cell();
   Cell& cell = *model::cells[gs_i_cell];
@@ -2752,11 +2757,13 @@ void FlatSourceDomain::warn_about_missed_meshes() const
   for (int i = 0; i < model::meshes.size(); i++) {
     const int32_t mesh_id = model::meshes[i]->id();
     if (!found[i] && mesh_domain_map_.count(mesh_id)) {
+      const bool unstructured =
+        dynamic_cast<UnstructuredMesh*>(model::meshes[i].get());
       warning(fmt::format(
         "Rays found no part of the cells that source region mesh {} is applied "
-        "to inside of the mesh, so it subdivides nothing. Check its position "
-        "and its length multiplier.",
-        mesh_id));
+        "to inside of the mesh, so it subdivides nothing. Check its "
+        "position{}, and the domains it is applied to.",
+        mesh_id, unstructured ? " and its length multiplier" : ""));
     }
   }
 }

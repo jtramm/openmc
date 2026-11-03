@@ -28,31 +28,35 @@ class SourceRegionMeshHarness(TolerantPyAPITestHarness):
         lines += [f'{x:.6e}' for x in
                   openmc.WeightWindowsList.from_hdf5()[0].lower_ww_bounds.flat]
         with openmc.StatePoint(self._sp_name) as sp:
-            lines += [f'{mesh.volumes.sum():.6e}' for mesh in sp.meshes.values()
+            lines += [f'{mesh.volumes.sum():.6e}'
+                      for mesh in sp.meshes.values()
                       if isinstance(mesh, openmc.UnstructuredMesh)]
         for path in sorted(glob('tally_*.e')):
-            if h5py.is_hdf5(path):
-                pytest.skip("libMesh wrote NetCDF-4, which scipy cannot read")
-            with netcdf_file(path, mmap=False) as exodus:
+            # (NetCDF-4, which libMesh can be built to write, is HDF5)
+            netcdf4 = h5py.is_hdf5(path)
+            with (h5py.File(path, 'r') if netcdf4
+                  else netcdf_file(path, mmap=False)) as exodus:
+                variables = exodus if netcdf4 else exodus.variables
                 names = [b''.join(name).decode().strip('\x00')
-                         for name in exodus.variables['name_nod_var'].data]
+                         for name in variables['name_nod_var'][()]]
                 index = names.index('flux_total_mean') + 1
                 lines += [f'{x:.6e}' for x in
-                          exodus.variables[f'vals_nod_var{index}'].data[-1]]
+                          variables[f'vals_nod_var{index}'][-1]]
         return '\n'.join(lines)
 
     def _cleanup(self):
         super()._cleanup()
-        for pattern in ('mgxs.h5', 'weight_windows.h5', '*tets.*', 'tally_*.e'):
+        for pattern in ('mgxs.h5', 'weight_windows.h5', '*tets.*',
+                        'tally_*.e'):
             for path in glob(pattern):
                 os.remove(path)
 
 
 def write_tets(case):
     """Return the paths of the 24-tet mesh of the unit cube and of a copy with
-    the node order of its tets flipped. For MOAB, the nodes in the middle of its
-    faces move so that its volumes differ, and it is in two parts, with the
-    space before them as wide as each, which makes lengths coincide."""
+    the node order of its tets flipped. For MOAB, the nodes in the middle of
+    its faces move so that its volumes differ, and it is in two parts, with
+    the space before them as wide as each, which makes lengths coincide."""
     if case == 'xdg-libmesh':
         original = os.path.relpath(UMESH_DIR / 'test_mesh_dagmc_tets.e')
         shutil.copy(original, 'flipped_tets.e')
@@ -68,8 +72,8 @@ def write_tets(case):
     points = np.loadtxt(lines[i_points + 1:i_points + 1 + n_points])
     points = np.where(points == 0.0, 0.4, points)
     points = np.vstack([points - [0.75, 0.0, 0.0], points + [0.75, 0.0, 0.0]])
-    tets = np.array(
-        [line.split()[1:] for line in lines if line.startswith('4 ')], dtype=int)
+    tets = np.array([line.split()[1:] for line in lines
+                     if line.startswith('4 ')], dtype=int)
     tets = np.vstack([tets, tets + n_points])
 
     for path, nodes in (('tets.vtk', tets),
@@ -145,9 +149,9 @@ def make_model(case):
         mesh_filters = [[openmc.MeshFilter(mesh)] for mesh, _ in meshes]
         ww_mesh = part
     elif case == 'radial':
-        # A hollow wedge, a cone, and part of a hollow sphere, whose surfaces at
-        # phi = 0 and pi are in the middle of many tracks across its bounding
-        # box
+        # A hollow wedge, a cone, and part of a hollow sphere, whose surfaces
+        # at phi = 0 and pi are in the middle of many tracks across its
+        # bounding box
         wedge = openmc.CylindricalMesh(
             r_grid=[0.4, 0.7, 1.0], z_grid=[-0.5, 0.0, 0.5],
             phi_grid=[1.0, 1.8, 2.5], origin=(0.3, -0.2, 0.1))
@@ -170,9 +174,10 @@ def make_model(case):
             mesh.interface = interface
             return mesh
 
-        # This mesh subdivides the first box. Tallies are on it through XDG, and
-        # on it with its node order flipped through XDG and through the native
-        # interface, which only looks up points, as do the weight windows.
+        # This mesh subdivides the first box. Tallies are on it through XDG,
+        # and on it with its node order flipped through XDG and through the
+        # native interface, which only looks up points, as do the weight
+        # windows.
         main = umesh(path, 'xdg')
         ww_mesh = umesh(flipped, 'native')
         # This one only subdivides, and is scaled to cover the middle box. A
@@ -229,8 +234,8 @@ def test_random_ray_source_region_meshes(case, capfd):
     if not all(openmc.lib.feature_enabled(f) for f in FEATURES.get(case, [])):
         pytest.skip(f"{case} is not enabled.")
     # A ray handed to another rank restarts on a bin boundary. On a radial
-    # surface of these meshes, going inward at a grazing angle, it misses its way
-    # out again, as find_r_crossing takes it to still be on the surface.
+    # surface of these meshes, going inward at a grazing angle, it misses its
+    # way out again, as find_r_crossing takes it to still be on the surface.
     if config['mpi'] and case == 'radial':
         pytest.skip("Radial crossings of restarted rays")
 
