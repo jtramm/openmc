@@ -421,13 +421,14 @@ void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
   const double outside_in_box = box_end - box_start - inside;
 
   // Otherwise, suppose that the bins follow each other without a gap, after
-  // some length outside of the mesh. All of their length then has to be in a
-  // stretch that long from there, which leaves none for anywhere else.
+  // some length outside of the mesh. None of their length is then before that,
+  // and all of it is before their end. (Traced from the start of the stretch,
+  // as the bins were, along the same path, rather than from a surface of the
+  // mesh.)
   const auto fits = [&](double before) {
-    const double stretch = inside - 2.0 * TINY_BIT;
-    return stretch -
-             length_in_mesh(before + TINY_BIT, before + inside - TINY_BIT) <=
-           min_length;
+    return (before <= min_length ||
+             length_in_mesh(0.0, before) <= min_length) &&
+           inside - length_in_mesh(0.0, before + inside) <= min_length;
   };
 
   // The length before them in the box is no more than all that is outside

@@ -2448,7 +2448,7 @@ void FlatSourceDomain::apply_meshes()
         "Source region mesh {} is an unstructured mesh with the native "
         "interface, which random ray subdivision does not support. Use the XDG "
         "interface (set the interface attribute of the openmc.UnstructuredMesh "
-        "to 'xdg').",
+        "to 'xdg', which needs OpenMC built with XDG).",
         mesh_id));
     }
 
