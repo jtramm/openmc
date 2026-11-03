@@ -204,9 +204,13 @@ def make_model(case):
     settings.source = openmc.IndependentSource(
         space=openmc.stats.Point((-2.0, 2.0, 2.0)),
         energy=openmc.stats.Discrete([1.0e6], [1.0]))
-    settings.weight_window_generators = openmc.WeightWindowGenerator(
+    generator = openmc.WeightWindowGenerator(
         mesh=ww_mesh, max_realizations=5,
         method='fw_cadis' if case == 'xdg-libmesh' else 'magic')
+    if case == 'radial':
+        generator.update_parameters = {
+            'value': 'rel_err', 'threshold': 1.0, 'ratio': 5.0}
+    settings.weight_window_generators = generator
 
     tallies = openmc.Tallies()
     for filters in [[openmc.CellFilter(cells)]] + mesh_filters:

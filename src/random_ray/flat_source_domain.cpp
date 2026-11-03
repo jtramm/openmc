@@ -2732,6 +2732,9 @@ int FlatSourceDomain::lookup_mesh_idx(int64_t sr) const
 
 void FlatSourceDomain::warn_about_missed_meshes() const
 {
+  if (mesh_domain_map_.empty())
+    return;
+
   vector<int> found(model::meshes.size(), 0);
   for (int64_t sr = 0; sr < n_source_regions(); sr++) {
     const SourceRegionKey key = source_regions_.key(sr);

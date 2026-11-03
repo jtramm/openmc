@@ -44,6 +44,11 @@
         <update_interval>1</update_interval>
         <on_the_fly>true</on_the_fly>
         <method>magic</method>
+        <update_parameters>
+          <value>rel_err</value>
+          <threshold>1.0</threshold>
+          <ratio>5.0</ratio>
+        </update_parameters>
       </weight_windows_generator>
     </weight_window_generators>
     <mesh id="2" type="cylindrical">
