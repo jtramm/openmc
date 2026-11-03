@@ -1,7 +1,5 @@
 #include "openmc/random_ray/random_ray.h"
 
-#include <algorithm>
-
 #include "openmc/cell.h"
 #include "openmc/constants.h"
 #include "openmc/geometry.h"
@@ -370,123 +368,6 @@ void RandomRay::event_advance_ray()
   }
 }
 
-void RandomRay::add_mesh_gaps(const Mesh& mesh, Position r, double length,
-  vector<int>& bins, vector<double>& fractions) const
-{
-  const auto sum = [](const vector<double>& v) {
-    return std::accumulate(v.begin(), v.end(), 0.0);
-  };
-  const double inside = length * sum(fractions);
-  const double outside = length - inside;
-
-  // Anything shorter is no more than what is left out at the ends of a segment
-  // to begin with, or roundoff, as where a mesh and a cell share a boundary
-  const double min_length = 2.0 * TINY_BIT;
-  if (outside <= min_length)
-    return;
-  // (Up to twice that in the mesh is too short for what follows to place it)
-  if (inside <= 2.0 * min_length) {
-    bins.assign(1, C_NONE);
-    fractions.assign(1, 1.0);
-    return;
-  }
-
-  // The length in the mesh of a stretch of the path (with buffers kept from
-  // one call to the next)
-  const auto length_in_mesh = [&](double s0, double s1) {
-    thread_local vector<int> stretch_bins;
-    thread_local vector<double> stretch_fractions;
-    stretch_bins.clear();
-    stretch_fractions.clear();
-    mesh.bins_crossed(
-      r + s0 * u(), r + s1 * u(), u(), stretch_bins, stretch_fractions);
-    return (s1 - s0) * sum(stretch_fractions);
-  };
-
-  // Nothing outside of the mesh's bounding box is in the mesh, which is all
-  // there is to know if the bins fill what is left, as for a mesh that fills
-  // its box
-  double box_start = 0.0;
-  double box_end = length;
-  const Position lower_left = mesh.lower_left();
-  const Position upper_right = mesh.upper_right();
-  for (int i = 0; i < 3; i++) {
-    if (u()[i] != 0.0) {
-      const double s_lower = (lower_left[i] - r[i]) / u()[i];
-      const double s_upper = (upper_right[i] - r[i]) / u()[i];
-      box_start = std::max(box_start, std::min(s_lower, s_upper));
-      box_end = std::min(box_end, std::max(s_lower, s_upper));
-    }
-  }
-  const double outside_in_box = box_end - box_start - inside;
-
-  // Otherwise, suppose that the bins follow each other without a gap, after
-  // some length outside of the mesh. None of their length is then before that,
-  // and all of it is before their end. (Traced from the start of the stretch,
-  // as the bins were, along the same path, rather than from a surface of the
-  // mesh.)
-  const auto fits = [&](double before) {
-    return (before <= box_start + min_length ||
-             length_in_mesh(0.0, before) <= min_length) &&
-           inside - length_in_mesh(0.0, before + inside) <= min_length;
-  };
-
-  // The length before them in the box is no more than all that is outside
-  // there, so a trace that far and a bit further gives it, unless that ends
-  // past the bins. In that case there may be nothing before them.
-  double before = std::min(box_start, outside);
-  bool found = outside_in_box <= min_length;
-  if (!found) {
-    // (traced from the start of the stretch rather than from the face of the
-    // box, which can be a surface of the mesh)
-    const double probe = box_start + outside_in_box + 0.1 * inside;
-    before =
-      std::min(probe - length_in_mesh(0.0, probe), box_start + outside_in_box);
-    found = fits(before);
-    if (!found && before > box_start + min_length) {
-      before = box_start;
-      found = fits(before);
-    }
-  }
-  if (found) {
-    if (outside - before > min_length) {
-      bins.push_back(C_NONE);
-      fractions.push_back((outside - before) / length);
-    }
-    if (before > min_length) {
-      bins.insert(bins.begin(), C_NONE);
-      fractions.insert(fractions.begin(), before / length);
-    }
-    return;
-  }
-
-  // Otherwise, the path may leave the mesh and come back, so look at the parts
-  // on either side of a point on it, which leaves no trace in what comes out.
-  // That is not its middle, which in a symmetric model can lie on a surface of
-  // the mesh, where a trace is at its weakest.
-  bins.clear();
-  fractions.clear();
-  const double first = box_start + 0.6180339887498949 * (box_end - box_start);
-  for (int part = 0; part < 2; part++) {
-    const Position r_part = part == 0 ? r : r + first * u();
-    const double part_length = part == 0 ? first : length - first;
-    vector<int> part_bins;
-    vector<double> part_fractions;
-    mesh.bins_crossed(
-      r_part, r_part + part_length * u(), u(), part_bins, part_fractions);
-    add_mesh_gaps(mesh, r_part, part_length, part_bins, part_fractions);
-    for (int i = 0; i < part_bins.size(); i++) {
-      const double fraction = part_fractions[i] * part_length / length;
-      if (!bins.empty() && bins.back() == part_bins[i]) {
-        fractions.back() += fraction;
-      } else {
-        bins.push_back(part_bins[i]);
-        fractions.push_back(fraction);
-      }
-    }
-  }
-}
-
 void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 {
   // Lookup base source region index
@@ -521,26 +402,11 @@ void RandomRay::attenuate_flux(double distance, bool is_active, double offset)
 
     // Ray trace through the mesh and record bins and lengths. Portions of the
     // segment outside of the mesh go, in order and at the right places on the
-    // ray, to a source region of their own: structured meshes report them as
-    // they trace, and for other meshes they are found by tracing again.
+    // ray, to a source region of their own.
     mesh_bins_.resize(0);
     mesh_fractional_lengths_.resize(0);
-    if (auto smesh = dynamic_cast<StructuredMesh*>(mesh)) {
-      smesh->bins_crossed_with_outside(
-        start, end, u(), mesh_bins_, mesh_fractional_lengths_);
-      // (Portions no longer than roundoff are left out, as by add_mesh_gaps)
-      for (int b = static_cast<int>(mesh_bins_.size()) - 1; b >= 0; b--) {
-        if (mesh_bins_[b] == C_NONE &&
-            mesh_fractional_lengths_[b] * reduced_distance <= 2.0 * TINY_BIT) {
-          mesh_bins_.erase(mesh_bins_.begin() + b);
-          mesh_fractional_lengths_.erase(mesh_fractional_lengths_.begin() + b);
-        }
-      }
-    } else {
-      mesh->bins_crossed(start, end, u(), mesh_bins_, mesh_fractional_lengths_);
-      add_mesh_gaps(
-        *mesh, start, reduced_distance, mesh_bins_, mesh_fractional_lengths_);
-    }
+    mesh->bins_crossed_with_outside(
+      start, end, u(), mesh_bins_, mesh_fractional_lengths_);
 
     // Loop over all mesh bins and attenuate flux
     for (int b = 0; b < mesh_bins_.size(); b++) {

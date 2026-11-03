@@ -881,16 +881,6 @@ void FlatSourceDomain::compute_k_eff()
 // (but perhaps slightly more expensive) option for handling arbitrary
 // spatial tallies that would be allowed to subdivide FSRs.
 
-// Besides generating the mapping structure, this function also keeps track
-// of whether or not all flat source regions have been hit yet. This is
-// required, as there is no guarantee that all flat source regions will
-// be hit every iteration, such that in the first few iterations some FSRs
-// may not have a known position within them yet to facilitate mapping to
-// spatial tally filters. However, after several iterations, if all FSRs
-// have been hit and have had a tally map generated, then this status will
-// be passed back to the caller to alert them that this function doesn't
-// need to be called for the remainder of the simulation.
-
 // It takes as an argument the starting index in the source region array,
 // and it will operate from that index until the end of the array. This
 // is useful as it can be called for both explicit user source regions or
@@ -900,19 +890,10 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
 {
   openmc::simulation::time_tallies.start();
 
-  // Tracks if we've generated a mapping yet for all source regions.
-  bool all_source_regions_mapped = true;
-
-// Attempt to generate mapping for all source regions
+// Generate the mapping for all source regions (every one has a position
+// from when it was created)
 #pragma omp parallel for
   for (int64_t sr = start_sr_id; sr < n_source_regions(); sr++) {
-
-    // If this source region has not been hit by a ray yet, then
-    // we aren't going to be able to map it, so skip it.
-    if (!source_regions_.position_recorded(sr)) {
-      all_source_regions_mapped = false;
-      continue;
-    }
 
     // A particle located at the point checked to lie in this source region
     // when it was created is used to establish the spatial location of the
@@ -979,7 +960,7 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
   }
   openmc::simulation::time_tallies.stop();
 
-  mapped_all_tallies_ = all_source_regions_mapped;
+  mapped_all_tallies_ = true;
 }
 
 // Set the volume accumulators to zero for all tallies

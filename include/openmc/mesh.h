@@ -181,6 +181,26 @@ public:
   virtual void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const = 0;
 
+  //! Determine which bins were crossed by a particle, in order along the
+  //! track, with each stretch of the track outside of the mesh as bin C_NONE.
+  //! Unless a mesh reports where tracks enter and leave it, as structured
+  //! meshes do, the stretches are placed by tracing parts of the track again
+  //! (and those no longer than 2 TINY_BIT are left out). That relies on the
+  //! traces agreeing with the trace of all of the track: where a trace loses
+  //! length, as some do in degenerate cases, that length counts as outside of
+  //! the mesh, and what was found around it can be placed off. A track that
+  //! enters or leaves the mesh other than through its bounding box costs a few
+  //! more traces, and one that leaves the mesh and comes back several more per
+  //! gap, the more the smaller the gap.
+  //
+  //! \param[in] r0 Previous position of the particle
+  //! \param[in] r1 Current position of the particle
+  //! \param[in] u Particle direction
+  //! \param[out] bins Bins crossed, and C_NONE for each stretch outside
+  //! \param[out] lengths Fraction of the track's length in each
+  virtual void bins_crossed_with_outside(Position r0, Position r1,
+    const Direction& u, vector<int>& bins, vector<double>& lengths) const;
+
   //! Determine which surface bins were crossed by a particle
   //
   //! \param[in] r0 Previous position of the particle
@@ -300,6 +320,18 @@ public:
   int id_ {-1};                        //!< Mesh ID
   std::string name_;                   //!< User-specified name
   int n_dimension_ {-1};               //!< Number of dimensions
+
+private:
+  //! Add the stretches of a track outside of the mesh, as bin C_NONE, in
+  //! their place among what bins_crossed returned for it
+  //
+  //! \param[in] r Start of the track
+  //! \param[in] u Direction of the track
+  //! \param[in] length Length of the track
+  //! \param[in,out] bins Bins crossed by the track
+  //! \param[in,out] fractions Fractions of the track's length in those bins
+  void add_outside(Position r, const Direction& u, double length,
+    vector<int>& bins, vector<double>& fractions) const;
 };
 
 class StructuredMesh : public Mesh {
@@ -344,16 +376,8 @@ public:
   void surface_bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins) const override;
 
-  //! Determine which bins were crossed by a track, in order along it, with
-  //! each stretch of the track outside of the mesh as bin C_NONE
-  //
-  //! \param[in] r0 Previous position of the particle
-  //! \param[in] r1 Current position of the particle
-  //! \param[in] u Particle direction
-  //! \param[out] bins Bins crossed, and C_NONE for each stretch outside
-  //! \param[out] lengths Fraction of the track's length in each
   void bins_crossed_with_outside(Position r0, Position r1, const Direction& u,
-    vector<int>& bins, vector<double>& lengths) const;
+    vector<int>& bins, vector<double>& lengths) const override;
 
   //! Determine which cell or surface bins were crossed by a particle
   //

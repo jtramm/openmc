@@ -348,7 +348,8 @@ Prerequisites
       This optional dependency enables support for unstructured mesh tally
       filters using libMesh meshes. Any 3D element type supported by libMesh can
       be used, but the implementation is currently restricted to collision
-      estimators (track-length estimators on libMesh meshes need the XDG_
+      estimators, other than in random ray mode, where mesh tallies only look
+      up points (track-length estimators on libMesh meshes need the XDG_
       interface below, which handles linear tetrahedra and hexahedra). In
       addition to turning this option on, the path to the libMesh installation
       should be specified as part of the ``CMAKE_PREFIX_PATH`` variable::
