@@ -39,9 +39,10 @@ class SourceRegionMeshHarness(TolerantPyAPITestHarness):
                 variables = exodus if netcdf4 else exodus.variables
                 names = [b''.join(name).decode().strip('\x00')
                          for name in variables['name_nod_var'][()]]
-                index = names.index('flux_total_mean') + 1
-                lines += [f'{x:.6e}' for x in
-                          variables[f'vals_nod_var{index}'][-1]]
+                for score in ('flux', 'total'):
+                    index = names.index(f'{score}_total_mean') + 1
+                    lines += [f'{x:.6e}' for x in
+                              variables[f'vals_nod_var{index}'][-1]]
         return '\n'.join(lines)
 
     def _cleanup(self):
@@ -221,7 +222,7 @@ def make_model(case):
     for filters in [[openmc.CellFilter(cells)]] + mesh_filters:
         tally = openmc.Tally()
         tally.filters = filters
-        tally.scores = ['flux']
+        tally.scores = ['flux', 'total']
         tally.estimator = 'tracklength'
         tallies.append(tally)
 

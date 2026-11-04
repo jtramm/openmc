@@ -200,12 +200,9 @@ void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
 {
   xdg::Position r {r0.x, r0.y, r0.z};
   xdg::Position r_end {r1.x, r1.y, r1.z};
-  // Anything shorter outside of the mesh is roundoff
-  double min_length = 2.0 * TINY_BIT;
   if (length_multiplier_ > 0.0) {
     r /= length_multiplier_;
     r_end /= length_multiplier_;
-    min_length /= length_multiplier_;
   }
   xdg::Direction direction = r_end - r;
   const double total = direction.length();
@@ -216,10 +213,6 @@ void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
   const auto add = [&](int bin, double length) {
     bins.push_back(bin);
     lengths.push_back(length / total);
-  };
-  const auto add_outside = [&](double length) {
-    if (length > min_length)
-      add(C_NONE, length);
   };
 
   // This is the loop of xdg::XDG::segments, which walks the elements from where
@@ -242,10 +235,10 @@ void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
         direction, xdg::INFTY, xdg::HitOrientation::EXITING, &hit_faces);
       const double to_mesh = hit.first + xdg::TINY_BIT;
       if (hit.second == xdg::ID_NONE || to_mesh >= distance) {
-        add_outside(distance);
+        add(C_NONE, distance);
         return;
       }
-      add_outside(to_mesh);
+      add(C_NONE, to_mesh);
       r += direction * to_mesh;
       distance -= to_mesh;
       element = manager->get_boundary_face_element(hit_faces.back());
@@ -253,7 +246,7 @@ void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
       if (element == xdg::ID_NONE) {
         warning(fmt::format(
           "A track enters mesh {} through a face with no element.", id_));
-        add_outside(distance);
+        add(C_NONE, distance);
         return;
       }
     }
@@ -269,7 +262,8 @@ void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
     last = walked > 0.0 ? walk.back().first : element;
     r += direction * walked;
     distance -= walked;
-  } while (distance > min_length);
+    // (After a walk to the end of the track, what is left is roundoff)
+  } while (distance > xdg::TINY_BIT);
 }
 
 int XDGMesh::get_bin(Position r) const

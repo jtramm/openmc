@@ -110,27 +110,27 @@
     </filter>
     <tally id="1">
       <filters>6</filters>
-      <scores>flux</scores>
+      <scores>flux total</scores>
       <estimator>tracklength</estimator>
     </tally>
     <tally id="2">
       <filters>1</filters>
-      <scores>flux</scores>
+      <scores>flux total</scores>
       <estimator>tracklength</estimator>
     </tally>
     <tally id="3">
       <filters>2</filters>
-      <scores>flux</scores>
+      <scores>flux total</scores>
       <estimator>tracklength</estimator>
     </tally>
     <tally id="4">
       <filters>3</filters>
-      <scores>flux</scores>
+      <scores>flux total</scores>
       <estimator>tracklength</estimator>
     </tally>
     <tally id="5">
       <filters>4 5</filters>
-      <scores>flux</scores>
+      <scores>flux total</scores>
       <estimator>tracklength</estimator>
     </tally>
   </tallies>
