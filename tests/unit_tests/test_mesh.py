@@ -1324,3 +1324,30 @@ def test_SphericalMesh_get_indices_at_coords():
     assert result[0] == 1  # r=6 in second bin [5, 10]
     assert result[1] == 1  # theta=arccos(1/sqrt(3))~0.955, in (pi/4, pi/2)
     assert result[2] == 0  # phi=pi/4, in [0, pi/2)
+
+
+def test_libmesh_point_location(run_in_tmpdir):
+    """Points just either side of a face between two elements are in different
+    elements, although they are within libMesh's tolerance of both"""
+    if not openmc.lib.feature_enabled('libmesh'):
+        pytest.skip("LibMesh not enabled.")
+
+    mesh = openmc.UnstructuredMesh(UMESH_DIR / 'test_mesh_dagmc_tets.e', 'libmesh')
+    sphere = openmc.Sphere(r=10.0, boundary_type='vacuum')
+    model = openmc.Model()
+    model.geometry = openmc.Geometry([openmc.Cell(region=-sphere)])
+    tally = openmc.Tally()
+    tally.filters = [openmc.MeshFilter(mesh)]
+    tally.scores = ['flux']
+    tally.estimator = 'collision'
+    model.tallies = [tally]
+    model.settings.run_mode = 'fixed source'
+    model.settings.batches = 1
+    model.settings.particles = 1
+    model.export_to_model_xml()
+
+    # Two pixels 2e-8 apart around a face of the 24 tets that lies in x = 0
+    with openmc.lib.run_in_memory(output=False):
+        bins = openmc.lib.meshes[mesh.id].get_plot_bins(
+            (0.0, -1.0 / 6.0, 0.0), (4.0e-8, 1.0e-3), 'xy', (2, 1))
+    assert bins[0, 0] != bins[0, 1]

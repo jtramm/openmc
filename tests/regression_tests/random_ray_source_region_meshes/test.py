@@ -15,7 +15,8 @@ from tests.regression_tests import config
 from tests.testing_harness import TolerantPyAPITestHarness
 
 UMESH_DIR = Path(__file__).parents[1] / 'unstructured_mesh'
-FEATURES = {'xdg-moab': ['xdg', 'dagmc'], 'xdg-libmesh': ['xdg', 'libmesh']}
+FEATURES = {'xdg-moab': ['xdg', 'dagmc'], 'xdg-libmesh': ['xdg', 'libmesh'],
+            'xdg-libmesh-unnormalized': ['xdg', 'libmesh']}
 # Half of the width of the boxes that the models are a row of
 W = 2.25
 
@@ -58,7 +59,7 @@ def write_tets(case):
     the node order of its tets flipped. For MOAB, the nodes in the middle of
     its faces move so that its volumes differ, and it is in two parts, so that
     rays leave it and come back."""
-    if case == 'xdg-libmesh':
+    if 'libmesh' in case:
         original = os.path.relpath(UMESH_DIR / 'test_mesh_dagmc_tets.e')
         shutil.copy(original, 'flipped_tets.e')
         with netcdf_file('flipped_tets.e', 'a', mmap=False) as exodus:
@@ -204,8 +205,9 @@ def make_model(case):
     settings.random_ray['ray_source'] = openmc.IndependentSource(
         space=openmc.stats.Box((x_walls[0], -W, -W), (x_walls[-1], W, W)))
     settings.random_ray['source_shape'] = 'linear'
-    # (Weight windows on volumes that differ take either kind of flux tally)
-    settings.random_ray['volume_normalized_flux_tallies'] = case != 'xdg-moab'
+    # (Weight windows and Exodus output take either kind of flux tally)
+    settings.random_ray['volume_normalized_flux_tallies'] = (
+        case not in ('xdg-moab', 'xdg-libmesh-unnormalized'))
     settings.random_ray['source_region_meshes'] = meshes + [(far, [cells[-1]])]
     settings.source = openmc.IndependentSource(
         space=openmc.stats.Point((-2.0, 2.0, 2.0)),
@@ -229,8 +231,8 @@ def make_model(case):
     return openmc.Model(openmc.Geometry(cells), materials, settings, tallies)
 
 
-@pytest.mark.parametrize(
-    "case", ['regular', 'radial', 'xdg-moab', 'xdg-libmesh'])
+@pytest.mark.parametrize("case", ['regular', 'radial', 'xdg-moab', 'xdg-libmesh',
+                                  'xdg-libmesh-unnormalized'])
 def test_random_ray_source_region_meshes(case, capfd):
     if not all(openmc.lib.feature_enabled(f) for f in FEATURES.get(case, [])):
         pytest.skip(f"{case} is not enabled.")
