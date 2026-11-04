@@ -490,7 +490,7 @@ void RandomRay::attenuate_flux_inner(
       // A segment can run slightly past a lattice plane, as the distance to a
       // boundary keeps a higher-level one within a relative tolerance. A piece
       // past the plane is not in this source region, and a ray restarted there
-      // would be lost, so it is skipped, as a new source region there would be
+      // can be lost, so it is skipped, as a new source region there would be
       // in get_subdivided_source_region_handle.
       GeometryState gs;
       gs.r() = midpoint;
