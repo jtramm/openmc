@@ -1469,133 +1469,8 @@ void StructuredMesh::bins_crossed(Position r0, Position r1, const Direction& u,
 void Mesh::bins_crossed_with_outside(Position r0, Position r1,
   const Direction& u, vector<int>& bins, vector<double>& lengths) const
 {
-  bins.clear();
-  lengths.clear();
-  bins_crossed(r0, r1, u, bins, lengths);
-  add_outside(r0, u, (r1 - r0).norm(), bins, lengths);
-}
-
-void Mesh::add_outside(Position r, const Direction& u, double length,
-  vector<int>& bins, vector<double>& fractions) const
-{
-  const auto sum = [](const vector<double>& v) {
-    return std::accumulate(v.begin(), v.end(), 0.0);
-  };
-  const double inside = length * sum(fractions);
-  const double outside = length - inside;
-
-  // Anything shorter is no more than what is left out at the ends of a segment
-  // to begin with, or roundoff, as where a mesh and a cell share a boundary
-  const double min_length = 2.0 * TINY_BIT;
-  if (outside <= min_length)
-    return;
-  // (Up to twice that in the mesh is too short for what follows to place it)
-  if (inside <= 2.0 * min_length) {
-    bins.assign(1, C_NONE);
-    fractions.assign(1, 1.0);
-    return;
-  }
-
-  // The length in the mesh of a stretch of the path (with buffers kept from
-  // one call to the next)
-  const auto length_in_mesh = [&](double s0, double s1) {
-    thread_local vector<int> stretch_bins;
-    thread_local vector<double> stretch_fractions;
-    stretch_bins.clear();
-    stretch_fractions.clear();
-    bins_crossed(r + s0 * u, r + s1 * u, u, stretch_bins, stretch_fractions);
-    return (s1 - s0) * sum(stretch_fractions);
-  };
-
-  // Nothing outside of the mesh's bounding box is in the mesh, which is all
-  // there is to know if the bins fill what is left, as for a mesh that fills
-  // its box
-  double box_start = 0.0;
-  double box_end = length;
-  const Position box_lower = lower_left();
-  const Position box_upper = upper_right();
-  for (int i = 0; i < 3; i++) {
-    if (u[i] != 0.0) {
-      const double s_lower = (box_lower[i] - r[i]) / u[i];
-      const double s_upper = (box_upper[i] - r[i]) / u[i];
-      box_start = std::max(box_start, std::min(s_lower, s_upper));
-      box_end = std::min(box_end, std::max(s_lower, s_upper));
-    }
-  }
-  const double outside_in_box = box_end - box_start - inside;
-
-  // Otherwise, suppose that the bins follow each other without a gap, after
-  // some length outside of the mesh. None of their length is then before that,
-  // and all of it is before their end. (Traced from the start of the stretch,
-  // as the bins were, along the same path, rather than from a surface of the
-  // mesh.)
-  const auto fits = [&](double before) {
-    return (before <= box_start + min_length ||
-             length_in_mesh(0.0, before) <= min_length) &&
-           inside - length_in_mesh(0.0, before + inside) <= min_length;
-  };
-
-  // The length before them in the box is no more than all that is outside
-  // there, so a trace that far and a bit further gives it, unless that ends
-  // past the bins. In that case there may be nothing before them.
-  double before = std::min(box_start, outside);
-  bool found = outside_in_box <= min_length;
-  if (!found) {
-    // (traced from the start of the stretch rather than from the face of the
-    // box, which can be a surface of the mesh)
-    const double probe = box_start + outside_in_box + 0.1 * inside;
-    before =
-      std::min(probe - length_in_mesh(0.0, probe), box_start + outside_in_box);
-    found = fits(before);
-    if (!found && before > box_start + min_length) {
-      before = box_start;
-      found = fits(before);
-    }
-  }
-  if (found) {
-    if (outside - before > min_length) {
-      bins.push_back(C_NONE);
-      fractions.push_back((outside - before) / length);
-    }
-    if (before > min_length) {
-      bins.insert(bins.begin(), C_NONE);
-      fractions.insert(fractions.begin(), before / length);
-    }
-    return;
-  }
-
-  // Otherwise, the path may leave the mesh and come back, so look at the parts
-  // on either side of a point on it, which leaves no trace in what comes out.
-  // The point is not the middle of the stretch in the box, which in a
-  // symmetric model often lies on a face or a node of the mesh, where a trace
-  // is at its weakest. It is the golden ratio conjugate of the way along: as
-  // the irrational number furthest from simple fractions, it keeps the point,
-  // and those of the splits that follow, away from the halves, thirds and
-  // quarters of the box where regular and symmetric meshes have surfaces. Each
-  // part then has at most that fraction of the stretch in the box, so the
-  // splitting ends.
-  constexpr double split_fraction {0.6180339887498949}; // (sqrt(5) - 1) / 2
-  bins.clear();
-  fractions.clear();
-  const double first = box_start + split_fraction * (box_end - box_start);
-  for (int part = 0; part < 2; part++) {
-    const Position r_part = part == 0 ? r : r + first * u;
-    const double part_length = part == 0 ? first : length - first;
-    vector<int> part_bins;
-    vector<double> part_fractions;
-    bins_crossed(
-      r_part, r_part + part_length * u, u, part_bins, part_fractions);
-    add_outside(r_part, u, part_length, part_bins, part_fractions);
-    for (int i = 0; i < part_bins.size(); i++) {
-      const double fraction = part_fractions[i] * part_length / length;
-      if (!bins.empty() && bins.back() == part_bins[i]) {
-        fractions.back() += fraction;
-      } else {
-        bins.push_back(part_bins[i]);
-        fractions.push_back(fraction);
-      }
-    }
-  }
+  fatal_error(fmt::format(
+    "Mesh {} does not report what is outside of it along a track.", id_));
 }
 
 void StructuredMesh::bins_crossed_with_outside(Position r0, Position r1,
@@ -1603,8 +1478,6 @@ void StructuredMesh::bins_crossed_with_outside(Position r0, Position r1,
 {
   // As for bins_crossed, but with each stretch outside of the mesh as C_NONE,
   // where the trace finds it
-  bins.clear();
-  lengths.clear();
   struct TrackAggregator {
     TrackAggregator(
       const StructuredMesh* _mesh, vector<int>& _bins, vector<double>& _lengths)

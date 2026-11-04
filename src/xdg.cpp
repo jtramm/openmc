@@ -195,6 +195,83 @@ void XDGMesh::bins_crossed(Position r0, Position r1, const Direction& u,
   }
 }
 
+void XDGMesh::bins_crossed_with_outside(Position r0, Position r1,
+  const Direction& u, vector<int>& bins, vector<double>& lengths) const
+{
+  xdg::Position r {r0.x, r0.y, r0.z};
+  xdg::Position r_end {r1.x, r1.y, r1.z};
+  // Anything shorter outside of the mesh is roundoff
+  double min_length = 2.0 * TINY_BIT;
+  if (length_multiplier_ > 0.0) {
+    r /= length_multiplier_;
+    r_end /= length_multiplier_;
+    min_length /= length_multiplier_;
+  }
+  xdg::Direction direction = r_end - r;
+  const double total = direction.length();
+  if (total == 0.0)
+    return;
+  direction /= total;
+
+  const auto add = [&](int bin, double length) {
+    bins.push_back(bin);
+    lengths.push_back(length / total);
+  };
+  const auto add_outside = [&](double length) {
+    if (length > min_length)
+      add(C_NONE, length);
+  };
+
+  // This is the loop of xdg::XDG::segments, which walks the elements from where
+  // the track enters the mesh each time, but does not say how far it skipped to
+  // get there. It can go once XDG does.
+  const auto& manager = xdg_->mesh_manager();
+  const xdg::MeshID complement = manager->implicit_complement();
+  std::vector<xdg::MeshID> hit_faces;
+  double distance = total;
+  xdg::MeshID last = xdg::ID_NONE;
+  do {
+    // A lookup on the face that the last walk left through can give that
+    // element again, as can one where a walk did not get anywhere
+    xdg::MeshID element = xdg_->find_element(r);
+    if (element == last)
+      element = xdg::ID_NONE;
+
+    if (element == xdg::ID_NONE) {
+      const auto hit = xdg_->ray_fire(complement, r + direction * xdg::TINY_BIT,
+        direction, xdg::INFTY, xdg::HitOrientation::EXITING, &hit_faces);
+      const double to_mesh = hit.first + xdg::TINY_BIT;
+      if (hit.second == xdg::ID_NONE || to_mesh >= distance) {
+        add_outside(distance);
+        return;
+      }
+      add_outside(to_mesh);
+      r += direction * to_mesh;
+      distance -= to_mesh;
+      element = manager->get_boundary_face_element(hit_faces.back());
+      hit_faces.clear();
+      if (element == xdg::ID_NONE) {
+        warning(fmt::format(
+          "A track enters mesh {} through a face with no element.", id_));
+        add_outside(distance);
+        return;
+      }
+    }
+
+    const auto walk = manager->walk_elements(element, r, direction, distance);
+    double walked = 0.0;
+    for (const auto& [id, length] : walk) {
+      if (length > 0.0) {
+        add(mesh_id_to_bin(id), length);
+        walked += length;
+      }
+    }
+    last = walked > 0.0 ? walk.back().first : element;
+    r += direction * walked;
+    distance -= walked;
+  } while (distance > min_length);
+}
+
 int XDGMesh::get_bin(Position r) const
 {
   xdg::Position p {r.x, r.y, r.z};

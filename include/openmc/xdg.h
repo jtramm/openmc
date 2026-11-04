@@ -71,6 +71,9 @@ public:
   void bins_crossed(Position r0, Position r1, const Direction& u,
     vector<int>& bins, vector<double>& lengths) const override;
 
+  void bins_crossed_with_outside(Position r0, Position r1, const Direction& u,
+    vector<int>& bins, vector<double>& lengths) const override;
+
   int get_bin(Position r) const override;
 
   int n_bins() const override;

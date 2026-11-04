@@ -55,8 +55,8 @@ class SourceRegionMeshHarness(TolerantPyAPITestHarness):
 def write_tets(case):
     """Return the paths of the 24-tet mesh of the unit cube and of a copy with
     the node order of its tets flipped. For MOAB, the nodes in the middle of
-    its faces move so that its volumes differ, and it is in two parts, with
-    the space before them as wide as each, which makes lengths coincide."""
+    its faces move so that its volumes differ, and it is in two parts, so that
+    rays leave it and come back."""
     if case == 'xdg-libmesh':
         original = os.path.relpath(UMESH_DIR / 'test_mesh_dagmc_tets.e')
         shutil.copy(original, 'flipped_tets.e')
@@ -149,9 +149,7 @@ def make_model(case):
         mesh_filters = [[openmc.MeshFilter(mesh)] for mesh, _ in meshes]
         ww_mesh = part
     elif case == 'radial':
-        # A hollow wedge, a cone, and part of a hollow sphere, whose surfaces
-        # at phi = 0 and pi are in the middle of many tracks across its
-        # bounding box
+        # A hollow wedge, a cone, and part of a hollow sphere
         wedge = openmc.CylindricalMesh(
             r_grid=[0.4, 0.7, 1.0], z_grid=[-0.5, 0.0, 0.5],
             phi_grid=[1.0, 1.8, 2.5], origin=(0.3, -0.2, 0.1))
