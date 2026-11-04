@@ -1313,8 +1313,8 @@ void StructuredMesh::raytrace_mesh(
   Position r0, Position r1, const Direction& u, T tally) const
 {
   // TODO: when c++-17 is available, use "if constexpr ()" to compile-time
-  // enable/disable tally calls for now, T template type needs to provide both
-  // surface and track methods, which might be empty. modern optimizing
+  // enable/disable tally calls for now, T template type needs to provide
+  // surface, track and outside methods, which might be empty. modern optimizing
   // compilers will (hopefully) eliminate the complete code (including
   // calculation of parameters) but for the future: be explicit
 
