@@ -487,6 +487,18 @@ void RandomRay::attenuate_flux_inner(
 
     // If current rank is not the owner return and mark as not local.
     if (owner != mpi::rank) {
+      // A segment can run slightly past a lattice plane, as the distance to a
+      // boundary keeps a higher-level one within a relative tolerance. A piece
+      // past the plane is not in this source region, and a ray restarted there
+      // would be lost, so it is skipped, as a new source region there would be
+      // in get_subdivided_source_region_handle.
+      GeometryState gs;
+      gs.r() = midpoint;
+      gs.u() = {1.0, 0.0, 0.0};
+      if (!exhaustive_find_cell(gs) ||
+          domain_->lookup_base_source_region_idx(gs) != sr) {
+        return;
+      }
       is_local_ = false;
       owner_rank_ = owner;
       return;

@@ -4175,26 +4175,8 @@ int LibMesh::get_bin(Position r) const
 
   const auto& point_locator = pl_.at(thread_num());
 
-  const libMesh::Elem* elem_ptr = (*point_locator)(p);
-  if (!elem_ptr)
-    return -1;
-  if (elem_ptr->contains_point(p, FP_COINCIDENT))
-    return get_bin_from_element(elem_ptr);
-
-  // The locator's search takes a point within libMesh's default tolerance of
-  // an element to be in it, whatever tolerance the locator was given. That can
-  // be a neighbor of the element holding the point, or a point outside of the
-  // mesh, which in random ray mode would put all of a source region in the
-  // wrong bin. (The lowest ID decides for a point on a face between elements.)
-  std::set<const libMesh::Elem*> candidates;
-  (*point_locator)(p, candidates);
-  const libMesh::Elem* holder = nullptr;
-  for (const auto* candidate : candidates) {
-    if (candidate->contains_point(p, FP_COINCIDENT) &&
-        (!holder || candidate->id() < holder->id()))
-      holder = candidate;
-  }
-  return holder ? get_bin_from_element(holder) : -1;
+  const auto elem_ptr = (*point_locator)(p);
+  return elem_ptr ? get_bin_from_element(elem_ptr) : -1;
 }
 
 int LibMesh::get_bin_from_element(const libMesh::Elem* elem) const

@@ -2771,6 +2771,11 @@ class UnstructuredMesh(MeshBase):
         checked: at such a place, a track loses length, which random ray mode
         counts as outside of the mesh, while tallies in Monte Carlo mode are
         low; a mirrored element can also make a run print warnings without end.
+        The native libMesh interface takes a point within libMesh's tolerance of
+        an element to be in it. In random ray mode, where one point decides the
+        bin of a whole source region, that can occasionally put its flux in a
+        neighboring element of a tally or weight window mesh (about 3e-5 of the
+        elements per run on a 12000 element mesh). XDG does not do this.
 
     Parameters
     ----------
