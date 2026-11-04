@@ -868,9 +868,9 @@ void FlatSourceDomain::compute_k_eff()
 // to a specific energy group within a specific source region), and the
 // inner dimension corresponds to the tallying task itself. Mechanically,
 // the mapping between FSRs and spatial filters is done by considering
-// the location of a single known ray midpoint that passed through the
-// FSR. I.e., during transport, the first ray to pass through a given FSR
-// will write down its midpoint for use with this function. This is a cheap
+// the location of a single known point in the FSR. I.e., during transport,
+// the ray segment that discovers a given FSR writes down a point on it for
+// use with this function. This is a cheap
 // and easy way of mapping FSRs to spatial tally filters, but comes with
 // the downside of adding the restriction that spatial tally filters must
 // share boundaries with the physical geometry of the simulation (so as
@@ -959,8 +959,6 @@ void FlatSourceDomain::convert_source_regions_to_tallies(int64_t start_sr_id)
     }
   }
   openmc::simulation::time_tallies.stop();
-
-  mapped_all_tallies_ = true;
 }
 
 // Set the volume accumulators to zero for all tallies
@@ -2576,7 +2574,6 @@ SourceRegionHandle FlatSourceDomain::get_subdivided_source_region_handle(
   // Tallies locate the source region by the point just checked to lie in it,
   // not by the midpoint of whichever ray happens to lock it first
   handle.position() = r + TINY_BIT * u;
-  handle.position_recorded() = 1;
 
   // Determine the material
   int gs_i_cell = gs.lowest_coord().cell();

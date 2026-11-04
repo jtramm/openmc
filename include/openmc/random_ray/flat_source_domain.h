@@ -157,8 +157,7 @@ public:
 
   //----------------------------------------------------------------------------
   // Public Data members
-  double k_eff_ {1.0};              // Eigenvalue
-  bool mapped_all_tallies_ {false}; // If all source regions have been visited
+  double k_eff_ {1.0}; // Eigenvalue
 
   int64_t n_external_source_regions_ {0}; // Total number of source regions with
                                           // non-zero external source terms
