@@ -1328,26 +1328,35 @@ def test_SphericalMesh_get_indices_at_coords():
 
 def test_libmesh_point_location(run_in_tmpdir):
     """Points just either side of a face between two elements are in different
-    elements, although they are within libMesh's tolerance of both"""
+    elements, and of two points just either side of a face next to a hole, the
+    one in the hole is in none, although all are within libMesh's tolerance of
+    the elements"""
     if not openmc.lib.feature_enabled('libmesh'):
         pytest.skip("LibMesh not enabled.")
 
-    mesh = openmc.UnstructuredMesh(UMESH_DIR / 'test_mesh_dagmc_tets.e', 'libmesh')
-    sphere = openmc.Sphere(r=10.0, boundary_type='vacuum')
+    tets = openmc.UnstructuredMesh(
+        UMESH_DIR / 'test_mesh_dagmc_tets.e', 'libmesh')
+    holes = openmc.UnstructuredMesh(
+        UMESH_DIR / 'test_mesh_tets_w_holes.e', 'libmesh')
+    sphere = openmc.Sphere(r=100.0, boundary_type='vacuum')
     model = openmc.Model()
     model.geometry = openmc.Geometry([openmc.Cell(region=-sphere)])
-    tally = openmc.Tally()
-    tally.filters = [openmc.MeshFilter(mesh)]
-    tally.scores = ['flux']
-    tally.estimator = 'collision'
-    model.tallies = [tally]
+    for mesh in (tets, holes):
+        tally = openmc.Tally()
+        tally.filters = [openmc.MeshFilter(mesh)]
+        tally.scores = ['flux']
+        tally.estimator = 'collision'
+        model.tallies.append(tally)
     model.settings.run_mode = 'fixed source'
     model.settings.batches = 1
     model.settings.particles = 1
     model.export_to_model_xml()
 
-    # Two pixels 2e-8 apart around a face of the 24 tets that lies in x = 0
+    # Pixels 2e-8 apart around a face in x = 0, and around a face in y = 4
     with openmc.lib.run_in_memory(output=False):
-        bins = openmc.lib.meshes[mesh.id].get_plot_bins(
+        between = openmc.lib.meshes[tets.id].get_plot_bins(
             (0.0, -1.0 / 6.0, 0.0), (4.0e-8, 1.0e-3), 'xy', (2, 1))
-    assert bins[0, 0] != bins[0, 1]
+        by_hole = openmc.lib.meshes[holes.id].get_plot_bins(
+            (14.0 / 3.0, 4.0, -28.0 / 3.0), (1.0e-3, 4.0e-8), 'xy', (1, 2))
+    assert between.min() >= 0 and between[0, 0] != between[0, 1]
+    assert by_hole[0, 0] == -1 and by_hole[1, 0] >= 0
