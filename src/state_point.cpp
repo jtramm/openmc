@@ -876,10 +876,15 @@ void write_unstructured_mesh_results()
       }
 
       // Generate a file name based on the tally id
-      // and the current batch number
+      // and the current batch number, tagged like the statepoint during the
+      // forward solve of an adjoint run
       size_t batch_width {std::to_string(settings::n_max_batches).size()};
-      std::string filename = fmt::format("tally_{0}.{1:0{2}}", tally->id_,
-        simulation::current_batch, batch_width);
+      const char* forward =
+        (FlatSourceDomain::solve_ == RandomRaySolve::FORWARD_FOR_ADJOINT)
+          ? "forward."
+          : "";
+      std::string filename = fmt::format("tally_{0}.{3}{1:0{2}}", tally->id_,
+        simulation::current_batch, batch_width, forward);
 
       // Write the unstructured mesh and data to file
       umesh->write(filename);

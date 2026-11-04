@@ -92,8 +92,8 @@ def write_tets(case):
 def make_model(case):
     """A random ray model of a row of boxes along x, with a mesh over part of
     each, which rays leave and enter. The only source is a point outside of the
-    meshes, with linear sources, normalized tallies, and weight windows on one
-    of the meshes. A tally on a mesh counts only what that mesh subdivides, as
+    meshes, with linear sources and weight windows on one of the meshes. A
+    tally on a mesh counts only what that mesh subdivides, as
     otherwise the bin of a source region would depend on where a ray found it
     first."""
     groups = openmc.mgxs.EnergyGroups([1e-5, 20.0e6])
@@ -203,7 +203,8 @@ def make_model(case):
     settings.random_ray['ray_source'] = openmc.IndependentSource(
         space=openmc.stats.Box((x_walls[0], -W, -W), (x_walls[-1], W, W)))
     settings.random_ray['source_shape'] = 'linear'
-    settings.random_ray['volume_normalized_flux_tallies'] = True
+    # (Weight windows on volumes that differ take either kind of flux tally)
+    settings.random_ray['volume_normalized_flux_tallies'] = case != 'xdg-moab'
     settings.random_ray['source_region_meshes'] = meshes + [(far, [cells[-1]])]
     settings.source = openmc.IndependentSource(
         space=openmc.stats.Point((-2.0, 2.0, 2.0)),

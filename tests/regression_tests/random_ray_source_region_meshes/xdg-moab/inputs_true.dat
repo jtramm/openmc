@@ -58,7 +58,7 @@
         </source>
       </ray_source>
       <source_shape>linear</source_shape>
-      <volume_normalized_flux_tallies>true</volume_normalized_flux_tallies>
+      <volume_normalized_flux_tallies>false</volume_normalized_flux_tallies>
       <source_region_meshes>
         <mesh id="2">
           <domain id="1" type="cell"/>
