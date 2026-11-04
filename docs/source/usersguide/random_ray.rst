@@ -1237,9 +1237,9 @@ adjoint solve. This applies to the statepoint, ``tallies.out``, any voxel plots,
 and any libMesh mesh tally files, e.g., ``statepoint.forward.N.h5`` and
 ``tallies.forward.out``; the adjoint solve keeps the usual file names. This
 allows analyses requiring both the forward and adjoint solutions to be performed
-from a single run. When
-generating FW-CADIS weight windows, no weight window file is written for the
-forward solve, as only the final adjoint-derived weight windows are meaningful.
+from a single run. When generating FW-CADIS weight windows, no weight window
+file is written for the forward solve, as only the final adjoint-derived weight
+windows are meaningful.
 
 .. note::
     Use of the automated

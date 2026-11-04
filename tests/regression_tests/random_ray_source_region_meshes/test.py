@@ -231,8 +231,9 @@ def make_model(case):
     return openmc.Model(openmc.Geometry(cells), materials, settings, tallies)
 
 
-@pytest.mark.parametrize("case", ['regular', 'radial', 'xdg-moab', 'xdg-libmesh',
-                                  'xdg-libmesh-unnormalized'])
+@pytest.mark.parametrize(
+    "case", ['regular', 'radial', 'xdg-moab', 'xdg-libmesh',
+             'xdg-libmesh-unnormalized'])
 def test_random_ray_source_region_meshes(case, capfd):
     if not all(openmc.lib.feature_enabled(f) for f in FEATURES.get(case, [])):
         pytest.skip(f"{case} is not enabled.")

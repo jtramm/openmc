@@ -870,12 +870,12 @@ void FlatSourceDomain::compute_k_eff()
 // the mapping between FSRs and spatial filters is done by considering
 // the location of a single known point in the FSR. I.e., during transport,
 // the ray segment that discovers a given FSR writes down a point on it for
-// use with this function. This is a cheap
-// and easy way of mapping FSRs to spatial tally filters, but comes with
-// the downside of adding the restriction that spatial tally filters must
-// share boundaries with the physical geometry of the simulation (so as
-// not to subdivide any FSR). It is acceptable for a spatial tally region
-// to contain multiple FSRs, but not the other way around.
+// use with this function. This is a cheap and easy way of mapping FSRs to
+// spatial tally filters, but comes with the downside of adding the
+// restriction that spatial tally filters must share boundaries with the
+// physical geometry of the simulation (so as not to subdivide any FSR). It is
+// acceptable for a spatial tally region to contain multiple FSRs, but not the
+// other way around.
 
 // TODO: In future work, it would be preferable to offer a more general
 // (but perhaps slightly more expensive) option for handling arbitrary
