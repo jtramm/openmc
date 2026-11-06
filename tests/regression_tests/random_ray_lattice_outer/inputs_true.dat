@@ -1,0 +1,95 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model>
+  <materials>
+    <cross_sections>mgxs.h5</cross_sections>
+    <material id="1" name="A">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="A"/>
+    </material>
+    <material id="2" name="B">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="B"/>
+    </material>
+    <material id="3" name="C">
+      <density value="1.0" units="macro"/>
+      <macroscopic name="C"/>
+    </material>
+  </materials>
+  <geometry>
+    <cell id="1" material="3" universe="4"/>
+    <cell id="2" material="1" universe="1"/>
+    <cell id="3" fill="1" universe="2"/>
+    <cell id="4" fill="2" universe="5"/>
+    <cell id="5" fill="3" region="-3 2 -5 4 -7 6 -1" universe="6"/>
+    <cell id="6" material="2" region="-3 2 -5 4 -7 6 1" universe="6"/>
+    <lattice id="3">
+      <pitch>1.0 2.0 2.0</pitch>
+      <outer>5</outer>
+      <dimension>2 1 1</dimension>
+      <lower_left>-1.5 -1.0 -1.0</lower_left>
+      <universes>
+4 2 </universes>
+    </lattice>
+    <surface id="1" type="x-plane" coeffs="1.0"/>
+    <surface id="2" type="x-plane" boundary="reflective" coeffs="-2.0"/>
+    <surface id="3" type="x-plane" boundary="reflective" coeffs="2.0"/>
+    <surface id="4" type="y-plane" boundary="reflective" coeffs="-2.0"/>
+    <surface id="5" type="y-plane" boundary="reflective" coeffs="2.0"/>
+    <surface id="6" type="z-plane" boundary="reflective" coeffs="-2.0"/>
+    <surface id="7" type="z-plane" boundary="reflective" coeffs="2.0"/>
+  </geometry>
+  <settings>
+    <run_mode>fixed source</run_mode>
+    <particles>200</particles>
+    <batches>10</batches>
+    <inactive>5</inactive>
+    <source type="independent" strength="1.0" particle="neutron">
+      <energy type="discrete">
+        <parameters>1000000.0 1.0</parameters>
+      </energy>
+      <constraints>
+        <domain_type>cell</domain_type>
+        <domain_ids>5</domain_ids>
+      </constraints>
+    </source>
+    <source type="independent" strength="1.0" particle="neutron">
+      <energy type="discrete">
+        <parameters>1000000.0 1.0</parameters>
+      </energy>
+      <constraints>
+        <domain_type>cell</domain_type>
+        <domain_ids>4</domain_ids>
+      </constraints>
+    </source>
+    <energy_mode>multi-group</energy_mode>
+    <random_ray>
+      <ray_source>
+        <source type="independent" strength="1.0" particle="neutron">
+          <space type="box">
+            <parameters>-2.0 -2.0 -2.0 2.0 2.0 2.0</parameters>
+          </space>
+        </source>
+      </ray_source>
+      <distance_inactive>5.0</distance_inactive>
+      <distance_active>20.0</distance_active>
+    </random_ray>
+  </settings>
+  <tallies>
+    <filter id="1" type="cell">
+      <bins>1 2 6</bins>
+    </filter>
+    <filter id="2" type="distribcell">
+      <bins>2</bins>
+    </filter>
+    <tally id="1" name="cells">
+      <filters>1</filters>
+      <scores>flux total</scores>
+      <estimator>analog</estimator>
+    </tally>
+    <tally id="2" name="instances">
+      <filters>2</filters>
+      <scores>flux total</scores>
+      <estimator>analog</estimator>
+    </tally>
+  </tallies>
+</model>

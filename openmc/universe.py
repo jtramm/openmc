@@ -155,6 +155,11 @@ class UniverseBase(ABC, IDManagerMixin):
                     univ = latt.get_universe(index)
                     univ._determine_paths(latt_path, instances_only)
 
+                # The region outside of the tiles comes after them
+                if latt.outer is not None:
+                    latt.outer._determine_paths(
+                        f'{cell_path}->l{latt.id}(outer)->', instances_only)
+
             else:
                 if fill_type == 'material':
                     mat = fill

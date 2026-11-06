@@ -1488,6 +1488,10 @@ struct ParentCell {
   int64_t lattice_index;
 };
 
+//! Lattice index of a parent lattice cell for the region outside of its tiles,
+//! which its outer universe fills
+constexpr int64_t OUTER_LATTICE_INDEX {-2};
+
 //! Structure used to insert ParentCell into hashed STL data structures
 struct ParentCellHash {
   std::size_t operator()(const ParentCell& p) const
@@ -1548,7 +1552,9 @@ struct ParentCellStack {
       } else if (cell->type_ == Fill::LATTICE) {
         auto& lattice = model::lattices[cell->fill_];
         instance +=
-          lattice->offset(distribcell_index, parent_cell.lattice_index);
+          parent_cell.lattice_index == OUTER_LATTICE_INDEX
+            ? lattice->outer_offset(distribcell_index)
+            : lattice->offset(distribcell_index, parent_cell.lattice_index);
       }
     }
     return instance;
@@ -1601,8 +1607,10 @@ vector<ParentCell> Cell::find_parent_cells(
     int lattice_idx = C_NONE;
     if (cell->type_ == Fill::LATTICE) {
       const auto& next_coord = *(it + 1);
-      lattice_idx = model::lattices[next_coord.lattice()]->get_flat_index(
-        next_coord.lattice_index());
+      const auto& lattice = model::lattices[next_coord.lattice()];
+      lattice_idx = lattice->are_valid_indices(next_coord.lattice_index())
+                      ? lattice->get_flat_index(next_coord.lattice_index())
+                      : OUTER_LATTICE_INDEX;
     }
     stack.push(coord.universe(), {coord.cell(), lattice_idx});
   }
@@ -1672,6 +1680,15 @@ vector<ParentCell> Cell::exhaustive_find_parent_cells(int32_t instance) const
           stack.push(univ_idx, {model::cell_map[cell->id_], lattice_idx});
           univ_idx = cell->universe_;
           break;
+        }
+
+        // if no tile fits, the universe can also fill the region outside of
+        // the tiles
+        ParentCell outer {model::cell_map[cell->id_], OUTER_LATTICE_INDEX};
+        if (univ_idx == prev_univ_idx && lattice->outer_ == univ_idx &&
+            !stack.visited(univ_idx, outer)) {
+          stack.push(univ_idx, outer);
+          univ_idx = cell->universe_;
         }
       }
       // if we've updated the universe, break
@@ -1745,8 +1762,10 @@ void Cell::get_contained_cells_inner(
           instance += cell->offset_[distribcell_index_];
         } else if (cell->type_ == Fill::LATTICE) {
           auto& lattice = model::lattices[cell->fill_];
-          instance += lattice->offset(
-            this->distribcell_index_, parent_cell.lattice_index);
+          instance +=
+            parent_cell.lattice_index == OUTER_LATTICE_INDEX
+              ? lattice->outer_offset(distribcell_index_)
+              : lattice->offset(distribcell_index_, parent_cell.lattice_index);
         }
       }
     }
@@ -1770,6 +1789,14 @@ void Cell::get_contained_cells_inner(
       auto& univ = model::universes[*i];
       parent_cells.push_back({model::cell_map[id_], i.indx_});
       for (auto cell_index : univ->cells_) {
+        auto& cell = model::cells[cell_index];
+        cell->get_contained_cells_inner(contained_cells, parent_cells);
+      }
+      parent_cells.pop_back();
+    }
+    if (lattice->outer_ != NO_OUTER_UNIVERSE) {
+      parent_cells.push_back({model::cell_map[id_], OUTER_LATTICE_INDEX});
+      for (auto cell_index : model::universes[lattice->outer_]->cells_) {
         auto& cell = model::cells[cell_index];
         cell->get_contained_cells_inner(contained_cells, parent_cells);
       }

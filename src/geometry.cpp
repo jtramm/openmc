@@ -116,6 +116,8 @@ int cell_instance_at_level(const GeometryState& p, int level)
       const auto& i_xyz {p.coord(i + 1).lattice_index()};
       if (lat.are_valid_indices(i_xyz)) {
         instance += lat.offset(c.distribcell_index_, i_xyz);
+      } else if (lat.outer_ != NO_OUTER_UNIVERSE) {
+        instance += lat.outer_offset(c.distribcell_index_);
       }
     }
   }

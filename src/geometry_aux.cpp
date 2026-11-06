@@ -494,6 +494,10 @@ int count_universe_instances(int32_t search_univ, int32_t target_univ_id,
         count +=
           count_universe_instances(next_univ, target_univ_id, univ_count_memo);
       }
+      if (lat.outer_ != NO_OUTER_UNIVERSE) {
+        count +=
+          count_universe_instances(lat.outer_, target_univ_id, univ_count_memo);
+      }
     }
   }
 
@@ -569,6 +573,16 @@ std::string distribcell_path_inner(int32_t target_cell, int32_t map,
     // Recurse into the lattice cell.
     Lattice& lat = *model::lattices[c.fill_];
     path << "l" << lat.id_;
+    // The outer universe is numbered after the tiles
+    if (lat.outer_ != NO_OUTER_UNIVERSE) {
+      int32_t temp_offset = offset + lat.outer_offset(map) + c.offset_[map];
+      if (temp_offset <= target_offset) {
+        path << "(outer)->";
+        path << distribcell_path_inner(target_cell, map, target_offset,
+          *model::universes[lat.outer_], temp_offset);
+        return path.str();
+      }
+    }
     for (ReverseLatticeIter it = lat.rbegin(); it != lat.rend(); ++it) {
       int32_t indx = lat.universes_.size() * map + it.indx_;
       int32_t temp_offset = offset + lat.offsets_[indx] + c.offset_[map];
@@ -613,6 +627,9 @@ int maximum_levels(int32_t univ)
       for (auto it = lat.begin(); it != lat.end(); ++it) {
         int32_t next_univ = *it;
         levels_below = std::max(levels_below, maximum_levels(next_univ));
+      }
+      if (lat.outer_ != NO_OUTER_UNIVERSE) {
+        levels_below = std::max(levels_below, maximum_levels(lat.outer_));
       }
     }
   }

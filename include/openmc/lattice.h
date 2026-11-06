@@ -51,6 +51,7 @@ public:
   vector<int32_t> universes_;         //!< Universes filling each lattice tile
   int32_t outer_ {NO_OUTER_UNIVERSE}; //!< Universe tiled outside the lattice
   vector<int32_t> offsets_;           //!< Distribcell offset table
+  vector<int32_t> outer_offsets_;     //!< Distribcell offset of outer_ per map
 
   explicit Lattice(pugi::xml_node lat_node);
 
@@ -73,6 +74,7 @@ public:
   {
     offsets_.resize(n_maps * universes_.size());
     std::fill(offsets_.begin(), offsets_.end(), C_NONE);
+    outer_offsets_.assign(n_maps, C_NONE);
   }
 
   //! Populate the distribcell offset tables.
@@ -143,6 +145,12 @@ public:
   //! \return Distribcell offset i.e. the largest instance number for the target
   //!  cell found in the geometry tree for this lattice index.
   virtual int32_t offset(int map, int indx) const = 0;
+
+  //! \brief Get the distribcell offset for the region outside of the tiles,
+  //!  which the outer universe fills once per lattice instance, after them.
+  //! \param The map index for the target cell.
+  //! \return Distribcell offset of that region.
+  int32_t outer_offset(int map) const { return outer_offsets_[map]; }
 
   //! \brief Convert an array index to a useful human-readable string.
   //! \param indx The index for a lattice tile.

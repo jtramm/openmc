@@ -52,6 +52,9 @@ void DistribcellFilter::get_all_bins(
       if (lat.are_valid_indices(i_xyz)) {
         offset +=
           lat.offset(distribcell_index, i_xyz) + c.offset_[distribcell_index];
+      } else if (lat.outer_ != NO_OUTER_UNIVERSE) {
+        offset +=
+          lat.outer_offset(distribcell_index) + c.offset_[distribcell_index];
       }
     }
     if (cell_ == p.coord(i).cell()) {

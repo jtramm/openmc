@@ -2090,7 +2090,10 @@ def _path_to_levels(path):
         item = path_items.pop(i)[1:-1]
         lat_id, lat_xyz = item.split('(')
         lat_id = int(lat_id)
-        lat_xyz = tuple(int(x) for x in lat_xyz.split(','))
+        if lat_xyz == 'outer':
+            lat_xyz = (np.nan, np.nan, np.nan)
+        else:
+            lat_xyz = tuple(int(x) for x in lat_xyz.split(','))
         path_items.insert(i, ('lattice', lat_id, lat_xyz))
 
     return path_items

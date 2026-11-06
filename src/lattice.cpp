@@ -113,6 +113,10 @@ int32_t Lattice::fill_offset_table(int32_t target_univ_id, int map,
   // universe, so we get the before-last offset for the given map and then
   // explicitly add the count for the last universe.
   if (offsets_[map * universes_.size() + this->begin().indx_] != C_NONE) {
+    if (outer_ != NO_OUTER_UNIVERSE) {
+      return outer_offsets_[map] +
+             count_universe_instances(outer_, target_univ_id, univ_count_memo);
+    }
     int last_offset =
       offsets_[(map + 1) * universes_.size() - this->begin().indx_ - 1];
     int last_univ = this->back();
@@ -124,6 +128,13 @@ int32_t Lattice::fill_offset_table(int32_t target_univ_id, int map,
   for (LatticeIter it = begin(); it != end(); ++it) {
     offsets_[map * universes_.size() + it.indx_] = offset;
     offset += count_universe_instances(*it, target_univ_id, univ_count_memo);
+  }
+
+  // The region outside of the tiles holds one more instance of the outer
+  // universe, numbered after them
+  if (outer_ != NO_OUTER_UNIVERSE) {
+    outer_offsets_[map] = offset;
+    offset += count_universe_instances(outer_, target_univ_id, univ_count_memo);
   }
 
   return offset;
