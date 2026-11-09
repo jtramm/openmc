@@ -21,25 +21,69 @@
       <nuclide name="U235" ao="1.0"/>
       <nuclide name="O16" ao="2.0"/>
     </material>
-    <material id="5" name="light water">
+    <material id="5" name="UO2" depletable="true">
+      <density value="10.0" units="g/cm3"/>
+      <nuclide name="U235" ao="1.0"/>
+      <nuclide name="O16" ao="2.0"/>
+    </material>
+    <material id="6" name="UO2" depletable="true">
+      <density value="10.0" units="g/cm3"/>
+      <nuclide name="U235" ao="1.0"/>
+      <nuclide name="O16" ao="2.0"/>
+    </material>
+    <material id="7" name="UO2" depletable="true">
+      <density value="10.0" units="g/cm3"/>
+      <nuclide name="U235" ao="1.0"/>
+      <nuclide name="O16" ao="2.0"/>
+    </material>
+    <material id="8" name="UO2" depletable="true">
+      <density value="10.0" units="g/cm3"/>
+      <nuclide name="U235" ao="1.0"/>
+      <nuclide name="O16" ao="2.0"/>
+    </material>
+    <material id="9" name="light water">
       <density value="1.0" units="g/cm3"/>
       <nuclide name="H1" ao="2.0"/>
       <nuclide name="O16" ao="1.0"/>
       <sab name="c_H_in_H2O"/>
     </material>
-    <material id="6" name="light water">
+    <material id="10" name="light water">
       <density value="1.0" units="g/cm3"/>
       <nuclide name="H1" ao="2.0"/>
       <nuclide name="O16" ao="1.0"/>
       <sab name="c_H_in_H2O"/>
     </material>
-    <material id="7" name="light water">
+    <material id="11" name="light water">
       <density value="1.0" units="g/cm3"/>
       <nuclide name="H1" ao="2.0"/>
       <nuclide name="O16" ao="1.0"/>
       <sab name="c_H_in_H2O"/>
     </material>
-    <material id="8" name="light water">
+    <material id="12" name="light water">
+      <density value="1.0" units="g/cm3"/>
+      <nuclide name="H1" ao="2.0"/>
+      <nuclide name="O16" ao="1.0"/>
+      <sab name="c_H_in_H2O"/>
+    </material>
+    <material id="13" name="light water">
+      <density value="1.0" units="g/cm3"/>
+      <nuclide name="H1" ao="2.0"/>
+      <nuclide name="O16" ao="1.0"/>
+      <sab name="c_H_in_H2O"/>
+    </material>
+    <material id="14" name="light water">
+      <density value="1.0" units="g/cm3"/>
+      <nuclide name="H1" ao="2.0"/>
+      <nuclide name="O16" ao="1.0"/>
+      <sab name="c_H_in_H2O"/>
+    </material>
+    <material id="15" name="light water">
+      <density value="1.0" units="g/cm3"/>
+      <nuclide name="H1" ao="2.0"/>
+      <nuclide name="O16" ao="1.0"/>
+      <sab name="c_H_in_H2O"/>
+    </material>
+    <material id="16" name="light water">
       <density value="1.0" units="g/cm3"/>
       <nuclide name="H1" ao="2.0"/>
       <nuclide name="O16" ao="1.0"/>
@@ -48,10 +92,10 @@
   </materials>
   <geometry>
     <cell id="8" region="-6" universe="8">
-      <material>1 2 3 4</material>
+      <material>1 2 3 4 5 6 7 8</material>
     </cell>
     <cell id="9" region="6" universe="8">
-      <material>5 6 7 8</material>
+      <material>9 10 11 12 13 14 15 16</material>
     </cell>
     <cell id="10" fill="9" region="7 -8 10 -12" universe="13"/>
     <cell id="11" fill="10" region="7 -8 12 -16" universe="13"/>
